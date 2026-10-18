@@ -12,7 +12,7 @@
 
 ## Architecture
 - Backend FastAPI (/app/backend): market.py (Bybit v5 → auto-fallback to Bitget USDT-FUTURES when geo-blocked), indicators.py (EMA/RSI/MACD/ATR/BB/ADX/Donchian), strategies.py (trend_ema, mean_reversion, breakout_turtle), risk.py (sizing, SL/TP, breakeven+trailing), ai_advisor.py (Claude), engine.py (24/7 asyncio loops: monitor 5s, scan every N sec, auto-resume on restart), backtest.py, server.py (routes).
-- MongoDB collections: settings, account, positions, trades, signals, logs, equity.
+- MongoDB collections: settings, account, positions, trades, signals, logs, equity, config (clave, IA, Telegram, revisión automática).
 - Frontend React dashboard (Spanish): header controls, KPIs, watchlist, lightweight-charts candles+EMA+RSI+markers, plan panel, positions/history/backtest tabs, AI signals log, settings, terminal log.
 - QA helper: /app/scripts/inject_signal.py SYMBOL side [noai]
 
@@ -33,6 +33,14 @@
 - Plan check-in (plan.build_checkin + engine.checkin): phase criteria evaluated on real paper stats (validación: ≥60 ops, PF≥1.3, DD≤10%, ≥28 días; semilla: 2× capital, DD<12%; crecimiento: $5k, PF≥1.3, ≥100 ops; consolidación: capital objetivo; ingreso: ganancia 30d ≥ meta, DD≤15%). Settings persist plan_scenario/plan_target_monthly/plan_monthly_deposit/plan_phase; "Avanzar a fase" button sets plan_phase + phase risk; alert dot on Plan tab; daily PLAN log at UTC rollover; `checkin` included in /dashboard.
 - AI buttons (POST /api/ai/advise scope optimizer|plan): Claude receives settings, account, real performance, check-in and optimizer/backtest results, returns JSON {summary, changes, notes}; backend applies whitelisted changes with caps (risk≤1.5%, lev≤5, max_pos≤5, ≥2 symbols) and returns applied/previous → UI AiAdvice component with "Deshacer".
 - Tested: iteration_3 backend 18/18, frontend all flows pass; 2 minor state bugs fixed (heatmap ATR reset per pair, applied state derived from settings).
+
+## Implemented (2026-06, iteration 4 · acceso, ajustes, Telegram, revisión automática)
+- Auth: single shared password (no username), bcrypt hash in Mongo `config` doc seeded from INITIAL_PASSWORD env (BlackCat2233@), JWT HS256 (JWT_SECRET env, 7 días) con token_version para invalidar sesiones al cambiar clave; brute force 5 intentos/IP → 15 min (IP = último X-Forwarded-For) + contador global (20). Routers: public (/api/, /api/auth/login), api (protegido), cron (/api/cron/*, Bearer WEBHOOK_CRON_SECRET). Frontend: Login.jsx, token en localStorage, interceptores axios, evento auth:logout.
+- Ajustes (vista completa desde el header): Seguridad (cambio de clave), IA (proveedor/modelo/API key propia o clave Emergent, probar conexión), Telegram (token, detectar chat ID vía getUpdates, toggles por tipo de alerta, prueba), Revisión IA automática (activa, diaria/semanal + día, aplicar o solo avisar, ejecutar ahora, última revisión), Cuenta paper (reiniciar con capital personalizado). Backend: config.py (ConfigStore, secretos enmascarados), notify.py (Telegram HTML), review.py (contexto IA compartido, apply_ai_changes, run_auto_review).
+- Telegram hooks en engine: apertura/cierre, límite diario, decisiones de Claude, resumen diario + plan (00:00 UTC), resultado/errores de revisión automática.
+- Cron `.emergent/crons.yml` ai-review-daily (08:00 UTC) → POST /api/cron/ai-review decide si toca (frecuencia/día, >20h desde la última) y lanza la revisión en background con manejo de errores.
+- Prompt del asesor endurecido: cambios estructurales (pares/estrategia/riesgo) solo con ≥30 operaciones reales; backtest/optimizador solo justifican symbol_params.
+- Tested: iteration_4 backend 28/29 (fallo del 502 por ingress → ahora 424), frontend completo OK; fixes: XFF spoof, merge de alertas, task de cron con try/except.
 
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.

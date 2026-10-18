@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="29" time="25.151" timestamp="2026-10-18T22:41:19.874951+00:00" hostname="agent-env-8697af9f-bf26-4db4-9ed4-adf2952295a8"><testcase classname="tests.test_iter4_auth_config.TestAuth" name="test_root_public" time="0.186" /><testcase classname="tests.test_iter4_auth_config.TestAuth" name="test_dashboard_no_token" time="0.147" /><testcase classname="tests.test_iter4_auth_config.TestAuth" name="test_login_wrong" time="0.366" /><testcase classname="tests.test_iter4_auth_config.TestAuth" name="test_login_ok" time="0.319" /><testcase classname="tests.test_iter4_auth_config.TestAuth" name="test_with_token" time="0.341" /><testcase classname="tests.test_iter4_auth_config.TestAuth" name="test_garbage_token" time="0.128" /><testcase classname="tests.test_iter4_auth_config.TestPassword" name="test_wrong_current" time="0.341" /><testcase classname="tests.test_iter4_auth_config.TestPassword" name="test_short_new" time="0.131" /><testcase classname="tests.test_iter4_auth_config.TestPassword" name="test_change_and_restore" time="2.126" /><testcase classname="tests.test_iter4_auth_config.TestConfig" name="test_get_defaults" time="0.158" /><testcase classname="tests.test_iter4_auth_config.TestConfig" name="test_custom_key_masking" time="0.423" /><testcase classname="tests.test_iter4_auth_config.TestConfig" name="test_bad_provider" time="0.134" /><testcase classname="tests.test_iter4_auth_config.TestConfig" name="test_autoreview_fields" time="0.826" /><testcase classname="tests.test_iter4_auth_config.TestConfig" name="test_telegram_fields" time="0.268" /><testcase classname="tests.test_iter4_auth_config.TestAi" name="test_ai_ping_ok" time="6.198" /><testcase classname="tests.test_iter4_auth_config.TestAi" name="test_ai_bogus_key_then_restore" time="0.679"><failure message="requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1 (char 0)">/root/.venv/lib/python3.11/site-packages/requests/models.py:1116: in json
+    return complexjson.loads(self.text, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/json/decoder.py:337: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/json/decoder.py:355: in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+E   json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+During handling of the above exception, another exception occurred:
+tests/test_iter4_auth_config.py:145: in test_ai_bogus_key_then_restore
+    assert r.status_code == 502 and "Error IA" in r.json()["detail"], r.text
+                                                  ^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/models.py:1120: in json
+    raise RequestsJSONDecodeError(e.msg, e.doc, e.pos)
+E   requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1 (char 0)</failure></testcase><testcase classname="tests.test_iter4_auth_config.TestTelegram" name="test_chats_empty" time="0.127" /><testcase classname="tests.test_iter4_auth_config.TestTelegram" name="test_chats_bad" time="0.518" /><testcase classname="tests.test_iter4_auth_config.TestTelegram" name="test_send_unconfigured" time="0.150" /><testcase classname="tests.test_iter4_auth_config.TestAutoReview" name="test_run_now" time="8.071" /><testcase classname="tests.test_iter4_auth_config.TestCron" name="test_no_auth" time="0.120" /><testcase classname="tests.test_iter4_auth_config.TestCron" name="test_wrong_secret" time="0.142" /><testcase classname="tests.test_iter4_auth_config.TestCron" name="test_valid_and_duplicate" time="0.122"><failure message="AssertionError: assert {'accepted': ...licate': True} == {'accepted': ...duled': False}&#10;  &#10;  Omitting 1 identical items, use -vv to show&#10;  Left contains 1 more item:&#10;  {'duplicate': True}&#10;  Right contains 1 more item:&#10;  {'scheduled': False}&#10;  ...&#10;  &#10;  ...Full output truncated (6 lines hidden), use '-vv' to show">tests/test_iter4_auth_config.py:204: in test_valid_and_duplicate
+    assert r.json() == {"accepted": True, "scheduled": False}
+E   AssertionError: assert {'accepted': ...licate': True} == {'accepted': ...duled': False}
+E     
+E     Omitting 1 identical items, use -vv to show
+E     Left contains 1 more item:
+E     {'duplicate': True}
+E     Right contains 1 more item:
+E     {'scheduled': False}
+E     ...
+E     
+E     ...Full output truncated (6 lines hidden), use '-vv' to show</failure></testcase><testcase classname="tests.test_iter4_auth_config.TestCron" name="test_invalid_json" time="0.120" /><testcase classname="tests.test_iter4_auth_config.TestCron" name="test_crons_yaml" time="0.001" /><testcase classname="tests.test_iter4_auth_config.TestRegression" name="test_settings_put" time="0.267" /><testcase classname="tests.test_iter4_auth_config.TestRegression" name="test_optimize" time="1.353" /><testcase classname="tests.test_iter4_auth_config.TestRegression" name="test_plan_checkin_backtest" time="0.860" /><testcase classname="tests.test_iter4_auth_config.TestRegression" name="test_bot_stop_start" time="0.393" /></testsuite></testsuites>

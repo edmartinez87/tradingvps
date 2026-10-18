@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 4: tested shared-password auth, password change/token invalidation, /api/config (masking, keep-empty, clear, validation), AI ping (real Claude), Telegram error paths, auto-review run-now (1 real call, applied={} so nothing to revert), cron webhook (401/200/duplicate/400) + crons.yml, and regressions. Backend tests via public URL: 28/29 passed. The one failure is real: when a 502 goes out through the public ingress, the backend's JSON body is swapped for a Cloudflare HTML page. Frontend fully tested: login (wrong and correct password, show/hide toggle, Enter key), token kept after reload, garbage token sends user to login, settings view switch, all 5 sections, password mismatch check and change+restore, AI test reply, Telegram switch and detect error toast, auto-review Diaria/Semanal save, account shows 500, logout and log back in. All UI flows passed. Everything is back to its starting state (password BlackCat2233@, emergent key, weekly/0/apply, telegram off, chat id '', 6 symbols/all/1.0/3, $500, bot running).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/auth/login (auth.client_ip)", "issue": "Anyone can get around the brute-force lock. client_ip() trusts the first X-Forwarded-For value, which the client controls. Confirmed: through the public URL I sent 'X-Forwarded-For: 7.7.7.7' and the backend logged the failed attempt as coming from 7.7.7.7, so an attacker can switch to a new fake IP on every request and never hit the 5-attempt lock. Fix: use the last entry (the one the trusted proxy appends) or X-Real-IP, or add a global failure counter as well.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/ai/test, /api/ai/auto-review, /api/ai/advise, /api/telegram/chats, /api/telegram/test", "issue": "These return HTTP 502 for upstream errors. Through the public preview ingress, a 502 body is replaced with a Cloudflare HTML page, so the frontend gets non-JSON and errMsg() shows a generic 'Request failed with status code 502' instead of the Spanish detail ('Error IA: …invalid x-api-key', the Telegram description). Reproduced: with a bogus key, POST /api/ai/test on localhost:8001 returns JSON 502 'Error IA: …authentication_error', but the public URL returns HTML. Use a status the proxy passes through, e.g. 400/422/424."},
+      {"endpoint": "PUT /api/config telegram_alerts", "issue": "A partial alerts dict resets every key you leave out to True instead of keeping its current value. Example: if ai=false is stored and you send {orders:false}, ai becomes true. Merge with store.cfg.telegram_alerts instead of DEFAULT_ALERTS."},
+      {"endpoint": "/api/cron/ai-review", "issue": "_cron_seen is an unbounded in-memory set that is lost on restart. The background asyncio.create_task(run_auto_review) has no exception handling or logging, so a failed scheduled review is silent: no log entry, no Telegram error. Brute-force _attempts is also in-memory and resets on restart."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "AI test / Telegram detect with bad token / auto-review failure (via public URL)", "issue": "Because of the 502 → HTML replacement above, error toasts show a generic axios message instead of the Spanish backend detail.", "affected_selectors": ["ai-test-button", "telegram-detect-button", "autoreview-run-button"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter4_auth_config.py", "/app/test_reports/pytest/pytest_iter4.xml"],
+  "action_items": [
+    "HIGH: Fix client_ip() so X-Forwarded-For spoofing can't get around the 5-attempt lock (use the rightmost/trusted entry or X-Real-IP; consider a global rate limit).",
+    "Change the upstream-error status for /ai/test, /ai/auto-review, /ai/advise, /telegram/chats, /telegram/test from 502 to one the ingress passes through (e.g. 424 or 400), so the Spanish error detail reaches the UI.",
+    "Merge partial telegram_alerts updates with the current saved values, not the defaults.",
+    "Wrap the cron background run_auto_review in try/except and write the failure to engine.log."
+  ],
+  "critical_code_review_comments": [
+    "auth.client_ip trusts the client-controlled first X-Forwarded-For value (security).",
+    "config.patch_from: a partial telegram_alerts update overwrites the existing toggles with True.",
+    "server.cron_ai_review: unhandled exceptions in the fire-and-forget task; _cron_seen grows forever.",
+    "Old unrelated traceback in backend.err.log from an earlier run (21:31): 'numpy.int64 object is not iterable' during serialization. Not reproduced in this iteration, but some endpoint may return numpy types sometimes (likely optimize/plan/backtest)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter4_auth_config.py"],
+  "success_rate": {"backend": "97% (28/29; the failure is the 502/ingress issue)", "frontend": "100%"},
+  "test_credentials": "Panel password BlackCat2233@ (from /app/memory/test_credentials.md). Cron secret read from backend/.env WEBHOOK_CRON_SECRET.",
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the tests with `-n 0`: pytest-xdist is on by default and breaks the shared token state across test classes. They talk to the public REACT_APP_BACKEND_URL. Each run costs 1 wrong login (cleared by the next successful login), 3 Claude pings and 1 auto-review. test_ai_bogus_key_then_restore fails via the public URL until the 502 status is changed. Cron 'scheduled' stays false while auto_review_last_at is under 20h old.",
+  "rca of the issue": "1) Brute-force bypass: auth.client_ip returns fwd.split(',')[0]. The k8s/Cloudflare ingress appends the real IP to whatever X-Forwarded-For the client sent, so index 0 is attacker-controlled. Repro: curl -H 'X-Forwarded-For: 7.7.7.7' POST /api/auth/login with a wrong password, and the backend log shows 'Intento de acceso fallido desde 7.7.7.7'. 2) Generic error toasts: the backend's HTTPException(502) reaches the edge proxy, which replaces 502 responses with its own HTML error page, so error.response.data.detail is undefined in the UI."
+}

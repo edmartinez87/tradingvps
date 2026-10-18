@@ -138,7 +138,7 @@ async def telegram_chats(body: ChatsRequest):
     try:
         return {"bot": await notify.get_me(token), "chats": await notify.get_chats(token)}
     except Exception as e:
-        raise HTTPException(502, str(e)[:200])
+        raise HTTPException(424, str(e)[:200])
 
 
 @api.post("/telegram/test")
@@ -147,7 +147,7 @@ async def telegram_test():
     try:
         await notify.send(f"✅ <b>Bybit AI Trader</b> conectado.\nEquidad ${acc['equity']:,.2f} · {acc['open_positions']} posiciones abiertas · bot {'ACTIVO' if engine.running else 'DETENIDO'}")
     except Exception as e:
-        raise HTTPException(502, str(e)[:200])
+        raise HTTPException(424, str(e)[:200])
     return {"ok": True}
 
 
@@ -156,7 +156,7 @@ async def ai_test():
     try:
         return {"ok": True, "reply": await ai_ping(), **ai_current()}
     except Exception as e:
-        raise HTTPException(502, f"Error IA: {str(e)[:200]}")
+        raise HTTPException(424, f"Error IA: {str(e)[:200]}")
 
 
 @api.post("/ai/auto-review")
@@ -165,10 +165,19 @@ async def ai_auto_review_now():
         return await run_auto_review(engine, db, store)
     except Exception as e:
         logger.exception("auto review")
-        raise HTTPException(502, f"Error IA: {str(e)[:200]}")
+        raise HTTPException(424, f"Error IA: {str(e)[:200]}")
 
 
-_cron_seen: set = set()
+_cron_seen: list = []
+
+
+async def _safe_auto_review():
+    try:
+        await run_auto_review(engine, db, store)
+    except Exception as e:
+        logger.exception("scheduled auto review")
+        await engine.log("ERROR", f"Revisión IA automática falló: {str(e)[:160]}")
+        await notify.notify(f"⚠️ <b>Revisión IA automática falló</b>\n{str(e)[:300]}", "review")
 
 
 @cron.post("/ai-review")
@@ -186,14 +195,15 @@ async def cron_ai_review(request: Request):
     if run_id and run_id in _cron_seen:
         return {"accepted": True, "duplicate": True}
     if run_id:
-        _cron_seen.add(run_id)
+        _cron_seen.append(run_id)
+        del _cron_seen[:-200]
     cfg = store.cfg
     now = datetime.now(timezone.utc)
     due = cfg.auto_review_enabled and (cfg.auto_review_frequency == "daily" or (now.weekday() + 1) % 7 == cfg.auto_review_day)
     if due and cfg.auto_review_last_at:
         due = (now - datetime.fromisoformat(cfg.auto_review_last_at)).total_seconds() > 20 * 3600
     if due:
-        asyncio.create_task(run_auto_review(engine, db, store))
+        asyncio.create_task(_safe_auto_review())
     return {"accepted": True, "scheduled": bool(due)}
 
 
@@ -386,7 +396,7 @@ async def ai_advise(req: AdviseRequest):
         res = await advise(req.scope, ctx)
     except Exception as e:
         logger.exception("advise")
-        raise HTTPException(502, f"Error IA: {str(e)[:160]}")
+        raise HTTPException(424, f"Error IA: {str(e)[:160]}")
     applied, previous = await apply_ai_changes(engine, res, before)
     await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     return {**res, "applied": applied, "previous": previous}

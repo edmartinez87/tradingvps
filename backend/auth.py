@@ -29,20 +29,33 @@ def create_token(version: int) -> str:
 
 def client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for", "")
-    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "?")
+    return fwd.split(",")[-1].strip() if fwd else (request.client.host if request.client else "?")
+
+
+_global = {"n": 0, "until": 0.0, "window": 0.0}
+GLOBAL_MAX = 20
 
 
 def check_locked(ip: str):
+    now = time.time()
+    if _global["until"] > now:
+        raise HTTPException(429, f"Demasiados intentos fallidos. Espera {int(_global['until'] - now)} segundos.")
     rec = _attempts.get(ip)
-    if rec and rec["until"] > time.time():
-        raise HTTPException(429, f"Demasiados intentos fallidos. Espera {int(rec['until'] - time.time())} segundos.")
+    if rec and rec["until"] > now:
+        raise HTTPException(429, f"Demasiados intentos fallidos. Espera {int(rec['until'] - now)} segundos.")
 
 
 def register_failure(ip: str) -> int:
+    now = time.time()
+    if now - _global["window"] > LOCK_SEC:
+        _global.update(n=0, window=now)
+    _global["n"] += 1
+    if _global["n"] >= GLOBAL_MAX:
+        _global.update(until=now + LOCK_SEC, n=0)
     rec = _attempts.setdefault(ip, {"n": 0, "until": 0})
     rec["n"] += 1
     if rec["n"] >= MAX_ATTEMPTS:
-        rec["until"], rec["n"] = time.time() + LOCK_SEC, 0
+        rec["until"], rec["n"] = now + LOCK_SEC, 0
         return 0
     return MAX_ATTEMPTS - rec["n"]
 

@@ -99,5 +99,6 @@ class ConfigStore:
         if "auto_review_frequency" in patch and patch["auto_review_frequency"] not in ("daily", "weekly"):
             raise ValueError("Frecuencia inválida")
         if "telegram_alerts" in patch:
-            patch["telegram_alerts"] = {k: bool(patch["telegram_alerts"].get(k, True)) for k in DEFAULT_ALERTS}
+            merged = {**self.cfg.telegram_alerts, **patch["telegram_alerts"]}
+            patch["telegram_alerts"] = {k: bool(merged.get(k, True)) for k in DEFAULT_ALERTS}
         return patch
