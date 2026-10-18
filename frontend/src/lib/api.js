@@ -32,4 +32,8 @@ export const STRATEGY_LABELS = {
   breakout_turtle: "Ruptura Turtle",
 };
 export const REASON_LABELS = { TP: "Take Profit", SL: "Stop Loss", TRAILING: "Trailing", MANUAL: "Manual" };
-export const errMsg = (e) => e?.response?.data?.detail?.[0]?.msg || e?.response?.data?.detail || e?.message || "Error";
+export const errMsg = (e) => {
+  const d = e?.response?.data?.detail;
+  if (Array.isArray(d)) return `Valor inválido en: ${d.map((x) => x.loc?.slice(-1)[0]).join(", ")}`;
+  return d || e?.message || "Error";
+};

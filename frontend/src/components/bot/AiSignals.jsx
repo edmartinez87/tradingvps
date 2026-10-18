@@ -7,6 +7,7 @@ const DECISION_CLS = {
   RECHAZADA: "bg-rose-500/10 text-rose-400 border-rose-500/30",
   ERROR: "bg-orange-500/10 text-orange-400 border-orange-500/30",
   SIN_IA: "bg-slate-500/10 text-slate-300 border-slate-500/30",
+  BLOQUEADA: "bg-amber-500/10 text-amber-300 border-amber-500/30",
 };
 
 function SignalCard({ s }) {
@@ -25,7 +26,7 @@ function SignalCard({ s }) {
       <p className="mt-1 font-mono text-[10px] text-slate-500">
         {STRATEGY_LABELS[s.strategy]} · {fmtPrice(s.price)} · SL {fmtPrice(s.sl)} · TP {fmtPrice(s.tp)} · {fmtTime(s.created_at)}
       </p>
-      {s.ai_decision !== "SIN_IA" && s.ai_decision !== "ERROR" && (
+      {!["SIN_IA", "ERROR", "BLOQUEADA"].includes(s.ai_decision) && (
         <div className="mt-2 flex items-center gap-2">
           <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#1E293B]">
             <div className="h-full bg-purple-500" style={{ width: `${s.ai_confidence}%` }} />

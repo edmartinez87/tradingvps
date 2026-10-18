@@ -44,11 +44,11 @@ export default function SettingsPanel({ settings, meta, onSave }) {
   const save = async () => {
     setSaving(true);
     const body = { ...form };
-    NUMS.forEach(({ k }) => { body[k] = Number(body[k]); });
+    NUMS.forEach(({ k, min, max }) => { body[k] = Math.min(max, Math.max(min, Number(body[k]) || min)); });
     delete body.bot_running;
     const ok = await onSave(body);
     setSaving(false);
-    if (ok) setDirty(false);
+    if (ok) { setDirty(false); setForm((f) => ({ ...f, ...body })); }
   };
 
   return (

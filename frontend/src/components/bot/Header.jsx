@@ -67,7 +67,7 @@ export default function Header({ status, onToggle, onScan, onReset, busy }) {
         </span>
         <StatusPill status={status} />
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button data-testid="scan-now-button" variant="outline" size="sm" onClick={onScan} className="h-8 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider hover:bg-[#111827]">
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Escanear
           </Button>

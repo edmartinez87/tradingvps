@@ -13,7 +13,7 @@ export default function KpiStrip({ account: a }) {
   return (
     <div data-testid="kpi-strip" className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#1E293B] bg-[#1E293B] sm:grid-cols-4 xl:grid-cols-7">
       {items.map((it, i) => (
-        <div key={it.k} data-testid={`kpi-${it.k}`} className="rise bg-[#0D111A] px-4 py-3.5" style={{ animationDelay: `${i * 40}ms` }}>
+        <div key={it.k} data-testid={`kpi-${it.k}`} className="rise bg-[#0D111A] px-4 py-3.5 last:col-span-2 xl:last:col-span-1" style={{ animationDelay: `${i * 40}ms` }}>
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">{it.label}</p>
           <p data-testid={`kpi-${it.k}-value`} className={`num mt-1.5 text-lg font-semibold md:text-xl ${it.tone != null ? pnlClass(it.tone) : "text-slate-50"}`}>
             {it.value}

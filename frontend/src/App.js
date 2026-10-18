@@ -75,7 +75,7 @@ function Dashboard() {
           <PriceChart symbol={symbol} defaultTf={data.settings.timeframe} />
           <BotPanel settings={data.settings} meta={meta} account={data.account} equity={data.equity} />
         </div>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
           <Panel testId="operations-panel" className="lg:col-span-8" delay={220}>
             <Tabs defaultValue="positions" className="flex h-full flex-col">
               <div className="flex items-center gap-3 border-b border-[#1E293B] px-4 py-2.5">

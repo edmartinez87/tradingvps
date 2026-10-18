@@ -176,6 +176,10 @@ class TradingEngine:
 
     async def open_position(self, symbol: str, sig: dict, settings: Settings, signal_id: str):
         async with self.lock:
+            open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
+            if symbol in open_syms or len(open_syms) >= settings.max_positions:
+                await self.log("RISK", f"{symbol}: apertura cancelada · límite de posiciones o par ya abierto")
+                return None
             price = self.market.tickers.get(symbol, {}).get("price") or sig["price"]
             long = sig["side"] == "long"
             entry = price * (1 + SLIPPAGE) if long else price * (1 - SLIPPAGE)
@@ -286,6 +290,11 @@ class TradingEngine:
             block = "límite de pérdida diaria alcanzado"
         if block:
             await self.log("RISK", f"{symbol}: señal descartada · {block}")
+            await self.db.signals.insert_one(Signal(
+                symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,
+                price=sig["price"], sl=sig["sl"], tp=sig["tp"], score=sig["score"], reasons=sig["reasons"],
+                indicators=sig["indicators"], ai_decision="BLOQUEADA", note=f"Bloqueada por riesgo: {block}", key=key,
+            ).to_mongo())
             return
 
         signal = Signal(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,

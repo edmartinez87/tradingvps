@@ -1,0 +1,38 @@
+{
+  "summary": "Full backend + frontend test of the paper-trading crypto bot (Bitget mirror data, Claude Sonnet AI confirmation). Backend: 19/19 pytest pass (dashboard, meta, klines + 400s, bot start/stop/scan with SCAN log, settings persist + 6 validation 422 cases, position lifecycle via inject script incl. ~1% risk sizing, fees 0.055%/side, balance math, MANUAL close, 404/400, max_positions + duplicate-symbol RISK blocks, AI signal returns RECHAZADA/APROBADA with Spanish reasoning and correct executed flag, backtest + invalid 400, account reset, clear logs). Frontend: all requested testids exist; header badges, KPIs, watchlist->chart switch, 5 timeframe buttons (klines 200), canvas chart, plan panel, tabs, backtest (Turtle/SOL) results, settings save (button enables only after a change, toast 'Configuración guardada', plan/watchlist update), close position -> toast + history row, bot toggle, scan now, clear logs, reset dialog cancel/confirm all work. No JS errors. Two minor UI issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/settings", "issue": "422 validation messages come from raw Pydantic and are in English ('Input should be less than or equal to 20'), and the Spanish UI shows them as-is in the toast."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Header (mobile 390px)", "issue": "Header action row overflows horizontally (scrollWidth 417 > 390); the 'Iniciar bot' button is cut off on the right.", "selector": "[data-testid='bot-toggle-button']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Mobile KPI strip", "issues": ["There are 7 KPIs in a 2-column grid, so the last row has an empty filled cell"]},
+      {"screen": "Dashboard desktop", "issues": ["The AI signals panel stretches to the height of the backtest tab and leaves a large empty area", "Settings numeric inputs have no client-side min/max, so a user can type leverage 50 and only gets the server error"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_trading_bot.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix mobile header overflow: wrap the buttons or let them shrink so bot-toggle-button is visible at 390px",
+    "Translate or map the Pydantic 422 errors into Spanish messages, or add min/max on the settings inputs",
+    "Optional: fill the empty KPI grid cell on mobile"
+  ],
+  "critical_code_review_comments": [
+    "engine._handle_signal checks the risk limits (max_positions, duplicate symbol) outside self.lock while open_position takes the lock. If several signals are handled at once, max_positions could be exceeded. Re-check the limits inside the lock in open_position.",
+    "Signals blocked by RISK are never stored in the signals collection; they only appear in the logs, so they are not visible in the AI panel or history.",
+    "_monitor_once closes a TP/SL hit at the 5s ticker price rather than the SL/TP level. This is acceptable for paper trading, but large gaps can make the SL fill worse than the planned 1% risk.",
+    "reset_account does not clear engine.signal_keys. This is harmless, but a signal with the same candle key will not re-trigger after a reset.",
+    "pytest.ini enables xdist (-n auto). The tests share global state (account and settings), so run them with '-p no:xdist -o addopts=\"\"'."
+  ],
+  "updated_files": ["/app/backend/tests/test_trading_bot.py"],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "seed_data_creation": "Test signals injected via the inject script (XRP, ETH, AVAX, LINK, SOL). Everything was cleaned up with POST /api/account/reset at the end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend tests sequentially: cd /app/backend && REACT_APP_BACKEND_URL=... pytest tests/test_trading_bot.py -p no:xdist -o addopts=''. The session fixture restores the default settings, stops the bot and resets the account. Provider is bitget (Bybit is geo-blocked, which is expected). The AI test takes about 15s. Final state: default settings, bot STOPPED, account reset to 10000."
+}
