@@ -30,10 +30,12 @@ const Group = ({ title, label, rows, render = (k) => k, testId }) => (
 
 export default function Performance({ tradeCount }) {
   const [data, setData] = useState(null);
+  const [error, setError] = useState(false);
   useEffect(() => {
-    http.get("/performance").then((r) => setData(r.data)).catch(() => {});
+    http.get("/performance").then((r) => { setData(r.data); setError(false); }).catch(() => setError(true));
   }, [tradeCount]);
 
+  if (error && !data) return <Empty testId="performance-error" text="No se pudo cargar el rendimiento. Reintentando en el próximo refresco." />;
   if (!data) return <div className="flex min-h-[120px] items-center justify-center text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /></div>;
   const sig = data.signals;
   return (
@@ -41,9 +43,9 @@ export default function Performance({ tradeCount }) {
       <p className="text-[12px] leading-relaxed text-slate-400">
         Rendimiento real del paper trading por estrategia y par. Úsalo para desactivar lo que pierde y concentrar el capital en lo que funciona (mínimo 30 operaciones por fila antes de decidir).
       </p>
-      <div data-testid="perf-signals" className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#1E293B] bg-[#1E293B] sm:grid-cols-4 lg:grid-cols-6">
+      <div data-testid="perf-signals" className="flex flex-wrap gap-2">
         {[["Señales", sig.total], ["Ejecutadas", sig.executed], ...Object.entries(sig.by_decision).map(([k, v]) => [DECISION[k] || k, v])].map(([l, v]) => (
-          <div key={l} className="bg-[#0D111A] px-3 py-2.5">
+          <div key={l} className="min-w-[130px] flex-1 rounded-sm border border-[#1E293B] bg-[#0D111A] px-3 py-2.5">
             <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">{l}</p>
             <p className="num mt-1 text-base font-semibold text-slate-100">{v}</p>
           </div>

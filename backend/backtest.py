@@ -55,7 +55,7 @@ def run_backtest(df, strategy: str, risk_pct: float, leverage: int, trailing: bo
     for t in trades:
         s = by_strategy.setdefault(t["strategy"], {"trades": 0, "wins": 0, "pnl": 0.0, "r_sum": 0.0, "gw": 0.0, "gl": 0.0})
         s["trades"] += 1
-        s["wins"] += t["pnl"] > 0
+        s["wins"] += int(t["pnl"] > 0)
         s["pnl"] += t["pnl"]
         s["r_sum"] += t["r"]
         s["gw" if t["pnl"] > 0 else "gl"] += abs(t["pnl"])
@@ -76,6 +76,6 @@ def run_backtest(df, strategy: str, risk_pct: float, leverage: int, trailing: bo
         "candles": len(df),
         "equity_curve": curve,
         "r_multiples": [t["r"] for t in trades],
-        "strategy_stats": by_strategy,
+        "strategy_stats": {k: {f: round(v, 3) for f, v in s.items()} for k, s in by_strategy.items()},
         "trades": trades[-50:][::-1],
     }

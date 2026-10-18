@@ -1,5 +1,5 @@
 import { TH, TD } from "../PositionsTable";
-import { STRATEGY_LABELS, fmtPct } from "@/lib/api";
+import { STRATEGY_LABELS, fmtPct, fmtSignedUsd } from "@/lib/api";
 
 const Metric = ({ label, value, cls = "text-slate-100", testId }) => (
   <div className="bg-[#0D111A] px-3 py-2.5">
@@ -23,7 +23,7 @@ const Table = ({ title, rows, keyField, render = (k) => k, testId }) => (
             <TD right>{r.win_rate}%</TD>
             <TD right className={r.profit_factor == null || r.profit_factor >= 1 ? "text-emerald-400" : "text-rose-400"}>{pf(r.profit_factor)}</TD>
             <TD right className={tone(r.expectancy_r)}>{r.expectancy_r > 0 ? "+" : ""}{r.expectancy_r}</TD>
-            <TD right className={`font-semibold ${tone(keyField === "symbol" ? r.return_pct : r.pnl)}`}>{keyField === "symbol" ? fmtPct(r.return_pct) : `${r.pnl > 0 ? "+" : ""}$${r.pnl}`}</TD>
+            <TD right className={`font-semibold ${tone(keyField === "symbol" ? r.return_pct : r.pnl)}`}>{keyField === "symbol" ? fmtPct(r.return_pct) : fmtSignedUsd(r.pnl)}</TD>
           </tr>
         ))}
       </tbody>

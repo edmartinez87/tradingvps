@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 2: tested the new plan/performance/account-reset/lot-size features (backend and frontend) plus regression. One CRITICAL bug found and fixed: POST /api/backtest returned 500 every time (numpy.int64 in strategy_stats.wins could not be serialized). After the one-line fix, all 15 backend pytest cases pass. All frontend flows pass: Plan tab (4 scenarios, metrics, chart, 5 phases, Monte Carlo, 6-row symbol table, 3-row strategy table, switching to optimista, deposit recalculation), Rendimiento tab (empty state) and the Positions/History/Backtest regression ($500 based). No console errors. Account left at $500, bot left running (same as before).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/backtest", "issue": "FIXED by testing agent. Every call returned 500: 'numpy.int64 object is not iterable' in jsonable_encoder. Cause: backtest.py strategy_stats did s['wins'] += t['pnl'] > 0, where t['pnl'] is numpy.float64 (round() of a numpy float), so the comparison gives numpy.bool_ and wins becomes numpy.int64. Fix: s['wins'] += int(t['pnl'] > 0). /api/plan was not affected because it only divides wins.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/backtest", "issue": "strategy_stats floats are not rounded (e.g. pnl -16.770000000000003, gl 59.330000000000005)."},
+      {"endpoint": "POST /api/backtest", "issue": "acc = db.account.find_one(...) is not None-checked; if the account doc is missing (e.g. during a concurrent reset), acc['initial_balance'] raises TypeError -> 500."},
+      {"endpoint": "POST /api/plan", "issue": "backtest_stats 'days' is taken from the last symbol's period only, not aggregated across symbols. OK when all symbols share a timeframe, but fragile."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Rendimiento tab", "issues": ["The perf-signals grid uses bg-[#1E293B] as the gap colour. With only 2 metrics (fresh account, by_decision empty), the unused grid cells show as a large grey/slate block to the right of SEÑALES/EJECUTADAS."]},
+      {"screen": "Plan tab", "issues": ["Negative PnL shows as '$-13.26' (sign after the $) in the plan-bt-strategies table. Should be '-$13.26', matching other places.", "The chart x-axis labels are dense, with uneven gaps (M43, M46, M49...). Minor."]},
+      {"screen": "Performance.jsx", "issues": ["A failed GET /performance is silently swallowed (catch(() => {})), so the spinner spins forever with no error state."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_plan_performance.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "Review the fix in /app/backend/backtest.py (int() cast on wins). Consider casting numpy values to native Python types (float()/int()) wherever run_backtest builds results.",
+    "Round strategy_stats values in the backtest response.",
+    "Handle a missing account doc in POST /api/backtest (fall back to INITIAL_BALANCE).",
+    "Fix the grey filler block in the perf-signals strip when there are few metrics (e.g. use auto-fit columns or a background colour on the container cells only).",
+    "Format negative USD as -$X in the plan tables (fmtSignedUsd).",
+    "Add an error state to Performance.jsx."
+  ],
+  "critical_code_review_comments": [
+    "backtest.py: round() on numpy.float64 returns numpy.float64, and comparing it gives numpy.bool_. Use float(...) at trade creation so trade dicts hold native types.",
+    "plan.py: Monte Carlo uses settings.risk_per_trade (1%) while the projection's consolidacion/ingreso phases assume 1.5% risk. This is consistent with the 'backtest' scenario rate, but be aware of it.",
+    "server.py: _plan_cache.clear() on every miss means different initial_capital values evict each other. Fine for a single user.",
+    "GrowthPlan.jsx: initial_capital takes account.initial_balance only once, on mount, so a later account reset won't update the field."
+  ],
+  "updated_files": ["/app/backend/backtest.py", "/app/backend/tests/test_plan_performance.py"],
+  "success_rate": {"backend": "100% (15/15) after fix; 13/15 before fix", "frontend": "100%"},
+  "seed_data_creation": "None. Account was reset to 750 and then back to 500 during tests. Reset clears trades/signals (they were already empty).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with REACT_APP_BACKEND_URL exported: pytest /app/backend/tests/test_plan_performance.py (pytest.ini uses xdist). The external URL worked fine. Plan: base 4% → 84 months (7 años), target 20833; backtest-scenario MC median ≈2.3%/mo (varies with live data). The bot was running at the start and is still running.",
+  "rca of the issue": "Repro: curl -X POST /api/backtest {symbol:SOLUSDT,timeframe:1h,strategy:all,risk_per_trade:1,leverage:3} returned 500. The backend log showed ValueError [TypeError(\"'numpy.int64' object is not iterable\")] from fastapi jsonable_encoder. Cause: strategy_stats wins accumulated numpy.bool_ values. Fix: an int() cast in backtest.py line 58. Verified: SOL 1h and BTC 15m now return 200 with initial 500, expectancy_r, rejected_lot and strategy_stats, and no r_multiples."
+}
