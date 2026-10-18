@@ -7,6 +7,8 @@ import AiSection from "./admin/AiSection";
 import TelegramSection from "./admin/TelegramSection";
 import AutoReviewSection from "./admin/AutoReviewSection";
 import AccountSection from "./admin/AccountSection";
+import BybitSection from "./admin/BybitSection";
+import LiveModeSection from "./admin/LiveModeSection";
 
 export default function AdminSettings({ account, refresh }) {
   const [config, setConfig] = useState(null);
@@ -32,9 +34,11 @@ export default function AdminSettings({ account, refresh }) {
     <div data-testid="admin-settings" className="space-y-4">
       <div>
         <h2 className="font-display text-base font-bold uppercase tracking-[0.12em] text-slate-100 md:text-lg">Ajustes del sistema</h2>
-        <p className="text-[12px] text-slate-500">Clave de acceso, inteligencia artificial, alertas de Telegram, revisión automática y cuenta paper. La estrategia y el riesgo se siguen configurando desde el panel principal.</p>
+        <p className="text-[12px] text-slate-500">Cuenta real de Bybit y cambio de modo, clave de acceso, inteligencia artificial, alertas de Telegram, revisión automática y cuenta paper. La estrategia y el riesgo se siguen configurando desde el panel principal.</p>
       </div>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <BybitSection config={config} onSave={save} />
+        <LiveModeSection config={config} refresh={refresh} />
         <SecuritySection />
         <AiSection config={config} onSave={save} />
         <TelegramSection config={config} onSave={save} />

@@ -44,9 +44,15 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
           </div>
         </div>
 
-        <span data-testid="paper-mode-badge" className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-amber-400">
-          Paper trading
-        </span>
+        {status.mode === "REAL" ? (
+          <span data-testid="live-mode-badge" className="inline-flex items-center gap-1.5 rounded-sm border border-rose-500/50 bg-rose-500/15 px-2.5 py-1 font-mono text-[11px] font-bold uppercase tracking-wider text-rose-300">
+            <span className="pulse-dot bg-rose-400" /> Modo REAL · Bybit {status.env}
+          </span>
+        ) : (
+          <span data-testid="paper-mode-badge" className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+            Paper trading
+          </span>
+        )}
         <TooltipProvider delayDuration={150}>
           <Tooltip>
             <TooltipTrigger asChild>

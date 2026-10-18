@@ -7,6 +7,7 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv("/app/backend/.env")
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 from engine import TradingEngine  # noqa: E402
+from config import ConfigStore  # noqa: E402
 from indicators import build_df  # noqa: E402
 from strategies import _signal  # noqa: E402
 
@@ -14,6 +15,10 @@ from strategies import _signal  # noqa: E402
 async def main(symbol: str, side: str, ai: bool):
     db = AsyncIOMotorClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
     eng = TradingEngine(db)
+    store = ConfigStore(db)
+    store.listeners.append(eng.apply_config)
+    await store.load()
+    print("mode:", eng.mode_label, "broker:", bool(eng.broker))
     await eng.market.detect()
     await eng.market.fetch_tickers()
     s = await eng.get_settings()

@@ -11,6 +11,8 @@ from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trai
 from ai_advisor import evaluate_signal
 from plan import SCENARIOS, build_checkin
 from notify import notify as tg
+from bybit import BybitClient, BybitError
+from live import LiveBroker
 
 logger = logging.getLogger("engine")
 INITIAL_BALANCE = 500.0
@@ -34,6 +36,27 @@ class TradingEngine:
         self.scan_event = asyncio.Event()
         self.tasks = []
         self._last_snapshot = 0.0
+        self.live = False
+        self.env = "mainnet"
+        self.broker = None
+        self._broker_key = None
+        self.exchange_error = None
+        self._external_warned = set()
+
+    async def apply_config(self, cfg):
+        self.live = cfg.trading_mode == "live"
+        self.env = cfg.bybit_env
+        key = (cfg.bybit_api_key, cfg.bybit_api_secret, cfg.bybit_env, cfg.bybit_base_url)
+        if key != self._broker_key:
+            if self.broker:
+                await self.broker.aclose()
+            self.broker = LiveBroker(BybitClient(*key)) if cfg.bybit_api_key and cfg.bybit_api_secret else None
+            self._broker_key = key
+            self.exchange_error = None
+
+    @property
+    def mode_label(self) -> str:
+        return "REAL" if self.live else "PAPER"
 
     async def init(self):
         await self.market.detect()
@@ -79,13 +102,15 @@ class TradingEngine:
     async def start(self):
         self.running = True
         await self.db.settings.update_one({"_id": "main"}, {"$set": {"bot_running": True}})
-        await self.log("INFO", "Bot ACTIVADO · operando 24/7 en modo paper trading")
+        await self.log("INFO", f"Bot ACTIVADO · operando 24/7 en modo {'REAL en Bybit ' + self.env.upper() if self.live else 'paper trading'}")
+        await tg(f"▶️ <b>Bot ACTIVADO</b> · modo {self.mode_label}" + (f" · Bybit {self.env}" if self.live else ""), "orders")
         self.scan_event.set()
 
     async def stop(self):
         self.running = False
         await self.db.settings.update_one({"_id": "main"}, {"$set": {"bot_running": False}})
         await self.log("INFO", "Bot DETENIDO · las posiciones abiertas siguen protegidas por SL/TP")
+        await tg(f"⏹ <b>Bot DETENIDO</b> · modo {self.mode_label} · las posiciones abiertas siguen protegidas por SL/TP", "orders")
 
     async def reset_account(self, initial: float = None):
         initial = initial or INITIAL_BALANCE
@@ -93,14 +118,29 @@ class TradingEngine:
             for col in ("positions", "trades", "signals", "equity"):
                 await self.db[col].delete_many({})
             await self._new_account(initial)
-        await self.log("INFO", f"Cuenta paper reiniciada a ${initial:,.0f} USDT")
+        await self.log("INFO", f"Estadísticas reiniciadas · capital inicial ${initial:,.2f} USDT · modo {self.mode_label}")
+
+    async def _exchange_wallet(self):
+        if not (self.live and self.broker):
+            return None
+        try:
+            w = await self.broker.wallet()
+            self.exchange_error = None
+            return w
+        except Exception as e:
+            self.exchange_error = str(e)[:160]
+            logger.warning(f"wallet: {e}")
+            return None
 
     async def account_summary(self) -> dict:
         acc = await self.db.account.find_one({"_id": "main"})
         positions = await self.db.positions.find({}, {"unrealized_pnl": 1, "margin": 1}).to_list(100)
         unreal = sum(p["unrealized_pnl"] for p in positions)
         used = sum(p["margin"] for p in positions)
-        equity = acc["balance"] + unreal
+        balance, equity, available = acc["balance"], acc["balance"] + unreal, acc["balance"] - used
+        w = await self._exchange_wallet()
+        if w:
+            balance, equity, available, unreal = w["wallet_balance"], w["equity"], w["available"], w["unrealised"]
         agg = await self.db.trades.aggregate([{"$group": {
             "_id": None, "n": {"$sum": 1}, "realized": {"$sum": "$pnl"},
             "wins": {"$sum": {"$cond": [{"$gt": ["$pnl", 0]}, 1, 0]}},
@@ -110,18 +150,19 @@ class TradingEngine:
         st = agg[0] if agg else {"n": 0, "realized": 0, "wins": 0, "gw": 0, "gl": 0}
         daily = equity - acc["day_start_equity"]
         return {
-            "initial_balance": acc["initial_balance"], "balance": round(acc["balance"], 2),
+            "initial_balance": acc["initial_balance"], "balance": round(balance, 2),
             "equity": round(equity, 2), "unrealized_pnl": round(unreal, 2),
-            "unrealized_pct": round(unreal / acc["balance"] * 100, 2) if acc["balance"] else 0,
-            "used_margin": round(used, 2), "available": round(acc["balance"] - used, 2),
-            "daily_pnl": round(daily, 2), "daily_pnl_pct": round(daily / acc["day_start_equity"] * 100, 2),
+            "unrealized_pct": round(unreal / balance * 100, 2) if balance else 0,
+            "used_margin": round(used, 2), "available": round(available, 2),
+            "daily_pnl": round(daily, 2), "daily_pnl_pct": round(daily / acc["day_start_equity"] * 100, 2) if acc["day_start_equity"] else 0,
             "daily_paused": acc["daily_paused"], "total_trades": st["n"], "wins": st["wins"],
             "win_rate": round(st["wins"] / st["n"] * 100, 1) if st["n"] else 0,
             "realized_pnl": round(st["realized"], 2),
             "profit_factor": round(st["gw"] / abs(st["gl"]), 2) if st["gl"] else None,
-            "total_return_pct": round((equity - acc["initial_balance"]) / acc["initial_balance"] * 100, 2),
+            "total_return_pct": round((equity - acc["initial_balance"]) / acc["initial_balance"] * 100, 2) if acc["initial_balance"] else 0,
             "max_drawdown": round(acc["max_drawdown"], 2), "peak_equity": round(acc["peak_equity"], 2),
-            "open_positions": len(positions),
+            "open_positions": len(positions), "mode": self.mode_label, "exchange_error": self.exchange_error,
+            "exchange_synced": bool(w),
         }
 
     async def checkin(self, settings: Settings = None, summary: dict = None) -> dict:
@@ -156,8 +197,22 @@ class TradingEngine:
     async def _monitor_once(self):
         tickers = await self.market.fetch_tickers()
         settings = await self.get_settings()
+        ex = None
+        if self.live and self.broker:
+            try:
+                ex = {x["symbol"]: x for x in await self.broker.positions()}
+                self.exchange_error = None
+            except Exception as e:
+                self.exchange_error = str(e)[:160]
+                logger.warning(f"positions sync: {e}")
+        local_syms = set()
         async for doc in self.db.positions.find():
             p = Position.from_mongo(doc)
+            local_syms.add(p.symbol)
+            if p.live:
+                if ex is not None:
+                    await self._sync_live_position(p, ex.get(p.symbol), tickers.get(p.symbol), settings)
+                continue
             t = tickers.get(p.symbol)
             if not t:
                 continue
@@ -176,7 +231,62 @@ class TradingEngine:
                     if be and not p.breakeven:
                         await self.log("RISK", f"{p.symbol}: stop movido a breakeven ({new_sl:.6g})")
             await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+        if ex:
+            for sym in set(ex) - local_syms - self._external_warned:
+                self._external_warned.add(sym)
+                await self.log("RISK", f"{sym}: posición externa detectada en Bybit (no gestionada por el bot) · tamaño {ex[sym]['size']}")
         await self._update_account_metrics(settings)
+
+    async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: Settings):
+        if not ex:
+            await self._close_live_from_exchange(p)
+            return
+        price = ex["mark"] or (ticker or {}).get("price") or p.mark_price
+        updates = {"mark_price": price, "unrealized_pnl": round(ex["unrealised"], 4)}
+        if abs(ex["size"] - p.qty) > 1e-9:
+            updates["qty"] = ex["size"]
+        if settings.trailing_enabled:
+            new_sl, be = update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price)
+            if new_sl != p.sl and abs(new_sl - p.sl) / p.sl > 0.0005:
+                try:
+                    await self.broker.set_stop(p.symbol, new_sl)
+                    updates.update(sl=new_sl, breakeven=be)
+                    await self.log("RISK", f"{p.symbol}: stop REAL movido a {new_sl:.6g}{' (breakeven)' if be and not p.breakeven else ''}")
+                except Exception as e:
+                    await self.log("ERROR", f"{p.symbol}: no se pudo mover el stop en Bybit · {str(e)[:120]}")
+        await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+
+    async def _close_live_from_exchange(self, p: Position):
+        async with self.lock:
+            if not await self.db.positions.find_one({"_id": ObjectId(p.id)}):
+                return
+            cr = None
+            try:
+                cr = await self.broker.closed_result(p.symbol, p.opened_at)
+            except Exception as e:
+                logger.warning(f"closed_pnl {p.symbol}: {e}")
+            price = (cr or {}).get("exit") or p.mark_price
+            fees = (cr or {}).get("fee") or p.fees
+            net = cr["pnl"] if cr else pnl(p.side, p.entry_price, price, p.qty) - p.fees
+            reason = "TP" if abs(price - p.tp) <= abs(price - p.sl) else ("TRAILING" if p.breakeven else "SL")
+            await self.db.positions.delete_one({"_id": ObjectId(p.id)})
+            trade = await self._record_trade(p, price, net, fees, reason)
+        await self._announce_close(p, trade, reason)
+
+    async def _record_trade(self, p: Position, price: float, net: float, fees: float, reason: str) -> Trade:
+        trade = Trade(symbol=p.symbol, side=p.side, strategy=p.strategy, entry_price=p.entry_price, exit_price=price,
+                      qty=p.qty, leverage=p.leverage, margin=p.margin, pnl=round(net, 4),
+                      pnl_pct=round(net / p.margin * 100, 2) if p.margin else 0, fees=round(fees, 4),
+                      reason=reason, opened_at=p.opened_at, live=p.live)
+        res = await self.db.trades.insert_one(trade.to_mongo())
+        trade.id = str(res.inserted_id)
+        return trade
+
+    async def _announce_close(self, p: Position, trade: Trade, reason: str):
+        tag = "REAL " if p.live else ""
+        await self.log("ORDER", f"CERRADA {tag}{p.side.upper()} {p.symbol} @ {trade.exit_price:.6g} · {reason} · PnL {trade.pnl:+.2f} USDT")
+        await tg(f"{'✅' if trade.pnl >= 0 else '❌'} <b>CERRADA {tag}{p.side.upper()} {p.symbol}</b> @ {trade.exit_price:.6g} · {reason}\n"
+                 f"PnL <b>{trade.pnl:+.2f} USDT</b> ({trade.pnl_pct:+.2f}%) · entrada {p.entry_price:.6g}", "orders")
 
     async def _update_account_metrics(self, settings: Settings):
         s = await self.account_summary()
@@ -216,46 +326,88 @@ class TradingEngine:
             entry = price * (1 + SLIPPAGE) if long else price * (1 - SLIPPAGE)
             sl = entry - (sig["price"] - sig["sl"])
             tp = entry + (sig["tp"] - sig["price"])
-            s = await self.account_summary()
-            qty, margin = position_size(s["equity"], s["available"], settings.risk_per_trade, entry, sl, settings.leverage, symbol)
-            if qty <= 0 or margin < 1:
-                await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit o margen insuficiente · aumenta capital o riesgo")
-                return None
-            fee = entry * qty * FEE_RATE
-            pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
-                           leverage=settings.leverage, margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"],
-                           fees=fee, mark_price=price, signal_id=signal_id)
-            res = await self.db.positions.insert_one(pos.to_mongo())
-            pos.id = str(res.inserted_id)
-            await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
-        await self.log("ORDER", f"ABIERTA {sig['side'].upper()} {symbol} @ {entry:.6g} · qty {qty:.6g} · {settings.leverage}x · SL {sl:.6g} · TP {tp:.6g}")
-        await tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {sig['side'].upper()} {symbol}</b> @ {entry:.6g}\n"
+            if self.live:
+                if not self.broker:
+                    await self.log("ERROR", f"{symbol}: modo REAL sin credenciales de Bybit · orden no enviada")
+                    return None
+                try:
+                    w = await self.broker.wallet(max_age=0)
+                    lot = await self.broker.lot(symbol)
+                    qty, margin = position_size(w["equity"], w["available"], settings.risk_per_trade, entry, sl, settings.leverage, lot=lot)
+                    if qty <= 0 or margin < 1:
+                        await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit ({lot[0]}) o margen insuficiente")
+                        return None
+                    r = await self.broker.open(symbol, sig["side"], qty, sl, tp, settings.leverage)
+                except Exception as e:
+                    await self.log("ERROR", f"{symbol}: orden REAL rechazada por Bybit · {str(e)[:160]}")
+                    await tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{str(e)[:300]}", "orders")
+                    return None
+                entry, qty, fee = (r["entry"] or entry), r["qty"], r["fee"]
+                margin = qty * entry / settings.leverage
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
+                               leverage=settings.leverage, margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"],
+                               fees=fee, mark_price=price, signal_id=signal_id, live=True, order_id=r["order_id"], link_id=r["link_id"])
+                res = await self.db.positions.insert_one(pos.to_mongo())
+                pos.id = str(res.inserted_id)
+                if not r["filled"]:
+                    await self.log("RISK", f"{symbol}: orden enviada (id {r['order_id']}) pero sin confirmación de llenado · se sincronizará con Bybit")
+            else:
+                s = await self.account_summary()
+                qty, margin = position_size(s["equity"], s["available"], settings.risk_per_trade, entry, sl, settings.leverage, symbol)
+                if qty <= 0 or margin < 1:
+                    await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit o margen insuficiente · aumenta capital o riesgo")
+                    return None
+                fee = entry * qty * FEE_RATE
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
+                               leverage=settings.leverage, margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"],
+                               fees=fee, mark_price=price, signal_id=signal_id)
+                res = await self.db.positions.insert_one(pos.to_mongo())
+                pos.id = str(res.inserted_id)
+                await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
+        tag = "REAL " if self.live else ""
+        await self.log("ORDER", f"ABIERTA {tag}{sig['side'].upper()} {symbol} @ {entry:.6g} · qty {qty:.6g} · {settings.leverage}x · SL {sl:.6g} · TP {tp:.6g}")
+        await tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {tag}{sig['side'].upper()} {symbol}</b> @ {entry:.6g}\n"
                  f"Cantidad {qty:.6g} · {settings.leverage}x · margen ${margin:,.2f}\nSL {sl:.6g} · TP {tp:.6g}\n"
                  f"Estrategia: {STRATEGY_INFO[sig['strategy']]['name']}", "orders")
         return pos
 
     async def close_position(self, pos_id: str, price: float = None, reason: str = "MANUAL"):
         async with self.lock:
-            doc = await self.db.positions.find_one_and_delete({"_id": ObjectId(pos_id)})
+            doc = await self.db.positions.find_one({"_id": ObjectId(pos_id)})
             if not doc:
                 return None
             p = Position.from_mongo(doc)
-            price = price or self.market.tickers.get(p.symbol, {}).get("price") or p.mark_price
-            if reason != "TP":
-                price = price * (1 - SLIPPAGE) if p.side == "long" else price * (1 + SLIPPAGE)
-            exit_fee = price * p.qty * FEE_RATE
-            gross = pnl(p.side, p.entry_price, price, p.qty)
-            net = gross - p.fees - exit_fee
-            await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - exit_fee}})
-            trade = Trade(symbol=p.symbol, side=p.side, strategy=p.strategy, entry_price=p.entry_price, exit_price=price,
-                          qty=p.qty, leverage=p.leverage, margin=p.margin, pnl=round(net, 4),
-                          pnl_pct=round(net / p.margin * 100, 2), fees=round(p.fees + exit_fee, 4),
-                          reason=reason, opened_at=p.opened_at)
-            res = await self.db.trades.insert_one(trade.to_mongo())
-            trade.id = str(res.inserted_id)
-        await self.log("ORDER", f"CERRADA {p.side.upper()} {p.symbol} @ {price:.6g} · {reason} · PnL {net:+.2f} USDT")
-        await tg(f"{'✅' if net >= 0 else '❌'} <b>CERRADA {p.side.upper()} {p.symbol}</b> @ {price:.6g} · {reason}\n"
-                 f"PnL <b>{net:+.2f} USDT</b> ({trade.pnl_pct:+.2f}%) · entrada {p.entry_price:.6g}", "orders")
+            if p.live:
+                if not self.broker:
+                    await self.log("ERROR", f"{p.symbol}: cierre REAL imposible · sin credenciales de Bybit")
+                    return None
+                try:
+                    r = await self.broker.close(p.symbol, p.side, p.qty)
+                except Exception as e:
+                    await self.log("ERROR", f"{p.symbol}: cierre REAL fallido · {str(e)[:160]}")
+                    return None
+                await asyncio.sleep(0.8)
+                cr = None
+                try:
+                    cr = await self.broker.closed_result(p.symbol, p.opened_at)
+                except Exception as e:
+                    logger.warning(f"closed_pnl {p.symbol}: {e}")
+                price = (cr or {}).get("exit") or r["exit"] or self.market.tickers.get(p.symbol, {}).get("price") or p.mark_price
+                fees = (cr or {}).get("fee") or (p.fees + r["fee"])
+                net = cr["pnl"] if cr else pnl(p.side, p.entry_price, price, p.qty) - p.fees - r["fee"]
+                await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
+            else:
+                await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
+                price = price or self.market.tickers.get(p.symbol, {}).get("price") or p.mark_price
+                if reason != "TP":
+                    price = price * (1 - SLIPPAGE) if p.side == "long" else price * (1 + SLIPPAGE)
+                exit_fee = price * p.qty * FEE_RATE
+                gross = pnl(p.side, p.entry_price, price, p.qty)
+                net = gross - p.fees - exit_fee
+                fees = p.fees + exit_fee
+                await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - exit_fee}})
+            trade = await self._record_trade(p, price, net, fees, reason)
+        await self._announce_close(p, trade, reason)
         return trade
 
     async def _scan_loop(self):

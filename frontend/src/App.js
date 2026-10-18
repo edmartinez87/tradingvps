@@ -79,6 +79,11 @@ function Dashboard({ onLogout }) {
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><AdminSettings account={data.account} refresh={refresh} /></main>
       ) : (
       <main className="mx-auto max-w-[1920px] space-y-4 p-4 md:p-6">
+        {data.status.exchange_error && (
+          <div data-testid="exchange-error-banner" className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 font-mono text-[11px] text-rose-200">
+            Bybit sin respuesta: {data.status.exchange_error} · mostrando los últimos datos locales
+          </div>
+        )}
         <KpiStrip account={data.account} />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <Watchlist items={data.watchlist} selected={symbol} onSelect={setSymbol} />
@@ -105,7 +110,8 @@ function Dashboard({ onLogout }) {
                 </TabsList>
               </div>
               <TabsContent value="positions" className="mt-0">
-                <PositionsTable positions={data.positions} onClose={(id) => act(() => http.post(`/positions/${id}/close`), "Posición cerrada")} />
+                <PositionsTable positions={data.positions} onClose={(id) => act(() => http.post(`/positions/${id}/close`), "Posición cerrada")}
+                  onCloseAll={() => act(() => http.post("/positions/close-all"), "Cierre de emergencia ejecutado")} />
               </TabsContent>
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
               <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} /></TabsContent>

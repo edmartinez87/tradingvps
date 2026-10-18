@@ -11,21 +11,22 @@ LOT_SIZES = {
 }
 
 
-def lot_qty(symbol: str, qty: float) -> float:
-    min_qty, step = LOT_SIZES.get(symbol, (0.001, 0.001))
+def lot_qty(symbol: str, qty: float, lot: tuple = None) -> float:
+    min_qty, step = lot or LOT_SIZES.get(symbol, (0.001, 0.001))
     qty = math.floor(qty / step + 1e-9) * step
     return round(qty, 8) if qty >= min_qty else 0.0
 
 
-def position_size(equity: float, available: float, risk_pct: float, entry: float, sl: float, leverage: int, symbol: str = None):
+def position_size(equity: float, available: float, risk_pct: float, entry: float, sl: float, leverage: int,
+                  symbol: str = None, lot: tuple = None):
     dist = abs(entry - sl)
     if dist <= 0 or entry <= 0:
         return 0.0, 0.0
     qty = (equity * risk_pct / 100) / dist
     max_notional = available * leverage * 0.95
     qty = min(qty, max_notional / entry)
-    if symbol:
-        qty = lot_qty(symbol, qty)
+    if symbol or lot:
+        qty = lot_qty(symbol, qty, lot)
     if qty * entry < MIN_NOTIONAL:
         return 0.0, 0.0
     return qty, qty * entry / leverage

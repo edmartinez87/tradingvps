@@ -1,13 +1,30 @@
 import os
 from typing import Optional, Dict
+from cryptography.fernet import Fernet, InvalidToken
 from pydantic import BaseModel, ConfigDict, Field
 import ai_advisor
 import notify
 from auth import hash_password
 
-SECRET_FIELDS = ("ai_api_key", "telegram_bot_token")
+SECRET_FIELDS = ("ai_api_key", "telegram_bot_token", "bybit_api_key", "bybit_api_secret")
+ENCRYPTED_FIELDS = ("bybit_api_secret", "bybit_api_key", "ai_api_key", "telegram_bot_token")
 AI_PROVIDERS = ["anthropic", "openai", "gemini"]
+BYBIT_ENVS = ["mainnet", "testnet", "demo"]
 DEFAULT_ALERTS = {"orders": True, "ai": True, "daily": True, "plan": True, "review": True}
+_fernet = Fernet(os.environ["CREDENTIAL_ENCRYPTION_KEY"].encode()) if os.environ.get("CREDENTIAL_ENCRYPTION_KEY") else None
+
+
+def _enc(v: str) -> str:
+    return f"enc:{_fernet.encrypt(v.encode()).decode()}" if _fernet and v else v
+
+
+def _dec(v: str) -> str:
+    if isinstance(v, str) and v.startswith("enc:") and _fernet:
+        try:
+            return _fernet.decrypt(v[4:].encode()).decode()
+        except InvalidToken:
+            return ""
+    return v or ""
 
 
 class AppConfig(BaseModel):
@@ -28,6 +45,14 @@ class AppConfig(BaseModel):
     auto_review_last_at: Optional[str] = None
     auto_review_last_summary: str = ""
     auto_review_last_changes: Dict[str, dict] = {}
+    trading_mode: str = "paper"
+    bybit_api_key: str = ""
+    bybit_api_secret: str = ""
+    bybit_env: str = "mainnet"
+    bybit_base_url: str = ""
+    bybit_verified_at: Optional[str] = None
+    bybit_verified_equity: Optional[float] = None
+    live_since: Optional[str] = None
 
 
 class ConfigUpdate(BaseModel):
@@ -42,8 +67,13 @@ class ConfigUpdate(BaseModel):
     auto_review_frequency: Optional[str] = None
     auto_review_day: Optional[int] = Field(default=None, ge=0, le=6)
     auto_review_apply: Optional[bool] = None
+    bybit_api_key: Optional[str] = Field(default=None, max_length=120)
+    bybit_api_secret: Optional[str] = Field(default=None, max_length=200)
+    bybit_env: Optional[str] = None
+    bybit_base_url: Optional[str] = Field(default=None, max_length=200)
     clear_ai_api_key: bool = False
     clear_telegram_bot_token: bool = False
+    clear_bybit: bool = False
 
 
 def mask(v: str) -> str:
@@ -54,26 +84,30 @@ class ConfigStore:
     def __init__(self, db):
         self.db = db
         self.cfg = AppConfig()
+        self.listeners = []
 
     async def load(self):
         doc = await self.db.config.find_one({"_id": "main"})
         if not doc:
             doc = {"_id": "main", **AppConfig(password_hash=hash_password(os.environ["INITIAL_PASSWORD"])).model_dump()}
             await self.db.config.insert_one(doc)
-        self.cfg = AppConfig.model_validate(doc)
-        self._apply()
+        self.cfg = AppConfig.model_validate({k: (_dec(v) if k in ENCRYPTED_FIELDS else v) for k, v in doc.items()})
+        await self._apply()
 
     async def update(self, patch: dict):
         data = self.cfg.model_dump()
         data.update(patch)
         self.cfg = AppConfig.model_validate(data)
-        await self.db.config.update_one({"_id": "main"}, {"$set": patch}, upsert=True)
-        self._apply()
+        stored = {k: (_enc(v) if k in ENCRYPTED_FIELDS else v) for k, v in patch.items()}
+        await self.db.config.update_one({"_id": "main"}, {"$set": stored}, upsert=True)
+        await self._apply()
 
-    def _apply(self):
+    async def _apply(self):
         c = self.cfg
         ai_advisor.configure(c.ai_api_key or os.environ.get("EMERGENT_LLM_KEY", ""), c.ai_provider, c.ai_model)
         notify.configure(c.telegram_enabled, c.telegram_bot_token, c.telegram_chat_id, c.telegram_alerts)
+        for fn in self.listeners:
+            await fn(c)
 
     def public(self) -> dict:
         d = self.cfg.model_dump(exclude={"password_hash", "token_version"})
@@ -81,12 +115,15 @@ class ConfigStore:
             d[k] = mask(d[k])
         d["ai_key_source"] = "custom" if self.cfg.ai_api_key else "emergent"
         d["ai_providers"] = AI_PROVIDERS
+        d["bybit_envs"] = BYBIT_ENVS
+        d["bybit_configured"] = bool(self.cfg.bybit_api_key and self.cfg.bybit_api_secret)
         d["telegram_ready"] = notify.is_on()
+        d["secrets_encrypted"] = _fernet is not None
         return d
 
     def patch_from(self, body: ConfigUpdate) -> dict:
         patch = {}
-        for k, v in body.model_dump(exclude={"clear_ai_api_key", "clear_telegram_bot_token"}).items():
+        for k, v in body.model_dump(exclude={"clear_ai_api_key", "clear_telegram_bot_token", "clear_bybit"}).items():
             if v is None or (k in SECRET_FIELDS and (v == "" or v.startswith("••"))):
                 continue
             patch[k] = v.strip() if isinstance(v, str) else v
@@ -94,8 +131,16 @@ class ConfigStore:
             patch["ai_api_key"] = ""
         if body.clear_telegram_bot_token:
             patch["telegram_bot_token"] = ""
+        if body.clear_bybit:
+            patch.update(bybit_api_key="", bybit_api_secret="", bybit_verified_at=None, bybit_verified_equity=None)
         if "ai_provider" in patch and patch["ai_provider"] not in AI_PROVIDERS:
             raise ValueError("Proveedor de IA inválido")
+        if "bybit_env" in patch and patch["bybit_env"] not in BYBIT_ENVS:
+            raise ValueError("Entorno de Bybit inválido")
+        if "bybit_base_url" in patch and patch["bybit_base_url"] and not patch["bybit_base_url"].startswith("http"):
+            raise ValueError("El endpoint personalizado debe empezar por http(s)://")
+        if any(k in patch for k in ("bybit_api_key", "bybit_api_secret", "bybit_env", "bybit_base_url")):
+            patch.update(bybit_verified_at=None, bybit_verified_equity=None)
         if "auto_review_frequency" in patch and patch["auto_review_frequency"] not in ("daily", "weekly"):
             raise ValueError("Frecuencia inválida")
         if "telegram_alerts" in patch:

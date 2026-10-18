@@ -9,10 +9,17 @@ const TD = ({ children, right, className = "" }) => (
   <td className={`whitespace-nowrap px-3 py-2.5 ${right ? "text-right" : ""} ${className}`}>{children}</td>
 );
 
-export default function PositionsTable({ positions, onClose }) {
+export default function PositionsTable({ positions, onClose, onCloseAll }) {
   if (!positions.length) return <Empty testId="positions-empty" text="Sin posiciones abiertas. El bot abrirá operaciones cuando una señal pase los filtros de riesgo y la IA." />;
   return (
     <div className="overflow-x-auto thin-scroll">
+      {onCloseAll && positions.length > 1 && (
+        <div className="flex justify-end border-b border-[#1E293B] px-3 py-1.5">
+          <button data-testid="close-all-positions-button" onClick={onCloseAll} className="rounded-sm border border-rose-500/40 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-rose-300 transition-colors hover:bg-rose-500/10">
+            Cerrar todas ({positions.length})
+          </button>
+        </div>
+      )}
       <table data-testid="positions-table" className="w-full text-sm">
         <thead className="border-b border-[#1E293B]">
           <tr><TH>Símbolo</TH><TH>Lado</TH><TH right>Entrada</TH><TH right>Marca</TH><TH right>SL</TH><TH right>TP</TH><TH right>Tamaño</TH><TH right>Margen</TH><TH right>PnL</TH><TH right>Acción</TH></tr>
@@ -21,7 +28,7 @@ export default function PositionsTable({ positions, onClose }) {
           {positions.map((p) => {
             const pct = p.margin ? (p.unrealized_pnl / p.margin) * 100 : 0;
             return (
-              <tr key={p.id} data-testid={`position-row-${p.id}`} className="border-b border-[#1E293B]/60 transition-colors hover:bg-[#111827]">
+              <tr key={p.id} data-testid={`position-row-${p.id}`} className={`border-b border-[#1E293B]/60 transition-colors hover:bg-[#111827] ${p.live ? "bg-rose-500/[0.03]" : ""}`}>
                 <TD>
                   <p className="font-display text-[13px] font-semibold text-slate-100">{p.symbol}</p>
                   <p className="text-[10px] text-slate-500">{STRATEGY_LABELS[p.strategy]} · {p.leverage}x</p>

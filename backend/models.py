@@ -124,6 +124,9 @@ class Position(BaseDocument):
     unrealized_pnl: float = 0.0
     breakeven: bool = False
     signal_id: Optional[str] = None
+    live: bool = False
+    order_id: Optional[str] = None
+    link_id: Optional[str] = None
     opened_at: str = Field(default_factory=now_iso)
 
 
@@ -141,6 +144,7 @@ class Trade(BaseDocument):
     fees: float
     reason: str
     opened_at: str
+    live: bool = False
     closed_at: str = Field(default_factory=now_iso)
 
 
@@ -197,3 +201,16 @@ class OptimizeRequest(BaseModel):
 class AdviseRequest(BaseModel):
     scope: str
     optimizer_results: Optional[List[Dict[str, Any]]] = None
+
+
+class BybitTestRequest(BaseModel):
+    api_key: str = ""
+    api_secret: str = ""
+    env: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class ModeRequest(BaseModel):
+    mode: str
+    confirm: str = ""
+    reset_stats: bool = True
