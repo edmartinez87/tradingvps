@@ -11,7 +11,7 @@ from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trai
 from ai_advisor import evaluate_signal
 
 logger = logging.getLogger("engine")
-INITIAL_BALANCE = 10000.0
+INITIAL_BALANCE = 500.0
 
 
 def today() -> str:
@@ -51,11 +51,11 @@ class TradingEngine:
             t.cancel()
         await self.market.client.aclose()
 
-    async def _new_account(self):
+    async def _new_account(self, initial: float = INITIAL_BALANCE):
         await self.db.account.replace_one({"_id": "main"}, {
-            "_id": "main", "initial_balance": INITIAL_BALANCE, "balance": INITIAL_BALANCE,
-            "peak_equity": INITIAL_BALANCE, "max_drawdown": 0.0, "day": today(),
-            "day_start_equity": INITIAL_BALANCE, "daily_paused": False, "created_at": now_iso(),
+            "_id": "main", "initial_balance": initial, "balance": initial,
+            "peak_equity": initial, "max_drawdown": 0.0, "day": today(),
+            "day_start_equity": initial, "daily_paused": False, "created_at": now_iso(),
         }, upsert=True)
 
     async def get_settings(self) -> Settings:
@@ -85,12 +85,13 @@ class TradingEngine:
         await self.db.settings.update_one({"_id": "main"}, {"$set": {"bot_running": False}})
         await self.log("INFO", "Bot DETENIDO · las posiciones abiertas siguen protegidas por SL/TP")
 
-    async def reset_account(self):
+    async def reset_account(self, initial: float = None):
+        initial = initial or INITIAL_BALANCE
         async with self.lock:
             for col in ("positions", "trades", "signals", "equity"):
                 await self.db[col].delete_many({})
-            await self._new_account()
-        await self.log("INFO", f"Cuenta paper reiniciada a ${INITIAL_BALANCE:,.0f} USDT")
+            await self._new_account(initial)
+        await self.log("INFO", f"Cuenta paper reiniciada a ${initial:,.0f} USDT")
 
     async def account_summary(self) -> dict:
         acc = await self.db.account.find_one({"_id": "main"})
@@ -186,9 +187,9 @@ class TradingEngine:
             sl = entry - (sig["price"] - sig["sl"])
             tp = entry + (sig["tp"] - sig["price"])
             s = await self.account_summary()
-            qty, margin = position_size(s["equity"], s["available"], settings.risk_per_trade, entry, sl, settings.leverage)
+            qty, margin = position_size(s["equity"], s["available"], settings.risk_per_trade, entry, sl, settings.leverage, symbol)
             if qty <= 0 or margin < 1:
-                await self.log("RISK", f"{symbol}: margen insuficiente para abrir posición")
+                await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit o margen insuficiente · aumenta capital o riesgo")
                 return None
             fee = entry * qty * FEE_RATE
             pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,

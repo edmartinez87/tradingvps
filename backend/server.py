@@ -12,7 +12,7 @@ from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 from bson import ObjectId  # noqa: E402
 from models import (  # noqa: E402
-    Position, Trade, Signal, LogEntry, SettingsUpdate, BacktestRequest,
+    Position, Trade, Signal, LogEntry, SettingsUpdate, BacktestRequest, ResetRequest, PlanRequest,
     AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS,
 )
 from engine import TradingEngine  # noqa: E402
@@ -20,6 +20,8 @@ from market import TF_SECONDS  # noqa: E402
 from indicators import build_df  # noqa: E402
 from strategies import STRATEGY_INFO  # noqa: E402
 from backtest import run_backtest  # noqa: E402
+from performance import performance  # noqa: E402
+from plan import backtest_stats, build_plan  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -191,9 +193,30 @@ async def account():
 
 
 @api.post("/account/reset")
-async def reset_account():
-    await engine.reset_account()
+async def reset_account(body: ResetRequest = None):
+    await engine.reset_account(body.initial_balance if body else None)
     return await engine.account_summary()
+
+
+@api.get("/performance")
+async def get_performance():
+    return await performance(db)
+
+
+_plan_cache = {}
+
+
+@api.post("/plan")
+async def growth_plan(req: PlanRequest):
+    settings = await engine.get_settings()
+    key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade,
+           settings.leverage, settings.trailing_enabled, settings.max_positions, req.initial_capital)
+    hit = _plan_cache.get(key)
+    if not hit or time.time() - hit["ts"] > 300:
+        hit = {"ts": time.time(), "data": await backtest_stats(engine.market.fetch_klines, settings, req.initial_capital)}
+        _plan_cache.clear()
+        _plan_cache[key] = hit
+    return build_plan(req.model_dump(), hit["data"])
 
 
 @api.delete("/logs")
@@ -207,7 +230,9 @@ async def backtest(req: BacktestRequest):
     if req.symbol not in AVAILABLE_SYMBOLS or req.timeframe not in TIMEFRAMES or req.strategy not in STRATEGY_KEYS:
         raise HTTPException(400, "Parámetros inválidos")
     df = build_df(await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60))
-    result = run_backtest(df, req.strategy, req.risk_per_trade, req.leverage)
+    acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
+    result = run_backtest(df, req.strategy, req.risk_per_trade, req.leverage, initial=acc["initial_balance"], symbol=req.symbol)
+    result.pop("r_multiples", None)
     return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, **result}
 
 

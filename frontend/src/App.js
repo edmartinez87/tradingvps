@@ -13,6 +13,8 @@ import BotPanel from "@/components/bot/BotPanel";
 import PositionsTable from "@/components/bot/PositionsTable";
 import TradeHistory from "@/components/bot/TradeHistory";
 import Backtest from "@/components/bot/Backtest";
+import Performance from "@/components/bot/Performance";
+import GrowthPlan from "@/components/bot/GrowthPlan";
 import AiSignals from "@/components/bot/AiSignals";
 import SettingsPanel from "@/components/bot/SettingsPanel";
 import Terminal from "@/components/bot/Terminal";
@@ -84,6 +86,8 @@ function Dashboard() {
                   <TabsTrigger data-testid="tab-positions" value="positions" className={TAB_CLS}>Posiciones ({data.positions.length})</TabsTrigger>
                   <TabsTrigger data-testid="tab-history" value="history" className={TAB_CLS}>Historial</TabsTrigger>
                   <TabsTrigger data-testid="tab-backtest" value="backtest" className={TAB_CLS}>Backtest</TabsTrigger>
+                  <TabsTrigger data-testid="tab-performance" value="performance" className={TAB_CLS}>Rendimiento</TabsTrigger>
+                  <TabsTrigger data-testid="tab-plan" value="plan" className={TAB_CLS}>Plan de crecimiento</TabsTrigger>
                 </TabsList>
               </div>
               <TabsContent value="positions" className="mt-0">
@@ -91,6 +95,8 @@ function Dashboard() {
               </TabsContent>
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
               <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} /></TabsContent>
+              <TabsContent value="performance" className="mt-0"><Performance tradeCount={data.account.total_trades} /></TabsContent>
+              <TabsContent value="plan" className="mt-0"><GrowthPlan account={data.account} /></TabsContent>
             </Tabs>
           </Panel>
           <AiSignals signals={data.signals} />

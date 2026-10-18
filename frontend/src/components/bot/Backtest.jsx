@@ -47,7 +47,7 @@ export default function Backtest({ meta, settings }) {
   return (
     <div data-testid="backtest-panel" className="space-y-4 p-4">
       <p className="text-[12px] leading-relaxed text-slate-400">
-        Evalúa la estrategia sobre las últimas 1.000 velas reales (sin filtro IA ni TF superior) con el mismo plan de riesgo: {settings.risk_per_trade}% por operación, {settings.leverage}x, comisiones 0.055% y trailing stop.
+        Evalúa la estrategia sobre las últimas 1.000 velas reales (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes mínimos de Bybit y el mismo plan de riesgo: {settings.risk_per_trade}% por operación, {settings.leverage}x, comisiones 0.055% y trailing stop.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Par" value={form.symbol} onChange={set("symbol")} options={meta?.symbols || []} testId="backtest-symbol-select" />
