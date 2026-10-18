@@ -1,0 +1,102 @@
+import { useEffect, useState } from "react";
+import { SlidersHorizontal, Save } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Panel } from "./Panel";
+import { STRATEGY_LABELS } from "@/lib/api";
+
+const NUMS = [
+  { k: "risk_per_trade", label: "Riesgo por operación (%)", step: 0.1, min: 0.1, max: 5 },
+  { k: "max_positions", label: "Máx. posiciones", step: 1, min: 1, max: 10 },
+  { k: "leverage", label: "Apalancamiento (x)", step: 1, min: 1, max: 20 },
+  { k: "daily_loss_limit", label: "Límite pérdida diaria (%)", step: 0.5, min: 1, max: 20 },
+  { k: "ai_min_confidence", label: "Confianza mínima IA (%)", step: 5, min: 0, max: 100 },
+  { k: "scan_interval_sec", label: "Intervalo escaneo (s)", step: 10, min: 30, max: 900 },
+];
+const TOGGLES = [
+  { k: "ai_enabled", label: "Confirmación con Claude Sonnet", hint: "La IA aprueba o rechaza cada señal" },
+  { k: "trailing_enabled", label: "Breakeven + trailing stop", hint: "BE a +1R, trailing ATR desde +1.5R" },
+  { k: "htf_filter", label: "Filtro de temporalidad superior", hint: "No operar contra la tendencia mayor" },
+];
+
+const Sel = ({ label, value, onChange, options, render, testId }) => (
+  <div>
+    <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">{label}</p>
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger data-testid={testId} className="h-9 border-[#1E293B] bg-[#07090E] font-mono text-xs"><SelectValue /></SelectTrigger>
+      <SelectContent className="border-[#1E293B] bg-[#0D111A]">
+        {options.map((o) => <SelectItem key={o} value={o} className="font-mono text-xs">{render ? render(o) : o}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  </div>
+);
+
+export default function SettingsPanel({ settings, meta, onSave }) {
+  const [form, setForm] = useState(settings);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => { if (!dirty) setForm(settings); }, [settings, dirty]);
+  const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); };
+  const toggleSym = (s) => set("symbols", form.symbols.includes(s) ? form.symbols.filter((x) => x !== s) : [...form.symbols, s]);
+
+  const save = async () => {
+    setSaving(true);
+    const body = { ...form };
+    NUMS.forEach(({ k }) => { body[k] = Number(body[k]); });
+    delete body.bot_running;
+    const ok = await onSave(body);
+    setSaving(false);
+    if (ok) setDirty(false);
+  };
+
+  return (
+    <Panel testId="settings-panel" title="Estrategia y riesgo" icon={SlidersHorizontal} className="lg:col-span-5" bodyClass="p-4 space-y-4" delay={320}
+      actions={
+        <Button data-testid="settings-save-button" size="sm" onClick={save} disabled={!dirty || saving || !form.symbols.length}
+          className="h-7 bg-amber-500 font-mono text-[10px] font-bold uppercase tracking-wider text-[#07090E] hover:bg-amber-400">
+          <Save className="mr-1 h-3 w-3" /> {saving ? "Guardando" : "Guardar"}
+        </Button>
+      }>
+      <div className="grid grid-cols-2 gap-3">
+        <Sel label="Estrategia" value={form.strategy} onChange={(v) => set("strategy", v)} options={meta?.strategies || []} render={(o) => STRATEGY_LABELS[o]} testId="settings-strategy-select" />
+        <Sel label="Temporalidad" value={form.timeframe} onChange={(v) => set("timeframe", v)} options={meta?.timeframes || []} testId="settings-timeframe-select" />
+      </div>
+      <div>
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">Pares a operar ({form.symbols.length})</p>
+        <div className="flex flex-wrap gap-1.5">
+          {(meta?.symbols || []).map((s) => {
+            const on = form.symbols.includes(s);
+            return (
+              <button key={s} data-testid={`settings-symbol-${s}`} onClick={() => toggleSym(s)}
+                className={`rounded-sm border px-2 py-1 font-mono text-[10px] transition-colors ${on ? "border-amber-500/60 bg-amber-500/15 text-amber-300" : "border-[#1E293B] text-slate-500 hover:text-slate-200"}`}>
+                {s.replace("USDT", "")}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {NUMS.map((n) => (
+          <div key={n.k}>
+            <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">{n.label}</p>
+            <Input data-testid={`settings-${n.k.replace(/_/g, "-")}-input`} type="number" step={n.step} min={n.min} max={n.max} value={form[n.k]}
+              onChange={(e) => set(n.k, e.target.value)} className="num h-9 border-[#1E293B] bg-[#07090E] text-xs" />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2.5">
+        {TOGGLES.map((t) => (
+          <label key={t.k} className="flex cursor-pointer items-center justify-between gap-3 rounded-sm border border-[#1E293B] px-3 py-2 transition-colors hover:border-[#334155]">
+            <span>
+              <span className="block text-[13px] text-slate-200">{t.label}</span>
+              <span className="block text-[11px] text-slate-500">{t.hint}</span>
+            </span>
+            <Switch data-testid={`settings-${t.k.replace(/_/g, "-")}-switch`} checked={form[t.k]} onCheckedChange={(v) => set(t.k, v)} />
+          </label>
+        ))}
+      </div>
+    </Panel>
+  );
+}

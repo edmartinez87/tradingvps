@@ -1,0 +1,150 @@
+{
+  "project_title": "Bybit AI Crypto Trading Bot - Command Center Dashboard",
+  "language": "es",
+  "theme": "dark",
+  "context_type": "DASHBOARD",
+  "emotional_tone": "Tactical Precision, High-Frequency Command Center, Algorithmic Trust",
+  "forbidden_colors": ["#1B93A4", "#7351B7"],
+  "forbidden_fonts": ["Space Grotesk", "Inter"],
+  "typography": {
+    "headings": {
+      "font_family": "Outfit, sans-serif",
+      "font_import": "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;0,700;1,400&family=Outfit:wght@400;600;700;800;900&display=swap",
+      "h1": "text-2xl sm:text-3xl font-extrabold tracking-tight uppercase",
+      "h2": "text-xl sm:text-2xl font-bold tracking-tight",
+      "h3": "text-base sm:text-lg font-semibold tracking-normal",
+      "h4": "text-sm sm:text-base font-semibold"
+    },
+    "data_and_numbers": {
+      "font_family": "'IBM Plex Mono', monospace",
+      "usage": "Use for all prices, PnL, percentages, trade volumes, indicators (RSI, MACD, EMA), timestamps, and logs for perfect tabular alignment."
+    },
+    "body": {
+      "font_family": "Outfit, sans-serif",
+      "size": "text-sm",
+      "line_height": "leading-relaxed"
+    }
+  },
+  "colors": {
+    "archetype": "TACTICAL OBSIDIAN & CYBER VOLT (High-Density Professional Trading)",
+    "palette": {
+      "background": "#07090E",
+      "card_bg": "#0D111A",
+      "card_border": "#1E293B",
+      "card_hover_border": "#334155",
+      "accent_primary": "#F7A600",
+      "accent_primary_hover": "#FFB82E",
+      "bullish_green": "#10B981",
+      "bullish_green_glow": "rgba(16, 185, 129, 0.2)",
+      "bearish_red": "#EF4444",
+      "bearish_red_glow": "rgba(239, 68, 68, 0.2)",
+      "ai_purple_brand": "#8B5CF6",
+      "ai_purple_bg": "rgba(139, 92, 246, 0.12)",
+      "neutral_text": "#F8FAFC",
+      "muted_text": "#94A3B8",
+      "subtle_divider": "#1E293B"
+    },
+    "status_badges": {
+      "running": "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30",
+      "stopped": "bg-rose-500/10 text-rose-400 border border-rose-500/30",
+      "ai_evaluating": "bg-purple-500/10 text-purple-400 border border-purple-500/30",
+      "paper_trading": "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+    }
+  },
+  "visual_enhancers": {
+    "border_style": "1px solid hairline grid borders using #1E293B with 0px or small 4px rounded corners (rounded-md max)",
+    "glassmorphism": "backdrop-blur-md bg-[#0D111A]/90 border border-[#1E293B]",
+    "terminal_scanner": "Scanline subtle linear gradient background on event log panel with dark monospace green/amber text",
+    "glow_effects": "Subtle box-shadow drop glows on bullish/bearish indicator badges (0 0 10px rgba(16,185,129,0.15))"
+  },
+  "grids": {
+    "layout_mode": "MODE B: High Density Grid (Dashboard / Analytics)",
+    "base_grid": "grid grid-cols-1 md:grid-cols-4 lg:grid-cols-12 gap-4 p-4 md:p-6",
+    "panel_spans": {
+      "header_status_bar": "col-span-full",
+      "watchlist_panel": "col-span-12 lg:col-span-3 row-span-2",
+      "chart_hero_panel": "col-span-12 lg:col-span-6 row-span-2",
+      "bot_control_wallet_panel": "col-span-12 lg:col-span-3 row-span-2",
+      "positions_table": "col-span-12 lg:col-span-8",
+      "ai_signals_log": "col-span-12 lg:col-span-4",
+      "trade_history": "col-span-12 lg:col-span-7",
+      "strategy_settings": "col-span-12 lg:col-span-5",
+      "terminal_log": "col-span-full"
+    }
+  },
+  "component_structure": {
+    "header": {
+      "title": "Bybit AI Trading Bot - Panel de Control",
+      "badge": "PAPER TRADING EN VIVO (SIN CLAVES API)",
+      "controls": "Bot Status Switch (ON/OFF), Daily Loss Warning Indicator, Next Scan Timer, Reset Paper Wallet Button"
+    },
+    "paper_wallet_summary": {
+      "kpi_cards": [
+        "Balance Total ($)",
+        "Equidad / Valor Neto ($)",
+        "PnL No Realizado ($ y %)",
+        "PnL Diario ($ y %)",
+        "Tasa de Acierto / Win Rate (%)",
+        "Total de Operaciones",
+        "Máximo Sorteo / Max Drawdown (%)"
+      ]
+    },
+    "watchlist": {
+      "columns": ["Par / Símbolo", "Precio USDT", "Cambio 24h", "Señal Técnica (EMA/RSI/MACD)"],
+      "pairs": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "AVAXUSDT", "LINKUSDT", "NEARUSDT"]
+    },
+    "chart": {
+      "type": "Candlestick price chart + EMA (9, 21, 200) overlays + RSI (14) indicator sub-panel + Trade markers (COMPRA/VENTA/TP/SL)"
+    },
+    "positions_table": {
+      "columns": ["Símbolo", "Lado (Long/Short)", "Entrada", "Precio Marca", "SL", "TP", "Apalancamiento", "PnL No Realizado", "Acción (Cerrar)"]
+    },
+    "ai_signal_log": {
+      "features": "Claude Sonnet confirmation card showing evaluate status (Aprobada / Rechazada), Confidence Score %, Technical Reasoning narrative in Spanish, and Risk Assessment."
+    },
+    "strategy_risk_settings": {
+      "fields": [
+        "Estrategia (Multi-trend EMA+RSI+MACD vs Mean Reversion Bollinger)",
+        "Riesgo por Operación (Defecto 1%)",
+        "Máx Posiciones Simultáneas (Defecto 3)",
+        "Apalancamiento (Defecto 3x)",
+        "Límite de Pérdida Diaria (Defecto 5%)",
+        "Temporalidad (1m, 5m, 15m, 1h, 4h)",
+        "Confirmación IA con Claude Sonnet (Toggle ON/OFF)"
+      ]
+    },
+    "terminal_log": {
+      "features": "Console stream showing timestamped logs [INFO], [SIGNAL], [ORDER], [AI_EVAL], [RISK_CHECK], clear logs button."
+    }
+  },
+  "motion": {
+    "micro_interactions": "Smooth transition on tab hover, pulse indicator light on active bot scanner, real-time value flash (green text flash on price tick up, red flash on tick down).",
+    "reduced_motion": "Respect prefers-reduced-motion media query"
+  },
+  "accessibility": {
+    "apca_contrast": "Ensure high contrast on all dark surfaces (>4.5:1 text to bg)",
+    "focus_states": "ring-2 ring-amber-500 ring-offset-2 ring-offset-[#07090E]",
+    "data_test_id": "MANDATORY on all key interactive elements, input fields, action buttons, table rows, and status badges"
+  },
+  "image_urls": {
+    "bybit_logo_badge": "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=100&auto=format&fit=crop&q=80",
+    "crypto_abstract_bg": "https://images.unsplash.com/photo-1642543492481-44e81e3914a7?w=800&auto=format&fit=crop&q=80"
+  },
+  "instructions_to_main_agent": [
+    "Implement the trading bot UI in Spanish ('Bot en Ejecución', 'Detenido', 'Posiciones Abiertas', 'Historial de Trades', 'Evaluación de IA Claude', etc.).",
+    "Default to dark mode styling with crisp #1E293B hairline borders and #07090E background.",
+    "Do NOT useSpace Grotesk or Inter for headings. Use Outfit for headings and IBM Plex Mono for all numerical data.",
+    "Do NOT use #1B93A4 (teal). Use emerald-500 for bullish/long and rose-500 for bearish/short, amber-500 for Bybit/paper indicators, purple-500 for Claude AI features.",
+    "Ensure all interactive components (buttons, switches, selects, inputs, table rows) have unambiguous data-testid attributes.",
+    "Connect to the FastAPI backend endpoints for starting/stopping bot, fetching live ticker prices, viewing positions, updating risk parameters, evaluating AI signals, and resetting paper balance."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Avoid generic centered layouts, simplistic gradients, and uniform styling.",
+    "Use layered design elements with z-index hierarchy and glassmorphism (backdrop-blur-md).",
+    "DO NOT apply universal transition 'transition: all'. Add specific transitions for interactive elements.",
+    "Do NOT center align the app container text.",
+    "NEVER use AI assistant emoji characters like 🤖🧠💭💡🔮🎯 for icons. Use Phosphor or Lucide SVG icons instead.",
+    "All interactive elements MUST include data-testid attribute in kebab-case."
+  ]
+}
