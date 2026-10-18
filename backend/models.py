@@ -46,7 +46,23 @@ class Settings(BaseModel):
     scan_interval_sec: int = 60
     trailing_enabled: bool = True
     htf_filter: bool = True
+    symbol_params: Dict[str, Dict[str, float]] = {}
+    plan_scenario: str = "base"
+    plan_target_monthly: float = 1000.0
+    plan_monthly_deposit: float = 0.0
+    plan_phase: int = 0
     bot_running: bool = False
+
+    @field_validator("symbol_params")
+    @classmethod
+    def _params(cls, v):
+        out = {}
+        for sym, p in (v or {}).items():
+            if sym in AVAILABLE_SYMBOLS and isinstance(p, dict):
+                clean = {k: float(p[k]) for k in ("sl_atr", "tp_atr", "atr_period") if p.get(k) is not None}
+                if clean and 0.5 <= clean.get("sl_atr", 1.5) <= 5 and 1 <= clean.get("tp_atr", 3) <= 10 and 5 <= clean.get("atr_period", 14) <= 50:
+                    out[sym] = clean
+        return out
 
     @field_validator("strategy")
     @classmethod
@@ -84,6 +100,11 @@ class SettingsUpdate(BaseModel):
     scan_interval_sec: Optional[int] = Field(default=None, ge=30, le=900)
     trailing_enabled: Optional[bool] = None
     htf_filter: Optional[bool] = None
+    symbol_params: Optional[Dict[str, Dict[str, float]]] = None
+    plan_scenario: Optional[str] = None
+    plan_target_monthly: Optional[float] = Field(default=None, ge=50, le=10_000_000)
+    plan_monthly_deposit: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    plan_phase: Optional[int] = Field(default=None, ge=0, le=4)
 
 
 class Position(BaseDocument):
@@ -167,3 +188,12 @@ class PlanRequest(BaseModel):
     monthly_deposit: float = Field(default=0, ge=0, le=1_000_000)
     target_monthly: float = Field(default=1000, ge=50, le=10_000_000)
     scenario: str = "base"
+
+
+class OptimizeRequest(BaseModel):
+    symbol: str
+
+
+class AdviseRequest(BaseModel):
+    scope: str
+    optimizer_results: Optional[List[Dict[str, Any]]] = None

@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 from bson import ObjectId  # noqa: E402
 from models import (  # noqa: E402
     Position, Trade, Signal, LogEntry, SettingsUpdate, BacktestRequest, ResetRequest, PlanRequest,
-    AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS,
+    OptimizeRequest, AdviseRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS,
 )
 from engine import TradingEngine  # noqa: E402
 from market import TF_SECONDS  # noqa: E402
@@ -21,7 +21,9 @@ from indicators import build_df  # noqa: E402
 from strategies import STRATEGY_INFO  # noqa: E402
 from backtest import run_backtest  # noqa: E402
 from performance import performance  # noqa: E402
-from plan import backtest_stats, build_plan  # noqa: E402
+from plan import backtest_stats, build_plan, SCENARIOS  # noqa: E402
+from optimizer import optimize  # noqa: E402
+from ai_advisor import advise  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -77,7 +79,7 @@ async def dashboard():
     return {
         "status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(),
         "positions": positions, "trades": trades, "signals": signals, "logs": logs,
-        "watchlist": watchlist, "equity": await _equity_curve(),
+        "watchlist": watchlist, "equity": await _equity_curve(), "checkin": await engine.checkin(settings),
     }
 
 
@@ -206,17 +208,84 @@ async def get_performance():
 _plan_cache = {}
 
 
+async def _plan_stats(settings, initial: float) -> dict:
+    key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade,
+           settings.leverage, settings.trailing_enabled, settings.max_positions, initial)
+    hit = _plan_cache.get(key)
+    if not hit or time.time() - hit["ts"] > 300:
+        hit = {"ts": time.time(), "data": await backtest_stats(engine.market.fetch_klines, settings, initial)}
+        _plan_cache.clear()
+        _plan_cache[key] = hit
+    return hit["data"]
+
+
 @api.post("/plan")
 async def growth_plan(req: PlanRequest):
     settings = await engine.get_settings()
-    key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade,
-           settings.leverage, settings.trailing_enabled, settings.max_positions, req.initial_capital)
-    hit = _plan_cache.get(key)
-    if not hit or time.time() - hit["ts"] > 300:
-        hit = {"ts": time.time(), "data": await backtest_stats(engine.market.fetch_klines, settings, req.initial_capital)}
-        _plan_cache.clear()
-        _plan_cache[key] = hit
-    return build_plan(req.model_dump(), hit["data"])
+    if req.scenario not in SCENARIOS and req.scenario != "backtest":
+        req.scenario = "base"
+    if (settings.plan_scenario, settings.plan_target_monthly, settings.plan_monthly_deposit) != (req.scenario, req.target_monthly, req.monthly_deposit):
+        await engine.update_settings({"plan_scenario": req.scenario, "plan_target_monthly": req.target_monthly,
+                                      "plan_monthly_deposit": req.monthly_deposit})
+    return build_plan(req.model_dump(), await _plan_stats(settings, req.initial_capital))
+
+
+@api.get("/plan/checkin")
+async def plan_checkin():
+    return await engine.checkin()
+
+
+@api.post("/optimize")
+async def optimize_symbol(req: OptimizeRequest):
+    if req.symbol not in AVAILABLE_SYMBOLS:
+        raise HTTPException(400, "Símbolo inválido")
+    s = await engine.get_settings()
+    acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
+    klines = await engine.market.fetch_klines(req.symbol, s.timeframe, 1000, cache_sec=300)
+    res = optimize(klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"], req.symbol)
+    return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
+
+
+ALLOWED_AI_KEYS = {"symbols", "strategy", "risk_per_trade", "max_positions", "leverage", "ai_min_confidence",
+                   "trailing_enabled", "htf_filter", "symbol_params"}
+AI_CAPS = {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}
+
+
+@api.post("/ai/advise")
+async def ai_advise(req: AdviseRequest):
+    if req.scope not in ("optimizer", "plan"):
+        raise HTTPException(400, "Ámbito inválido")
+    settings = await engine.get_settings()
+    before = settings.model_dump(exclude={"bot_running"})
+    acc = await engine.account_summary()
+    ctx = {"settings_actuales": before, "cuenta": acc, "rendimiento_real": await performance(db),
+           "chequeo_plan": await engine.checkin(settings, acc)}
+    if req.scope == "optimizer":
+        ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (req.optimizer_results or [])]
+    else:
+        bt = await _plan_stats(settings, acc["initial_balance"])
+        ctx["backtest"] = {k: bt[k] for k in ("per_symbol", "by_strategy", "monte_carlo", "trades_per_month", "days")}
+    await engine.log("AI_EVAL", f"Claude analizando {'optimizador' if req.scope == 'optimizer' else 'plan'} y rendimiento real...")
+    try:
+        res = await advise(req.scope, ctx)
+    except Exception as e:
+        logger.exception("advise")
+        raise HTTPException(502, f"Error IA: {str(e)[:160]}")
+    patch = {k: v for k, v in res["changes"].items() if k in ALLOWED_AI_KEYS}
+    for k, cap in AI_CAPS.items():
+        if k in patch:
+            patch[k] = min(float(patch[k]), cap)
+    if "symbols" in patch and (not isinstance(patch["symbols"], list) or len([x for x in patch["symbols"] if x in AVAILABLE_SYMBOLS]) < 2):
+        patch.pop("symbols")
+    applied = {}
+    if patch:
+        try:
+            after = (await engine.update_settings(SettingsUpdate.model_validate(patch).model_dump())).model_dump(exclude={"bot_running"})
+            applied = {k: {"antes": before[k], "despues": after[k]} for k in patch if before.get(k) != after.get(k)}
+        except Exception as e:
+            res["notes"].append(f"Cambios propuestos no válidos y descartados: {str(e)[:120]}")
+    await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
+    return {**res, "applied": applied, "previous": {k: before[k] for k in applied}}
 
 
 @api.delete("/logs")

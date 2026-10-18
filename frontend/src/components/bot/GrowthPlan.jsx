@@ -8,6 +8,7 @@ import PlanScenarios from "./plan/PlanScenarios";
 import PlanProjection from "./plan/PlanProjection";
 import PlanPhases from "./plan/PlanPhases";
 import PlanMonteCarlo from "./plan/PlanMonteCarlo";
+import PlanCheckin from "./plan/PlanCheckin";
 
 const FIELDS = [
   { k: "initial_capital", label: "Capital inicial (USDT)", min: 50, step: 50 },
@@ -15,8 +16,11 @@ const FIELDS = [
   { k: "target_monthly", label: "Meta mensual (USDT)", min: 50, step: 100 },
 ];
 
-export default function GrowthPlan({ account }) {
-  const [form, setForm] = useState({ initial_capital: account.initial_balance, monthly_deposit: 0, target_monthly: 1000, scenario: "base" });
+export default function GrowthPlan({ account, settings, checkin, onSave, refresh }) {
+  const [form, setForm] = useState({
+    initial_capital: account.initial_balance, monthly_deposit: settings.plan_monthly_deposit,
+    target_monthly: settings.plan_target_monthly, scenario: settings.plan_scenario,
+  });
   const [res, setRes] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -25,12 +29,13 @@ export default function GrowthPlan({ account }) {
     try {
       const { data } = await http.post("/plan", body);
       setRes(data);
+      refresh?.();
     } catch (e) {
       toast.error(`Plan falló: ${errMsg(e)}`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refresh]);
 
   useEffect(() => { run(form); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -42,8 +47,9 @@ export default function GrowthPlan({ account }) {
 
   return (
     <div data-testid="growth-plan-panel" className="space-y-5 p-4">
+      {checkin && <PlanCheckin checkin={checkin} onRefresh={refresh} onAdvance={(phase, risk) => onSave({ plan_phase: phase, ...(risk ? { risk_per_trade: risk } : {}) })} />}
       <p className="text-[12px] leading-relaxed text-slate-400">
-        Plan de crecimiento compuesto: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios fijos son promedios mensuales realistas; el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias con datos reales (sin filtro IA).
+        Plan de crecimiento compuesto: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios fijos son promedios mensuales realistas; el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias con datos reales (sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         {FIELDS.map((f) => (

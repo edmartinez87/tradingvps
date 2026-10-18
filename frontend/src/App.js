@@ -15,6 +15,7 @@ import TradeHistory from "@/components/bot/TradeHistory";
 import Backtest from "@/components/bot/Backtest";
 import Performance from "@/components/bot/Performance";
 import GrowthPlan from "@/components/bot/GrowthPlan";
+import Optimizer from "@/components/bot/Optimizer";
 import AiSignals from "@/components/bot/AiSignals";
 import SettingsPanel from "@/components/bot/SettingsPanel";
 import Terminal from "@/components/bot/Terminal";
@@ -87,7 +88,13 @@ function Dashboard() {
                   <TabsTrigger data-testid="tab-history" value="history" className={TAB_CLS}>Historial</TabsTrigger>
                   <TabsTrigger data-testid="tab-backtest" value="backtest" className={TAB_CLS}>Backtest</TabsTrigger>
                   <TabsTrigger data-testid="tab-performance" value="performance" className={TAB_CLS}>Rendimiento</TabsTrigger>
-                  <TabsTrigger data-testid="tab-plan" value="plan" className={TAB_CLS}>Plan de crecimiento</TabsTrigger>
+                  <TabsTrigger data-testid="tab-optimizer" value="optimizer" className={TAB_CLS}>Optimizador</TabsTrigger>
+                  <TabsTrigger data-testid="tab-plan" value="plan" className={`${TAB_CLS} relative`}>
+                    Plan de crecimiento
+                    {(data.checkin?.ready_to_advance || data.checkin?.warnings?.length > 0) && (
+                      <span data-testid="tab-plan-alert" className={`pulse-dot absolute -right-1 -top-1 ${data.checkin.ready_to_advance ? "bg-emerald-400" : "bg-rose-400"}`} />
+                    )}
+                  </TabsTrigger>
                 </TabsList>
               </div>
               <TabsContent value="positions" className="mt-0">
@@ -96,7 +103,13 @@ function Dashboard() {
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
               <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} /></TabsContent>
               <TabsContent value="performance" className="mt-0"><Performance tradeCount={data.account.total_trades} /></TabsContent>
-              <TabsContent value="plan" className="mt-0"><GrowthPlan account={data.account} /></TabsContent>
+              <TabsContent value="optimizer" className="mt-0">
+                <Optimizer settings={data.settings} refresh={refresh} onSave={(body) => act(() => http.put("/settings", body), "Parámetros del bot actualizados")} />
+              </TabsContent>
+              <TabsContent value="plan" className="mt-0">
+                <GrowthPlan account={data.account} settings={data.settings} checkin={data.checkin} refresh={refresh}
+                  onSave={(body) => act(() => http.put("/settings", body), "Plan actualizado")} />
+              </TabsContent>
             </Tabs>
           </Panel>
           <AiSignals signals={data.signals} />

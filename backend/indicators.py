@@ -2,16 +2,16 @@ import numpy as np
 import pandas as pd
 
 
-def build_df(klines: list) -> pd.DataFrame:
+def build_df(klines: list, atr_period: int = 14) -> pd.DataFrame:
     df = pd.DataFrame(klines, columns=["ts", "open", "high", "low", "close", "volume"])
-    return add_indicators(df)
+    return add_indicators(df, atr_period)
 
 
 def _rma(s: pd.Series, n: int) -> pd.Series:
     return s.ewm(alpha=1 / n, adjust=False).mean()
 
 
-def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+def add_indicators(df: pd.DataFrame, atr_period: int = 14) -> pd.DataFrame:
     c, h, low, v = df["close"], df["high"], df["low"], df["volume"]
     for n in (9, 21, 50, 200):
         df[f"ema{n}"] = c.ewm(span=n, adjust=False).mean()
@@ -29,7 +29,8 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     prev_c = c.shift(1)
     tr = pd.concat([h - low, (h - prev_c).abs(), (low - prev_c).abs()], axis=1).max(axis=1)
-    df["atr"] = _rma(tr, 14)
+    df["atr"] = _rma(tr, atr_period)
+    atr14 = _rma(tr, 14).replace(0, np.nan)
 
     df["bb_mid"] = c.rolling(20).mean()
     std = c.rolling(20).std(ddof=0)
@@ -41,7 +42,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     up, down = h.diff(), -low.diff()
     plus_dm = pd.Series(np.where((up > down) & (up > 0), up, 0.0), index=df.index)
     minus_dm = pd.Series(np.where((down > up) & (down > 0), down, 0.0), index=df.index)
-    atr = df["atr"].replace(0, np.nan)
+    atr = atr14
     plus_di = 100 * _rma(plus_dm, 14) / atr
     minus_di = 100 * _rma(minus_dm, 14) / atr
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)

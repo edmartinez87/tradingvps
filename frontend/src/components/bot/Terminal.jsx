@@ -10,6 +10,7 @@ const LEVEL_CLS = {
   AI_EVAL: "text-purple-400",
   ORDER: "text-emerald-400",
   RISK: "text-orange-400",
+  PLAN: "text-teal-300",
   ERROR: "text-rose-400",
 };
 

@@ -95,8 +95,9 @@ def monte_carlo(r_multiples: list, trades_per_month: float, risk_pct: float, sim
 async def backtest_stats(fetch_klines, settings, initial: float) -> dict:
     per_symbol, agg, R, days = [], {}, [], 0.0
     for sym in settings.symbols:
-        df = build_df(await fetch_klines(sym, settings.timeframe, 1000, cache_sec=300))
-        res = run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, sym)
+        params = settings.symbol_params.get(sym) or {}
+        df = build_df(await fetch_klines(sym, settings.timeframe, 1000, cache_sec=300), int(params.get("atr_period", 14)))
+        res = run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, sym, params)
         R += res["r_multiples"]
         per_symbol.append({"symbol": sym, "return_pct": res["return_pct"], "trades": res["total_trades"],
                            "win_rate": res["win_rate"], "profit_factor": res["profit_factor"],
@@ -141,3 +142,73 @@ def build_plan(req: dict, bt: dict) -> dict:
     return {"inputs": req, "scenarios": scenarios, "selected": sel,
             "projection": project(req["initial_capital"], rates[sel], req["target_monthly"], req["monthly_deposit"]),
             "backtest": bt, "phase_info": PHASE_INFO, "withdraw_pct": WITHDRAW_PCT}
+
+
+PHASE_ORDER = ["validacion", "semilla", "crecimiento", "consolidacion", "ingreso"]
+PHASE_NAMES = {"validacion": "Validación en paper", **{k: v["name"] for k, v in PHASE_INFO.items()}}
+
+
+def _crit(label, value, target, kind="min", fmt="num"):
+    met = value >= target if kind == "min" else value <= target
+    if kind == "min":
+        pct = 100 if met else (value / target * 100 if target else 0)
+    else:
+        pct = 100 if met else (target / value * 100 if value else 100)
+    return {"label": label, "value": round(float(value), 2), "target": target, "kind": kind, "fmt": fmt,
+            "met": bool(met), "pct": round(max(0.0, min(100.0, float(pct))), 1)}
+
+
+def phase_criteria(key: str, s: dict, acc: dict, last30: dict, settings, target_capital: float, days: int) -> list:
+    pf = s["profit_factor"] if s["profit_factor"] is not None else (9.99 if s["realized_pnl"] > 0 else 0)
+    initial = acc["initial_balance"]
+    if key == "validacion":
+        return [_crit("Operaciones cerradas", s["total_trades"], 60), _crit("Profit factor", pf, 1.3),
+                _crit("Drawdown máximo (%)", s["max_drawdown"], 10, "max", "pct"), _crit("Días operando", days, 28)]
+    if key == "semilla":
+        return [_crit("Equidad (USDT)", s["equity"], round(2 * initial, 2), fmt="usd"),
+                _crit("Drawdown máximo (%)", s["max_drawdown"], 12, "max", "pct")]
+    if key == "crecimiento":
+        return [_crit("Equidad (USDT)", s["equity"], round(max(GROWTH_CAP, 2 * initial), 2), fmt="usd"),
+                _crit("Profit factor", pf, 1.3), _crit("Operaciones cerradas", s["total_trades"], 100)]
+    if key == "consolidacion":
+        return [_crit("Equidad (USDT)", s["equity"], round(target_capital, 2), fmt="usd")]
+    return [_crit("Ganancia últimos 30 días (USDT)", last30["pnl"], settings.plan_target_monthly, fmt="usd"),
+            _crit("Drawdown máximo (%)", s["max_drawdown"], 15, "max", "pct")]
+
+
+def build_checkin(s: dict, acc: dict, last30: dict, settings, rate_pct: float, days: int) -> dict:
+    rate = rate_pct / 100 if rate_pct and rate_pct > 0 else SCENARIOS["base"]["rate"] / 100
+    target_capital = settings.plan_target_monthly / (rate * PHASE_INFO["ingreso"]["risk"] * WITHDRAW_PCT / 100)
+    cur = PHASE_ORDER[min(settings.plan_phase, len(PHASE_ORDER) - 1)]
+    phases = []
+    for i, key in enumerate(PHASE_ORDER):
+        crit = phase_criteria(key, s, acc, last30, settings, target_capital, days)
+        status = "done" if i < settings.plan_phase else "current" if i == settings.plan_phase else "pending"
+        phases.append({"key": key, "index": i, "name": PHASE_NAMES[key], "status": status, "criteria": crit,
+                       "met": sum(c["met"] for c in crit), "total": len(crit),
+                       "risk": PHASE_INFO.get(key, {}).get("risk", 1.0)})
+    current = phases[settings.plan_phase]
+    ready = current["met"] == current["total"] and settings.plan_phase < len(PHASE_ORDER) - 1
+    goal_met = current["met"] == current["total"] and settings.plan_phase == len(PHASE_ORDER) - 1
+    warnings = []
+    if s["max_drawdown"] > 15:
+        warnings.append(f"Drawdown {s['max_drawdown']:.1f}% supera el 15%: reduce el riesgo a 1% y pausa retiros.")
+    if s["total_trades"] >= 30 and s["profit_factor"] is not None and s["profit_factor"] < 1:
+        warnings.append(f"Profit factor {s['profit_factor']} < 1 tras {s['total_trades']} operaciones: el sistema pierde dinero, revisa estrategias y pares.")
+    if s["daily_paused"]:
+        warnings.append("Límite de pérdida diaria alcanzado hoy: el bot no abrirá nuevas posiciones hasta mañana.")
+    nxt = PHASE_NAMES[PHASE_ORDER[settings.plan_phase + 1]] if ready else None
+    if goal_met:
+        message = f"Meta cumplida: {fmt_usd(last30['pnl'])} en los últimos 30 días. Mantén el plan de retiros del {WITHDRAW_PCT}%."
+    elif ready:
+        message = f"Cumples los {current['total']} criterios de «{current['name']}». Puedes avanzar a «{nxt}»."
+    else:
+        message = f"Fase actual: {current['name']} · {current['met']} de {current['total']} criterios cumplidos."
+    return {"phase": settings.plan_phase, "phase_key": cur, "phase_name": current["name"], "ready_to_advance": ready,
+            "goal_met": goal_met, "next_phase_name": nxt, "next_phase_risk": phases[settings.plan_phase + 1]["risk"] if ready else None,
+            "message": message, "phases": phases, "warnings": warnings, "days_running": days,
+            "target_capital": round(target_capital, 2), "last_30d": last30}
+
+
+def fmt_usd(v: float) -> str:
+    return f"${v:,.2f}"

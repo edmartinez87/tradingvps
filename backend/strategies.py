@@ -20,15 +20,19 @@ STRATEGY_INFO = {
 }
 
 
-def _signal(side, row, sl, tp, strategy, reasons, score, key_ts):
+def _signal(side, row, sl, tp, strategy, reasons, score, key_ts, tp_mode="atr"):
     return {
         "side": side, "strategy": strategy, "price": float(row["close"]), "sl": float(sl), "tp": float(tp),
-        "atr": float(row["atr"]), "score": score, "reasons": reasons, "key_ts": int(key_ts),
+        "atr": float(row["atr"]), "score": score, "reasons": reasons, "key_ts": int(key_ts), "tp_mode": tp_mode,
         "indicators": snapshot(row),
     }
 
 
-def trend_ema(df, i, htf=None) -> Optional[dict]:
+def _k(params, key, default):
+    return float((params or {}).get(key) or default)
+
+
+def trend_ema(df, i, htf=None, params=None) -> Optional[dict]:
     r = df.iloc[i]
     cross = None
     for j in range(i, i - 3, -1):
@@ -70,20 +74,22 @@ def trend_ema(df, i, htf=None) -> Optional[dict]:
     if score < 5:
         return None
     atr = r["atr"]
-    sl = r["close"] - 1.5 * atr if long else r["close"] + 1.5 * atr
-    tp = r["close"] + 3 * atr if long else r["close"] - 3 * atr
+    sl_k, tp_k = _k(params, "sl_atr", 1.5), _k(params, "tp_atr", 3.0)
+    sl = r["close"] - sl_k * atr if long else r["close"] + sl_k * atr
+    tp = r["close"] + tp_k * atr if long else r["close"] - tp_k * atr
     return _signal(side, r, sl, tp, "trend_ema", reasons, score, key_ts)
 
 
-def mean_reversion(df, i, htf=None) -> Optional[dict]:
+def mean_reversion(df, i, htf=None, params=None) -> Optional[dict]:
     r, p = df.iloc[i], df.iloc[i - 1]
     if r["adx"] >= 25:
         return None
     atr = r["atr"]
+    sl_k = _k(params, "sl_atr", 1.5)
     if p["close"] < p["bb_low"] and r["close"] > r["bb_low"] and p["rsi"] < 35:
-        side, sl, tp = "long", r["close"] - 1.5 * atr, r["bb_mid"]
+        side, sl, tp = "long", r["close"] - sl_k * atr, r["bb_mid"]
     elif p["close"] > p["bb_up"] and r["close"] < r["bb_up"] and p["rsi"] > 65:
-        side, sl, tp = "short", r["close"] + 1.5 * atr, r["bb_mid"]
+        side, sl, tp = "short", r["close"] + sl_k * atr, r["bb_mid"]
     else:
         return None
     if abs(tp - r["close"]) < abs(r["close"] - sl):
@@ -96,10 +102,10 @@ def mean_reversion(df, i, htf=None) -> Optional[dict]:
         "Objetivo en la media de 20 periodos",
     ]
     score = 4 + (1 if r["vol_ratio"] >= 1.0 else 0)
-    return _signal(side, r, sl, tp, "mean_reversion", reasons, score, r["ts"])
+    return _signal(side, r, sl, tp, "mean_reversion", reasons, score, r["ts"], tp_mode="fixed")
 
 
-def breakout_turtle(df, i, htf=None) -> Optional[dict]:
+def breakout_turtle(df, i, htf=None, params=None) -> Optional[dict]:
     r, p = df.iloc[i], df.iloc[i - 1]
     if r["vol_ratio"] < 1.5 or r["adx"] <= 20:
         return None
@@ -113,8 +119,9 @@ def breakout_turtle(df, i, htf=None) -> Optional[dict]:
     if htf is not None and htf == (-1 if long else 1):
         return None
     atr = r["atr"]
-    sl = r["close"] - 2 * atr if long else r["close"] + 2 * atr
-    tp = r["close"] + 4 * atr if long else r["close"] - 4 * atr
+    sl_k, tp_k = _k(params, "sl_atr", 2.0), _k(params, "tp_atr", 4.0)
+    sl = r["close"] - sl_k * atr if long else r["close"] + sl_k * atr
+    tp = r["close"] + tp_k * atr if long else r["close"] - tp_k * atr
     reasons = [
         f"Ruptura del {'máximo' if long else 'mínimo'} de 20 velas (Donchian)",
         f"Volumen {r['vol_ratio']:.2f}× el promedio",
@@ -128,10 +135,10 @@ def breakout_turtle(df, i, htf=None) -> Optional[dict]:
 STRATEGIES = {"trend_ema": trend_ema, "mean_reversion": mean_reversion, "breakout_turtle": breakout_turtle}
 
 
-def evaluate(df, i, strategy: str, htf=None) -> Optional[dict]:
+def evaluate(df, i, strategy: str, htf=None, params=None) -> Optional[dict]:
     keys = list(STRATEGIES) if strategy == "all" else [strategy]
     for k in keys:
-        sig = STRATEGIES[k](df, i, htf)
+        sig = STRATEGIES[k](df, i, htf, params)
         if sig:
             return sig
     return None

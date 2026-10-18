@@ -69,9 +69,10 @@ export default function SettingsPanel({ settings, meta, onSave }) {
           {(meta?.symbols || []).map((s) => {
             const on = form.symbols.includes(s);
             return (
-              <button key={s} data-testid={`settings-symbol-${s}`} onClick={() => toggleSym(s)}
-                className={`rounded-sm border px-2 py-1 font-mono text-[10px] transition-colors ${on ? "border-amber-500/60 bg-amber-500/15 text-amber-300" : "border-[#1E293B] text-slate-500 hover:text-slate-200"}`}>
+              <button key={s} data-testid={`settings-symbol-${s}`} onClick={() => toggleSym(s)} title={form.symbol_params?.[s] ? `SL ${form.symbol_params[s].sl_atr}× · TP ${form.symbol_params[s].tp_atr}× · ATR ${form.symbol_params[s].atr_period} (optimizado)` : undefined}
+                className={`relative rounded-sm border px-2 py-1 font-mono text-[10px] transition-colors ${on ? "border-amber-500/60 bg-amber-500/15 text-amber-300" : "border-[#1E293B] text-slate-500 hover:text-slate-200"}`}>
                 {s.replace("USDT", "")}
+                {form.symbol_params?.[s] && <span data-testid={`settings-symbol-${s}-optimized`} className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />}
               </button>
             );
           })}

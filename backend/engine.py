@@ -1,7 +1,7 @@
 import time
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 from models import Settings, Position, Trade, Signal, LogEntry, now_iso
 from market import MarketData, HTF
@@ -9,6 +9,7 @@ from indicators import build_df, trend_label, htf_trend
 from strategies import evaluate, STRATEGY_INFO
 from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
 from ai_advisor import evaluate_signal
+from plan import SCENARIOS, build_checkin
 
 logger = logging.getLogger("engine")
 INITIAL_BALANCE = 500.0
@@ -122,6 +123,25 @@ class TradingEngine:
             "open_positions": len(positions),
         }
 
+    async def checkin(self, settings: Settings = None, summary: dict = None) -> dict:
+        settings = settings or await self.get_settings()
+        s = summary or await self.account_summary()
+        acc = await self.db.account.find_one({"_id": "main"})
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        agg = await self.db.trades.aggregate([{"$match": {"closed_at": {"$gte": since}}}, {"$group": {
+            "_id": None, "n": {"$sum": 1}, "pnl": {"$sum": "$pnl"},
+            "wins": {"$sum": {"$cond": [{"$gt": ["$pnl", 0]}, 1, 0]}},
+            "gw": {"$sum": {"$cond": [{"$gt": ["$pnl", 0]}, "$pnl", 0]}},
+            "gl": {"$sum": {"$cond": [{"$lte": ["$pnl", 0]}, "$pnl", 0]}},
+        }}]).to_list(1)
+        a = agg[0] if agg else {"n": 0, "pnl": 0.0, "wins": 0, "gw": 0.0, "gl": 0.0}
+        last30 = {"trades": a["n"], "pnl": round(a["pnl"], 2), "win_rate": round(a["wins"] / a["n"] * 100, 1) if a["n"] else 0,
+                  "profit_factor": round(a["gw"] / abs(a["gl"]), 2) if a["gl"] else None,
+                  "return_pct": round(a["pnl"] / (s["equity"] - a["pnl"]) * 100, 2) if s["equity"] - a["pnl"] > 0 else 0}
+        days = (datetime.now(timezone.utc) - datetime.fromisoformat(acc["created_at"])).days
+        rate = SCENARIOS.get(settings.plan_scenario, SCENARIOS["base"])["rate"]
+        return build_checkin(s, acc, last30, settings, rate, days)
+
     async def _monitor_loop(self):
         while True:
             try:
@@ -164,6 +184,8 @@ class TradingEngine:
         if acc["day"] != today():
             upd.update(day=today(), day_start_equity=s["equity"], daily_paused=False)
             await self.log("INFO", f"Nuevo día de trading · equidad inicial ${s['equity']:,.2f}")
+            c = await self.checkin(settings, s)
+            await self.log("PLAN", c["message"] + (" · ".join([""] + c["warnings"]) if c["warnings"] else ""))
         elif not acc["daily_paused"] and s["daily_pnl_pct"] <= -settings.daily_loss_limit:
             upd["daily_paused"] = True
             await self.log("RISK", f"Límite de pérdida diaria ({settings.daily_loss_limit}%) alcanzado · nuevas entradas pausadas hasta mañana (UTC)")
@@ -248,13 +270,14 @@ class TradingEngine:
         try:
             for symbol in settings.symbols:
                 try:
-                    df = build_df(await self.market.fetch_klines(symbol, settings.timeframe, 300))
+                    params = settings.symbol_params.get(symbol) or {}
+                    df = build_df(await self.market.fetch_klines(symbol, settings.timeframe, 300), int(params.get("atr_period", 14)))
                     i = len(df) - 2
                     row = df.iloc[i]
                     htf = None
                     if settings.htf_filter:
                         htf = htf_trend(build_df(await self.market.fetch_klines(symbol, htf_tf, 200, cache_sec=120)))
-                    sig = evaluate(df, i, settings.strategy, htf)
+                    sig = evaluate(df, i, settings.strategy, htf, params)
                     self.analysis[symbol] = {
                         "trend": trend_label(row), "rsi": round(float(row["rsi"]), 1),
                         "macd_hist": float(row["macd_hist"]), "adx": round(float(row["adx"]), 1),
