@@ -1,5 +1,9 @@
 import { X } from "lucide-react";
 import { SideBadge, Empty } from "./Panel";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { fmtPrice, fmtSignedUsd, fmtUsd, fmtQty, pnlClass, STRATEGY_LABELS } from "@/lib/api";
 
 const TH = ({ children, right }) => (
@@ -11,13 +15,28 @@ const TD = ({ children, right, className = "" }) => (
 
 export default function PositionsTable({ positions, onClose, onCloseAll }) {
   if (!positions.length) return <Empty testId="positions-empty" text="Sin posiciones abiertas. El bot abrirá operaciones cuando una señal pase los filtros de riesgo y la IA." />;
+  const anyLive = positions.some((p) => p.live);
   return (
     <div className="overflow-x-auto thin-scroll">
       {onCloseAll && positions.length > 1 && (
         <div className="flex justify-end border-b border-[#1E293B] px-3 py-1.5">
-          <button data-testid="close-all-positions-button" onClick={onCloseAll} className="rounded-sm border border-rose-500/40 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-rose-300 transition-colors hover:bg-rose-500/10">
-            Cerrar todas ({positions.length})
-          </button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button data-testid="close-all-positions-button" className="rounded-sm border border-rose-500/40 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-rose-300 transition-colors hover:bg-rose-500/10">
+                Cerrar todas ({positions.length}){anyLive ? " · REAL" : ""}
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent data-testid="close-all-dialog" className="border-[#1E293B] bg-[#0D111A]">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="font-display">¿Cerrar las {positions.length} posiciones a mercado?</AlertDialogTitle>
+                <AlertDialogDescription>{anyLive ? "Se enviarán órdenes reduce-only a Bybit con dinero real. " : ""}El PnL se realiza al precio actual.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="close-all-cancel">Cancelar</AlertDialogCancel>
+                <AlertDialogAction data-testid="close-all-confirm" onClick={onCloseAll} className="bg-rose-500 text-white hover:bg-rose-600">Cerrar todas</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       )}
       <table data-testid="positions-table" className="w-full text-sm">

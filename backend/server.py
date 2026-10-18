@@ -370,8 +370,8 @@ async def klines(symbol: str, tf: str = "15m", limit: int = 300):
 
 @api.post("/bot/start")
 async def bot_start():
-    if engine.live and not engine.broker:
-        raise HTTPException(409, "Modo REAL sin credenciales de Bybit: configúralas en Ajustes o vuelve a modo paper")
+    if engine.live and (not engine.broker or not store.cfg.bybit_verified_at):
+        raise HTTPException(409, "Modo REAL sin credenciales de Bybit verificadas: pruébalas en Ajustes o vuelve a modo paper")
     await engine.start()
     return _status()
 
@@ -445,7 +445,7 @@ async def account():
 
 @api.post("/account/reset")
 async def reset_account(body: ResetRequest = None):
-    if engine.live and await db.positions.count_documents({"live": True}):
+    if await db.positions.count_documents({"live": True}):
         raise HTTPException(409, "Hay posiciones reales abiertas: ciérralas antes de reiniciar las estadísticas")
     await engine.reset_account(body.initial_balance if body else None)
     return await engine.account_summary()

@@ -36,7 +36,7 @@ export default function AdminSettings({ account, refresh }) {
         <h2 className="font-display text-base font-bold uppercase tracking-[0.12em] text-slate-100 md:text-lg">Ajustes del sistema</h2>
         <p className="text-[12px] text-slate-500">Cuenta real de Bybit y cambio de modo, clave de acceso, inteligencia artificial, alertas de Telegram, revisión automática y cuenta paper. La estrategia y el riesgo se siguen configurando desde el panel principal.</p>
       </div>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <BybitSection config={config} onSave={save} />
         <LiveModeSection config={config} refresh={refresh} />
         <SecuritySection />

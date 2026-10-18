@@ -42,11 +42,18 @@
 - Prompt del asesor endurecido: cambios estructurales (pares/estrategia/riesgo) solo con ≥30 operaciones reales; backtest/optimizador solo justifican symbol_params.
 - Tested: iteration_4 backend 28/29 (fallo del 502 por ingress → ahora 424), frontend completo OK; fixes: XFF spoof, merge de alertas, task de cron con try/except.
 
+## Implemented (2026-06, iteration 5 · modo REAL en Bybit)
+- bybit.py: cliente V5 firmado (HMAC-SHA256, recv_window 5000): wallet UNIFIED, instruments-info (lotes/tick, caché 1h), set-leverage (ignora 110043), orden Market con SL/TP adjuntos (tpslMode Full), trading-stop, order realtime/history, position list, closed-pnl. Entornos mainnet/testnet/demo + endpoint personalizado. live.py: LiveBroker (open con espera de llenado, close reduce-only, set_stop, closed_result filtrado por side/qty/tiempo).
+- engine: apply_config (listener del ConfigStore) crea el broker; en REAL dimensiona con la equidad real + filtros de lote del instrumento, envía la orden, registra Position{live, order_id}; el monitor sincroniza marca/PnL desde el exchange, empuja el trailing al exchange, detecta cierres en Bybit (periodo de gracia 20s + recomprobación) y registra Trade{live}; cierre manual reduce-only; account_summary usa la wallet de Bybit (exchange_synced/exchange_error).
+- Config: bybit_api_key/secret cifrados (Fernet, CREDENTIAL_ENCRYPTION_KEY), bybit_env, bybit_base_url, bybit_verified_at/equity, trading_mode, live_since. Endpoints: POST /api/bybit/test, GET/POST /api/mode (checklist: claves, verificación, bot detenido, sin posiciones; recomendado Fase 0; confirmación "REAL"; reset de estadísticas con la equidad real), POST /api/positions/close-all; guardas en /bot/start (REAL exige credenciales verificadas) y /account/reset (409 con posiciones reales).
+- UI: Ajustes → "Bybit · cuenta real" (entorno, key, secret, endpoint avanzado, probar conexión con equidad/disponible/posiciones/desfase, quitar) y "Modo de operación" (badge, checklist, botón "Pasar a modo REAL" con diálogo y texto REAL, "Volver a paper"); header con badge "Modo REAL · Bybit env"; banner si Bybit no responde; botón "Cerrar todas" con confirmación.
+- Testing: Bybit está geo-bloqueado en este pod → mock local firmado `scripts/bybit_mock.py` (puerto 8011). iteration_5: backend 20/20, frontend OK; fixes de seguridad posteriores (carrera al abrir, closed-pnl por side/qty, verificación obligatoria para iniciar en REAL, confirmación de cierre total).
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
 ## Backlog
-- P1: Bybit Testnet/Mainnet live executor (signed v5 orders) when hosted in allowed region
+- P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
 - P1: Telegram notifications for entries/exits/AI decisions
 - P1: One-click disable of a losing pair/strategy from the Rendimiento tab
 - P2: Walk-forward validation of optimizer params (in-sample/out-of-sample), AI backtest sampling

@@ -239,8 +239,19 @@ class TradingEngine:
 
     async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: Settings):
         if not ex:
-            await self._close_live_from_exchange(p)
-            return
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(p.opened_at)).total_seconds()
+            if age < 20:
+                return
+            try:
+                fresh = await self.broker.client.positions(p.symbol)
+            except Exception as e:
+                logger.warning(f"recheck {p.symbol}: {e}")
+                return
+            if fresh:
+                ex = fresh[0]
+            else:
+                await self._close_live_from_exchange(p)
+                return
         price = ex["mark"] or (ticker or {}).get("price") or p.mark_price
         updates = {"mark_price": price, "unrealized_pnl": round(ex["unrealised"], 4)}
         if abs(ex["size"] - p.qty) > 1e-9:
@@ -262,7 +273,7 @@ class TradingEngine:
                 return
             cr = None
             try:
-                cr = await self.broker.closed_result(p.symbol, p.opened_at)
+                cr = await self.broker.closed_result(p.symbol, p.opened_at, p.side, p.qty)
             except Exception as e:
                 logger.warning(f"closed_pnl {p.symbol}: {e}")
             price = (cr or {}).get("exit") or p.mark_price
@@ -389,7 +400,7 @@ class TradingEngine:
                 await asyncio.sleep(0.8)
                 cr = None
                 try:
-                    cr = await self.broker.closed_result(p.symbol, p.opened_at)
+                    cr = await self.broker.closed_result(p.symbol, p.opened_at, p.side, p.qty)
                 except Exception as e:
                     logger.warning(f"closed_pnl {p.symbol}: {e}")
                 price = (cr or {}).get("exit") or r["exit"] or self.market.tickers.get(p.symbol, {}).get("price") or p.mark_price

@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 5: LIVE trading mode tested end to end against the local signature-verifying Bybit V5 mock (port 8011). Backend: 20/20 pytest pass. Covered: config masking and encryption, POST /api/bybit/test (saved creds, wrong creds giving 424 (10004), unsaved creds), live open through inject_signal (live true, order_id, qty multiple of 0.1, SL/TP and leverage 3 on the exchange), mark/unrealised sync from the exchange, trailing stop pushed to the exchange (breakeven, sl matches the tick-rounded mock value, 'stop REAL movido' log), exchange-side close recorded as a live TRAILING trade with pnl > 0 and a 'CERRADA REAL' log, manual reduce-only close (MANUAL, mock positions empty, closed list grew), close-all {closed:2, failed:0}, guards (account reset 409 and mode paper 409 with a live position; bot start 409 'Modo REAL sin credenciales' after clear_bybit; creds restored and re-verified), mode switch (paper resets to 500 with exchange_synced false; confirm 'si' gives 400; REAL gives live with initial_balance equal to verified equity; mode paper with the bot running gives 409 'Bot detenido'). Frontend: all checks pass: live-mode-badge 'MODO REAL · BYBIT TESTNET', Bybit section with all testids and the 'Verificada' badge, the test-result grid shows Equidad, livemode checklist with 5 items, paper switch (toast, PAPER badge, header paper-mode-badge), go-live dialog (confirm button disabled until 'REAL', reset switch present, toast 'MODO REAL activado', header badge back), close-all button shown with 2 positions and closing both. FINAL CLEANUP done: positions closed, mode paper with reset (initial 500), Bybit creds cleared (env mainnet, base_url ''), bybit_configured false, bot started again (running true, PAPER), mock killed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "engine._monitor_once / _sync_live_position", "issue": "Race condition (found in code review, not reproduced). The exchange position list `ex` is fetched once at the start of _monitor_once, without the engine lock, and then the DB positions are read. If open_position inserts a live position after `ex` was fetched but before the cursor reads it, the position is missing from `ex`. _close_live_from_exchange then deletes it locally and records a fake trade while the real position stays open on Bybit with nobody managing it. closed_result can even match an older closed-pnl row from the 60s look-back window. Fix: skip the missing-on-exchange close for positions opened in the last ~15s, or re-fetch broker.positions(max_age=0) (or client.positions(symbol)) before declaring a position closed."},
+      {"endpoint": "LiveBroker.closed_result", "issue": "The window starts at opened_at - 60s and the newest row wins. If Bybit's closed-pnl lags after a close and the same symbol was closed less than 60s before this position opened, the previous trade's exit/pnl is used. Filter rows to time >= opened_at, or match by qty/side."},
+      {"endpoint": "POST /api/account/reset", "issue": "The guard only applies when engine.live. In paper mode, reset deletes every position document, including any leftover live:true ones. Low risk because mode switching requires being flat."},
+      {"endpoint": "POST /api/bot/start", "issue": "In live mode it only checks that a broker exists, not bybit_verified_at. After the creds are changed (verification cleared), the bot can start live with unverified creds."},
+      {"endpoint": "backend.err.log", "issue": "6 earlier 'numpy.int64 object is not iterable' serialization errors (jsonable_encoder) logged around 21:31-22:44, before this test run. Not reproduced during this run. An endpoint is returning a numpy scalar somewhere (chart/backtest/optimizer?); cast it to int/float."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Positions tab (live mode)", "issues": ["'Cerrar todas' closes all REAL positions immediately with one click and no confirmation dialog. In REAL mode it should ask for confirmation (AlertDialog)."]},
+      {"screen": "Ajustes · Modo de operación card", "issues": ["The card stretches to the height of the Bybit card next to it, leaving a large empty area under the 'Volver a modo paper' button (cosmetic)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter5_live_mode.py", "/app/test_reports/pytest/pytest_iter5.xml"],
+  "action_items": [
+    "Guard _sync_live_position/_close_live_from_exchange against the open-vs-monitor race (grace period for freshly opened positions, or a fresh positions fetch before closing locally)",
+    "Restrict closed_result to rows with time >= opened_at (or match by qty/side) so a previous trade's pnl is never attributed",
+    "Add a confirmation dialog to close-all-positions-button, at least in REAL mode",
+    "Optional: require bybit_verified_at for /bot/start in live mode; find and cast the numpy.int64 value in the earlier serialization errors"
+  ],
+  "critical_code_review_comments": [
+    "monitor loop: fetching the exchange snapshot without the lock and then iterating the DB can mark brand-new live positions as closed on the exchange",
+    "close_position (live) holds engine.lock during network calls plus asyncio.sleep(0.8). close-all is sequential, so N positions block other engine ops for about N*1-2s. Acceptable, but note it.",
+    "bybit_base_url is user-settable, so signed requests with the API key can go to any host (admin-only, password-protected; acceptable but worth documenting)"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter5_live_mode.py"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100%"},
+  "seed_data_creation": "None persistent. Mock trades were created then wiped by the final mode reset (paper, initial 500).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with `-n 0`. test_iter5_live_mode.py needs the mock running (`cd /app && nohup python3 scripts/bybit_mock.py > /tmp/bybit_mock.log 2>&1 &`) and the system in live mode with mock creds (PUT /api/config mockkey/mocksecret/testnet/http://localhost:8011, POST /api/bybit/test {}, POST /api/mode {mode:'live',confirm:'REAL'}) before running. The tests leave the system in live mode with the bot stopped, so do the cleanup afterwards. The trailing test sets the mock price to max(entry*1.03, entry+1.1R). The mock price override for SOL persists until /mock/reset. After this run the system was restored to paper mode, creds cleared, bot running, mock killed."
+}

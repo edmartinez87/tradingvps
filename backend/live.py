@@ -73,9 +73,13 @@ class LiveBroker:
         inst = await self.client.instrument(symbol)
         await self.client.set_stop(symbol, round_step(sl, inst["tick_size"]))
 
-    async def closed_result(self, symbol: str, since_iso: str):
+    async def closed_result(self, symbol: str, since_iso: str, side: str = None, qty: float = None):
         from datetime import datetime
-        start_ms = int(datetime.fromisoformat(since_iso).timestamp() * 1000) - 60_000
-        rows = await self.client.closed_pnl(symbol, start_ms)
-        rows = [r for r in rows if r["time"] >= start_ms]
+        opened_ms = int(datetime.fromisoformat(since_iso).timestamp() * 1000)
+        rows = await self.client.closed_pnl(symbol, opened_ms - 60_000)
+        rows = [r for r in rows if r["time"] >= opened_ms - 5_000]
+        if side:
+            close_side = "Sell" if side == "long" else "Buy"
+            match = [r for r in rows if r["side"] == close_side and (qty is None or abs(r["qty"] - qty) < 1e-9)]
+            rows = match or rows
         return max(rows, key=lambda r: r["time"]) if rows else None
