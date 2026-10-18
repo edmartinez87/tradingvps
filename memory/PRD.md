@@ -28,13 +28,18 @@
 - Result for $500 → $1.000/mes with 0 deposits: conservador 12a2m, base 7a, optimista 4a4m, backtest(2.3%/mes) 13a4m. Monthly deposits shorten it drastically.
 - Tested: iteration_2 backend 15/15 (one numpy int64 serialization bug fixed by tester), frontend all flows pass.
 
+## Implemented (2026-06, iteration 3 · optimizador + chequeo del plan + IA)
+- optimizer.py: 54-combo grid (SL 1–3×ATR, TP 2–6×ATR with R:R≥1.5, ATR 10/14/20) per pair, robust pick = Van Tharp SQN averaged over 3×3 grid neighbours; backtest.py refactored into scan_signals()+simulate() (signals independent of SL/TP → fast); strategies accept params {sl_atr,tp_atr}; build_df(atr_period). Settings.symbol_params[symbol] applied by the live engine, plan backtests and /backtest. UI tab "Optimizador" (compare baseline vs optimum, heatmap, apply/remove, multi-pair summary).
+- Plan check-in (plan.build_checkin + engine.checkin): phase criteria evaluated on real paper stats (validación: ≥60 ops, PF≥1.3, DD≤10%, ≥28 días; semilla: 2× capital, DD<12%; crecimiento: $5k, PF≥1.3, ≥100 ops; consolidación: capital objetivo; ingreso: ganancia 30d ≥ meta, DD≤15%). Settings persist plan_scenario/plan_target_monthly/plan_monthly_deposit/plan_phase; "Avanzar a fase" button sets plan_phase + phase risk; alert dot on Plan tab; daily PLAN log at UTC rollover; `checkin` included in /dashboard.
+- AI buttons (POST /api/ai/advise scope optimizer|plan): Claude receives settings, account, real performance, check-in and optimizer/backtest results, returns JSON {summary, changes, notes}; backend applies whitelisted changes with caps (risk≤1.5%, lev≤5, max_pos≤5, ≥2 symbols) and returns applied/previous → UI AiAdvice component with "Deshacer".
+- Tested: iteration_3 backend 18/18, frontend all flows pass; 2 minor state bugs fixed (heatmap ATR reset per pair, applied state derived from settings).
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
 ## Backlog
 - P1: Bybit Testnet/Mainnet live executor (signed v5 orders) when hosted in allowed region
 - P1: Telegram notifications for entries/exits/AI decisions
-- P1: Auto-disable losing strategy/symbol combos from Rendimiento tab (one-click toggle into settings)
-- P2: Walk-forward/parameter optimization in backtest, AI backtest sampling
+- P1: One-click disable of a losing pair/strategy from the Rendimiento tab
+- P2: Walk-forward validation of optimizer params (in-sample/out-of-sample), AI backtest sampling
 - P2: Funding-rate & news sentiment context for AI
-- P2: Monthly "plan check-in": compare real paper results vs plan phase criteria and alert when ready to advance

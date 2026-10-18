@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 3: tested the parameter optimizer, symbol_params, plan check-in, plan persistence and the AI advisor (real Claude calls), plus a light regression. Backend: 18/18 pytest pass. Frontend: the Optimizador flow (run, compare, heatmap, ATR toggles, apply/remove, settings-symbol-<SYM>-optimized dot, summary table with row switch, AI button, result and undo), the Plan tab (check-in message, 5 phase chips, 4 criteria, last30, no advance button, plan AI result and undo, plan-scenarios, target input 1000) and the regression tabs all work. No console errors. Two minor frontend state bugs found. System left as found: $500, plan_phase 0, base/1000/0, symbol_params {}, bot running.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/ai/advise", "issue": "symbol_params from Claude replaces the whole symbol_params dict, because update_settings does a shallow merge. If the user has already applied optimized params for other pairs and Claude returns only SOLUSDT, the other pairs' params are wiped. Merge with the existing dict: {**settings.symbol_params, **patch['symbol_params']}."},
+      {"endpoint": "POST /api/ai/advise", "issue": "On a fresh account (0 real trades) Claude applied changes on every call: plan scope gave 4 changes (symbols reduced to 3, strategy mean_reversion, risk 0.75, max_positions 2), and optimizer scope removed BTC and set SOL params. These are based only on ~33 days of backtest. It is not a bug, but the auto-apply is aggressive. Consider a minimum-evidence guard or a confirm step before applying."},
+      {"endpoint": "POST /api/ai/advise", "issue": "The AI_CAPS cast to float means a fractional leverage or max_positions from Claude (e.g. 2.5) fails the int validation in SettingsUpdate. The whole patch is then discarded (it goes to notes). Round int fields: int(min(...))."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "OptimizerHeatmap", "issue": "The selected ATR tab is useState initialised once and is not reset when the displayed pair changes. Repro: optimize BTC (best ATR 10), then SOL (best ATR 20), then click optimizer-summary-BTCUSDT. The heatmap shows BTC at ATR 20, so the best cell ring is not visible even though ★ is on ATR 10. Fix: <OptimizerHeatmap key={res.symbol} .../> or a useEffect on res.", "selector": "[data-testid='optimizer-atr-*']", "priority": "MEDIUM"},
+      {"component": "Optimizer/OptimizerSummary", "issue": "The local results[sym].applied is not resynced after Claude applies or undoes symbol_params. After the optimizer AI set SOL params, the summary row still showed 'POR DEFECTO' and the apply badge state was stale. Derive applied from settings.symbol_params[sym] instead of the cached result.", "selector": "[data-testid='optimizer-summary-SOLUSDT']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Optimizador compare", "issues": ["When the robust optimum is still negative (BTC robust -0.182, PF 0.96), the card still says 'Supera a la línea base…' and offers a prominent 'Aplicar al bot'. Consider a warning or disabling apply when best.sqn/expectancy ≤ 0."]},
+      {"screen": "Optimizador", "issues": ["The run button spinner shows only when no results exist yet (loading && !list.length), so later single-pair runs give no spinner on that button."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_optimizer_checkin_ai.py", "/app/test_reports/pytest/pytest_iter3.xml"],
+  "action_items": [
+    "Reset the OptimizerHeatmap ATR selection when the pair changes (key={res.symbol})",
+    "Derive optimizer applied/badge/summary status from settings.symbol_params so it stays in sync after AI changes and undo",
+    "Merge AI symbol_params into the existing dict instead of replacing it",
+    "Cast capped leverage/max_positions to int in ai_advise",
+    "Optional: guard 'Aplicar al bot' when the optimum has negative expectancy; consider a confirm step or evidence threshold for AI auto-apply"
+  ],
+  "critical_code_review_comments": [
+    "server.py ai_advise: shallow symbol_params overwrite plus float casting of int caps (see backend minor issues).",
+    "Optimizer.jsx: the symbol state is initialised from settings.symbols[0]. If AI or the user removes that pair, the Select keeps a value that is no longer in the list.",
+    "optimizer.py: best falls back to rows with ≥5 trades when none has ≥10. This is fine, but it is not surfaced in the UI."
+  ],
+  "updated_files": ["/app/backend/tests/test_optimizer_checkin_ai.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "95% (all flows work; 2 minor state-sync bugs)"},
+  "seed_data_creation": "None. AI-applied changes were reverted via previous/undo; settings verified restored.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=<url> pytest backend/tests/test_optimizer_checkin_ai.py -n 0 (it must run serially because it shares the settings doc). It makes 2 real Claude calls (~10-20s each). The optimizer takes ~1.5s. The external URL works. Claude tends to apply changes even on a fresh account; the tests revert them via `previous`."
+}

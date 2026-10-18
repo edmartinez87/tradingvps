@@ -53,6 +53,8 @@ export default function OptimizerCompare({ res, onApply, onRemove }) {
             <p data-testid="optimizer-applied-badge" className="inline-flex items-center gap-1 rounded-sm border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-emerald-400"><Check className="h-3 w-3" /> Aplicado al bot</p>
             <Button data-testid="optimizer-remove-button" onClick={onRemove} variant="outline" size="sm" className="h-7 w-full border-[#1E293B] bg-transparent font-mono text-[10px] uppercase tracking-wider text-slate-300 hover:bg-[#111827]"><X className="mr-1 h-3 w-3" /> Volver a valores por defecto</Button>
           </div>
+        ) : best.expectancy_r <= 0 ? (
+          <Button data-testid="optimizer-apply-button" onClick={onApply} variant="outline" className="h-9 w-full border-rose-500/40 bg-transparent font-mono text-[11px] uppercase tracking-wider text-rose-300 hover:bg-rose-500/10">Aplicar igualmente (no rentable)</Button>
         ) : (
           <Button data-testid="optimizer-apply-button" onClick={onApply} className="h-9 w-full bg-amber-500 font-mono text-[11px] font-bold uppercase tracking-wider text-[#07090E] hover:bg-amber-400">Aplicar al bot</Button>
         )}
