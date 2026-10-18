@@ -6,6 +6,35 @@ import logging
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
 
 logger = logging.getLogger("ai")
+_cfg = {"api_key": os.environ.get("EMERGENT_LLM_KEY", ""), "provider": "anthropic", "model": "claude-sonnet-5-5"}
+
+
+def configure(api_key: str, provider: str, model: str):
+    _cfg.update(api_key=api_key, provider=provider, model=model)
+
+
+def current() -> dict:
+    return {"provider": _cfg["provider"], "model": _cfg["model"]}
+
+
+def _chat(system: str, prefix: str) -> LlmChat:
+    return LlmChat(api_key=_cfg["api_key"], session_id=f"{prefix}-{uuid.uuid4()}", system_message=system) \
+        .with_model(_cfg["provider"], _cfg["model"])
+
+
+async def _ask(chat: LlmChat, prompt: str) -> str:
+    text = ""
+    async for ev in chat.stream_message(UserMessage(text=prompt)):
+        if isinstance(ev, TextDelta):
+            text += ev.content
+        elif isinstance(ev, StreamDone):
+            break
+    return text
+
+
+async def ping() -> str:
+    text = await _ask(_chat("Responde en español con una sola frase breve.", "ping"), "Confirma que estás operativo para analizar señales de trading.")
+    return text.strip()[:200]
 
 SYSTEM = (
     "Eres un gestor de riesgo cuantitativo senior especializado en futuros perpetuos USDT de criptomonedas. "
@@ -32,17 +61,7 @@ def _build_prompt(symbol, timeframe, sig, ctx) -> str:
 
 
 async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> dict:
-    chat = LlmChat(
-        api_key=os.environ["EMERGENT_LLM_KEY"],
-        session_id=f"signal-{uuid.uuid4()}",
-        system_message=SYSTEM,
-    ).with_model("anthropic", "claude-sonnet-5-5")
-    text = ""
-    async for ev in chat.stream_message(UserMessage(text=_build_prompt(symbol, timeframe, sig, ctx))):
-        if isinstance(ev, TextDelta):
-            text += ev.content
-        elif isinstance(ev, StreamDone):
-            break
+    text = await _ask(_chat(SYSTEM, "signal"), _build_prompt(symbol, timeframe, sig, ctx))
     match = re.search(r"\{.*\}", text, re.S)
     if not match:
         raise ValueError(f"Respuesta IA no válida: {text[:200]}")
@@ -59,9 +78,12 @@ async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> 
 ADVISOR_SYSTEM = (
     "Eres el director de inversiones de un bot cuantitativo de futuros perpetuos USDT en modo paper trading. "
     "Recibes métricas reales y de backtest y debes DECIDIR cambios concretos de configuración para mejorar la expectativa "
-    "y proteger el capital. Reglas: desactiva pares o estrategias con profit factor < 1 o expectativa negativa si tienen ≥ 20 operaciones; "
-    "aplica parámetros SL/TP optimizados solo si el óptimo robusto supera claramente a la línea base; nunca subas el riesgo por operación "
-    "por encima de 1.5% ni el apalancamiento por encima de 5x; mantén al menos 2 pares activos; si no hay evidencia suficiente, no cambies nada. "
+    "y proteger el capital. Reglas estrictas: (1) los cambios estructurales (quitar pares, cambiar de estrategia, bajar o subir el riesgo, "
+    "máximo de posiciones, apalancamiento) requieren evidencia REAL del bot: al menos 30 operaciones cerradas en rendimiento_real y ≥ 20 por par o "
+    "estrategia afectada; el backtest por sí solo NO justifica esos cambios, solo recomendaciones en notes. (2) El backtest y el optimizador sí "
+    "justifican aplicar symbol_params (SL/TP/ATR) cuando el óptimo robusto supera claramente a la línea base con ≥ 20 operaciones. "
+    "(3) Nunca subas el riesgo por operación por encima de 1.5% ni el apalancamiento por encima de 5x; mantén al menos 2 pares activos. "
+    "(4) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
     "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
     '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), strategy, risk_per_trade, '
     'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{sl_atr,tp_atr,atr_period})>},'
@@ -70,18 +92,8 @@ ADVISOR_SYSTEM = (
 
 
 async def advise(scope: str, context: dict) -> dict:
-    chat = LlmChat(
-        api_key=os.environ["EMERGENT_LLM_KEY"],
-        session_id=f"advisor-{uuid.uuid4()}",
-        system_message=ADVISOR_SYSTEM,
-    ).with_model("anthropic", "claude-sonnet-5-5")
     prompt = f"ÁMBITO: {scope}\nCONTEXTO (JSON):\n{json.dumps(context, ensure_ascii=False, default=str)}\n\nDecide los cambios de configuración."
-    text = ""
-    async for ev in chat.stream_message(UserMessage(text=prompt)):
-        if isinstance(ev, TextDelta):
-            text += ev.content
-        elif isinstance(ev, StreamDone):
-            break
+    text = await _ask(_chat(ADVISOR_SYSTEM, "advisor"), prompt)
     match = re.search(r"\{.*\}", text, re.S)
     if not match:
         raise ValueError(f"Respuesta IA no válida: {text[:200]}")

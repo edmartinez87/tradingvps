@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Zap, Play, Square, RefreshCw, RotateCcw, Database, Timer } from "lucide-react";
+import { Zap, Play, Square, RefreshCw, RotateCcw, Database, Timer, Settings2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -22,7 +22,7 @@ const StatusPill = ({ status }) => {
   );
 };
 
-export default function Header({ status, onToggle, onScan, onReset, busy }) {
+export default function Header({ status, onToggle, onScan, onReset, busy, onSettings, onLogout, view }) {
   const [count, setCount] = useState(status.next_scan_in);
   useEffect(() => setCount(status.next_scan_in), [status.next_scan_in]);
   useEffect(() => {
@@ -81,7 +81,7 @@ export default function Header({ status, onToggle, onScan, onReset, busy }) {
               <AlertDialogHeader>
                 <AlertDialogTitle className="font-display">¿Reiniciar la cuenta paper?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Se borrarán posiciones, historial, señales y curva de equidad. El balance vuelve a $10,000 USDT.
+                  Se borrarán posiciones, historial, señales y curva de equidad. El balance vuelve al capital inicial configurado (por defecto $500 USDT).
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -101,6 +101,13 @@ export default function Header({ status, onToggle, onScan, onReset, busy }) {
             }`}
           >
             {status.running ? <><Square className="mr-1.5 h-3.5 w-3.5" /> Detener bot</> : <><Play className="mr-1.5 h-3.5 w-3.5" /> Iniciar bot</>}
+          </Button>
+          <Button data-testid="settings-view-button" variant="outline" size="sm" onClick={onSettings}
+            className={`h-8 border-[#1E293B] font-mono text-[11px] uppercase tracking-wider hover:bg-[#111827] ${view === "settings" ? "bg-[#111827] text-amber-300" : "bg-transparent"}`}>
+            <Settings2 className="mr-1.5 h-3.5 w-3.5" /> {view === "settings" ? "Volver al panel" : "Ajustes"}
+          </Button>
+          <Button data-testid="logout-button" variant="ghost" size="sm" onClick={onLogout} className="h-8 px-2 font-mono text-[11px] uppercase tracking-wider text-slate-400 hover:bg-[#111827] hover:text-rose-300" title="Cerrar sesión">
+            <LogOut className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>

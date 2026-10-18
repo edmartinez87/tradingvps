@@ -1,16 +1,20 @@
 import os
 import time
+import hmac
+import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-from fastapi import FastAPI, APIRouter, HTTPException  # noqa: E402
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 from bson import ObjectId  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 from models import (  # noqa: E402
     Position, Trade, Signal, LogEntry, SettingsUpdate, BacktestRequest, ResetRequest, PlanRequest,
     OptimizeRequest, AdviseRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS,
@@ -21,9 +25,15 @@ from indicators import build_df  # noqa: E402
 from strategies import STRATEGY_INFO  # noqa: E402
 from backtest import run_backtest  # noqa: E402
 from performance import performance  # noqa: E402
-from plan import backtest_stats, build_plan, SCENARIOS  # noqa: E402
+from plan import build_plan, SCENARIOS  # noqa: E402
 from optimizer import optimize  # noqa: E402
-from ai_advisor import advise  # noqa: E402
+from ai_advisor import advise, ping as ai_ping, current as ai_current  # noqa: E402
+from auth import (  # noqa: E402
+    hash_password, verify_password, create_token, client_ip, check_locked, register_failure, clear_failures, make_require_auth,
+)
+from config import ConfigStore, ConfigUpdate  # noqa: E402
+import notify  # noqa: E402
+from review import plan_stats, build_context, apply_ai_changes, run_auto_review  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,9 +42,26 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
 engine = TradingEngine(db)
+store = ConfigStore(db)
+require_auth = make_require_auth(lambda: store.cfg.token_version)
 
 app = FastAPI(title="Bybit AI Trading Bot")
-api = APIRouter(prefix="/api")
+public = APIRouter(prefix="/api")
+api = APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
+cron = APIRouter(prefix="/api/cron")
+
+
+class LoginRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
+class PasswordChange(BaseModel):
+    current: str = Field(min_length=1, max_length=200)
+    new: str = Field(min_length=8, max_length=200)
+
+
+class ChatsRequest(BaseModel):
+    token: str = ""
 
 
 def _status() -> dict:
@@ -42,7 +69,7 @@ def _status() -> dict:
         "running": engine.running, "scanning": engine.scanning, "provider": engine.market.provider,
         "last_scan": engine.last_scan,
         "next_scan_in": max(0, int(engine.next_scan_ts - time.time())) if engine.next_scan_ts else None,
-        "mode": "PAPER", "market": "USDT Perpetual",
+        "mode": "PAPER", "market": "USDT Perpetual", "telegram": notify.is_on(), "ai": ai_current(),
     }
 
 
@@ -53,9 +80,121 @@ async def _equity_curve(limit: int = 1440) -> list:
     return rows[::step] + (rows[-1:] if rows and (len(rows) - 1) % step else [])
 
 
-@api.get("/")
+@public.get("/")
 async def root():
-    return {"message": "Bybit AI Trading Bot API", **_status()}
+    return {"message": "Bybit AI Trading Bot API", "running": engine.running, "mode": "PAPER"}
+
+
+@public.post("/auth/login")
+async def login(body: LoginRequest, request: Request):
+    ip = client_ip(request)
+    check_locked(ip)
+    if not verify_password(body.password, store.cfg.password_hash):
+        left = register_failure(ip)
+        await engine.log("RISK", f"Intento de acceso fallido desde {ip}")
+        raise HTTPException(401, f"Clave incorrecta. {'Cuenta bloqueada 15 minutos.' if left == 0 else f'Intentos restantes: {left}.'}")
+    clear_failures(ip)
+    await engine.log("INFO", f"Acceso al panel desde {ip}")
+    return {"token": create_token(store.cfg.token_version)}
+
+
+@api.get("/auth/me")
+async def auth_me():
+    return {"ok": True}
+
+
+@api.post("/auth/password")
+async def change_password(body: PasswordChange):
+    if not verify_password(body.current, store.cfg.password_hash):
+        raise HTTPException(401, "La clave actual no es correcta")
+    version = store.cfg.token_version + 1
+    await store.update({"password_hash": hash_password(body.new), "token_version": version})
+    await engine.log("INFO", "Clave de acceso cambiada · sesiones anteriores cerradas")
+    return {"token": create_token(version)}
+
+
+@api.get("/config")
+async def get_config():
+    return store.public()
+
+
+@api.put("/config")
+async def put_config(body: ConfigUpdate):
+    try:
+        patch = store.patch_from(body)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if patch:
+        await store.update(patch)
+        await engine.log("INFO", f"Ajustes actualizados: {', '.join(patch)}")
+    return store.public()
+
+
+@api.post("/telegram/chats")
+async def telegram_chats(body: ChatsRequest):
+    token = body.token.strip() if body.token and not body.token.startswith("••") else store.cfg.telegram_bot_token
+    if not token:
+        raise HTTPException(400, "Introduce el token del bot primero")
+    try:
+        return {"bot": await notify.get_me(token), "chats": await notify.get_chats(token)}
+    except Exception as e:
+        raise HTTPException(502, str(e)[:200])
+
+
+@api.post("/telegram/test")
+async def telegram_test():
+    acc = await engine.account_summary()
+    try:
+        await notify.send(f"✅ <b>Bybit AI Trader</b> conectado.\nEquidad ${acc['equity']:,.2f} · {acc['open_positions']} posiciones abiertas · bot {'ACTIVO' if engine.running else 'DETENIDO'}")
+    except Exception as e:
+        raise HTTPException(502, str(e)[:200])
+    return {"ok": True}
+
+
+@api.post("/ai/test")
+async def ai_test():
+    try:
+        return {"ok": True, "reply": await ai_ping(), **ai_current()}
+    except Exception as e:
+        raise HTTPException(502, f"Error IA: {str(e)[:200]}")
+
+
+@api.post("/ai/auto-review")
+async def ai_auto_review_now():
+    try:
+        return await run_auto_review(engine, db, store)
+    except Exception as e:
+        logger.exception("auto review")
+        raise HTTPException(502, f"Error IA: {str(e)[:200]}")
+
+
+_cron_seen: set = set()
+
+
+@cron.post("/ai-review")
+async def cron_ai_review(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    auth = request.headers.get("authorization", "")
+    secret = os.environ.get("WEBHOOK_CRON_SECRET", "")
+    if not (auth.lower().startswith("bearer ") and secret and hmac.compare_digest(auth[7:], secret)):
+        raise HTTPException(401, "No autorizado")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Cuerpo inválido")
+    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
+    if run_id and run_id in _cron_seen:
+        return {"accepted": True, "duplicate": True}
+    if run_id:
+        _cron_seen.add(run_id)
+    cfg = store.cfg
+    now = datetime.now(timezone.utc)
+    due = cfg.auto_review_enabled and (cfg.auto_review_frequency == "daily" or (now.weekday() + 1) % 7 == cfg.auto_review_day)
+    if due and cfg.auto_review_last_at:
+        due = (now - datetime.fromisoformat(cfg.auto_review_last_at)).total_seconds() > 20 * 3600
+    if due:
+        asyncio.create_task(run_auto_review(engine, db, store))
+    return {"accepted": True, "scheduled": bool(due)}
 
 
 @api.get("/meta")
@@ -205,20 +344,6 @@ async def get_performance():
     return await performance(db)
 
 
-_plan_cache = {}
-
-
-async def _plan_stats(settings, initial: float) -> dict:
-    key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade,
-           settings.leverage, settings.trailing_enabled, settings.max_positions, initial)
-    hit = _plan_cache.get(key)
-    if not hit or time.time() - hit["ts"] > 300:
-        hit = {"ts": time.time(), "data": await backtest_stats(engine.market.fetch_klines, settings, initial)}
-        _plan_cache.clear()
-        _plan_cache[key] = hit
-    return hit["data"]
-
-
 @api.post("/plan")
 async def growth_plan(req: PlanRequest):
     settings = await engine.get_settings()
@@ -227,7 +352,7 @@ async def growth_plan(req: PlanRequest):
     if (settings.plan_scenario, settings.plan_target_monthly, settings.plan_monthly_deposit) != (req.scenario, req.target_monthly, req.monthly_deposit):
         await engine.update_settings({"plan_scenario": req.scenario, "plan_target_monthly": req.target_monthly,
                                       "plan_monthly_deposit": req.monthly_deposit})
-    return build_plan(req.model_dump(), await _plan_stats(settings, req.initial_capital))
+    return build_plan(req.model_dump(), await plan_stats(engine, settings, req.initial_capital))
 
 
 @api.get("/plan/checkin")
@@ -246,11 +371,6 @@ async def optimize_symbol(req: OptimizeRequest):
     return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
 
 
-ALLOWED_AI_KEYS = {"symbols", "strategy", "risk_per_trade", "max_positions", "leverage", "ai_min_confidence",
-                   "trailing_enabled", "htf_filter", "symbol_params"}
-AI_CAPS = {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}
-
-
 @api.post("/ai/advise")
 async def ai_advise(req: AdviseRequest):
     if req.scope not in ("optimizer", "plan"):
@@ -258,34 +378,18 @@ async def ai_advise(req: AdviseRequest):
     settings = await engine.get_settings()
     before = settings.model_dump(exclude={"bot_running"})
     acc = await engine.account_summary()
-    ctx = {"settings_actuales": before, "cuenta": acc, "rendimiento_real": await performance(db),
-           "chequeo_plan": await engine.checkin(settings, acc)}
+    ctx = await build_context(engine, db, settings, acc, req.scope == "plan")
     if req.scope == "optimizer":
         ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (req.optimizer_results or [])]
-    else:
-        bt = await _plan_stats(settings, acc["initial_balance"])
-        ctx["backtest"] = {k: bt[k] for k in ("per_symbol", "by_strategy", "monte_carlo", "trades_per_month", "days")}
     await engine.log("AI_EVAL", f"Claude analizando {'optimizador' if req.scope == 'optimizer' else 'plan'} y rendimiento real...")
     try:
         res = await advise(req.scope, ctx)
     except Exception as e:
         logger.exception("advise")
         raise HTTPException(502, f"Error IA: {str(e)[:160]}")
-    patch = {k: v for k, v in res["changes"].items() if k in ALLOWED_AI_KEYS}
-    for k, cap in AI_CAPS.items():
-        if k in patch:
-            patch[k] = min(float(patch[k]), cap)
-    if "symbols" in patch and (not isinstance(patch["symbols"], list) or len([x for x in patch["symbols"] if x in AVAILABLE_SYMBOLS]) < 2):
-        patch.pop("symbols")
-    applied = {}
-    if patch:
-        try:
-            after = (await engine.update_settings(SettingsUpdate.model_validate(patch).model_dump())).model_dump(exclude={"bot_running"})
-            applied = {k: {"antes": before[k], "despues": after[k]} for k in patch if before.get(k) != after.get(k)}
-        except Exception as e:
-            res["notes"].append(f"Cambios propuestos no válidos y descartados: {str(e)[:120]}")
+    applied, previous = await apply_ai_changes(engine, res, before)
     await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
-    return {**res, "applied": applied, "previous": {k: before[k] for k in applied}}
+    return {**res, "applied": applied, "previous": previous}
 
 
 @api.delete("/logs")
@@ -305,7 +409,9 @@ async def backtest(req: BacktestRequest):
     return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, **result}
 
 
+app.include_router(public)
 app.include_router(api)
+app.include_router(cron)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -317,6 +423,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    await store.load()
     await engine.init()
 
 

@@ -10,6 +10,7 @@ from strategies import evaluate, STRATEGY_INFO
 from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
 from ai_advisor import evaluate_signal
 from plan import SCENARIOS, build_checkin
+from notify import notify as tg
 
 logger = logging.getLogger("engine")
 INITIAL_BALANCE = 500.0
@@ -186,9 +187,16 @@ class TradingEngine:
             await self.log("INFO", f"Nuevo día de trading · equidad inicial ${s['equity']:,.2f}")
             c = await self.checkin(settings, s)
             await self.log("PLAN", c["message"] + (" · ".join([""] + c["warnings"]) if c["warnings"] else ""))
+            await tg(f"📊 <b>Resumen diario</b>\nEquidad ${s['equity']:,.2f} ({s['total_return_pct']:+.2f}% total)\n"
+                     f"PnL de ayer {s['daily_pnl']:+.2f} USDT ({s['daily_pnl_pct']:+.2f}%)\n"
+                     f"{s['total_trades']} ops · acierto {s['win_rate']}% · PF {s['profit_factor'] or '—'} · DD máx {s['max_drawdown']}%\n"
+                     f"{s['open_positions']} posiciones abiertas\n\n📋 {c['message']}", "daily")
+            if c["ready_to_advance"] or c["warnings"]:
+                await tg(f"📋 <b>Plan</b>: {c['message']}" + ("\n⚠️ " + "\n⚠️ ".join(c["warnings"]) if c["warnings"] else ""), "plan")
         elif not acc["daily_paused"] and s["daily_pnl_pct"] <= -settings.daily_loss_limit:
             upd["daily_paused"] = True
             await self.log("RISK", f"Límite de pérdida diaria ({settings.daily_loss_limit}%) alcanzado · nuevas entradas pausadas hasta mañana (UTC)")
+            await tg(f"🛑 <b>Límite de pérdida diaria alcanzado</b> ({s['daily_pnl_pct']:+.2f}%). Nuevas entradas pausadas hasta mañana (UTC).", "orders")
         peak = max(acc["peak_equity"], s["equity"])
         dd = (peak - s["equity"]) / peak * 100 if peak else 0
         upd.update(peak_equity=peak, max_drawdown=max(acc["max_drawdown"], dd))
@@ -221,6 +229,9 @@ class TradingEngine:
             pos.id = str(res.inserted_id)
             await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
         await self.log("ORDER", f"ABIERTA {sig['side'].upper()} {symbol} @ {entry:.6g} · qty {qty:.6g} · {settings.leverage}x · SL {sl:.6g} · TP {tp:.6g}")
+        await tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {sig['side'].upper()} {symbol}</b> @ {entry:.6g}\n"
+                 f"Cantidad {qty:.6g} · {settings.leverage}x · margen ${margin:,.2f}\nSL {sl:.6g} · TP {tp:.6g}\n"
+                 f"Estrategia: {STRATEGY_INFO[sig['strategy']]['name']}", "orders")
         return pos
 
     async def close_position(self, pos_id: str, price: float = None, reason: str = "MANUAL"):
@@ -243,6 +254,8 @@ class TradingEngine:
             res = await self.db.trades.insert_one(trade.to_mongo())
             trade.id = str(res.inserted_id)
         await self.log("ORDER", f"CERRADA {p.side.upper()} {p.symbol} @ {price:.6g} · {reason} · PnL {net:+.2f} USDT")
+        await tg(f"{'✅' if net >= 0 else '❌'} <b>CERRADA {p.side.upper()} {p.symbol}</b> @ {price:.6g} · {reason}\n"
+                 f"PnL <b>{net:+.2f} USDT</b> ({trade.pnl_pct:+.2f}%) · entrada {p.entry_price:.6g}", "orders")
         return trade
 
     async def _scan_loop(self):
@@ -346,6 +359,8 @@ class TradingEngine:
                 logger.exception("ai error")
                 signal.ai_decision, signal.note, approve = "ERROR", f"Error IA: {str(e)[:180]}", False
             await self.log("AI_EVAL", f"{symbol}: {signal.ai_decision} · confianza {signal.ai_confidence}% · riesgo {signal.ai_risk}")
+            await tg(f"🤖 <b>Claude · {symbol} {sig['side'].upper()}</b>: {signal.ai_decision} ({signal.ai_confidence}% · riesgo {signal.ai_risk})\n"
+                     f"{signal.ai_reasoning[:300] or signal.note}", "ai")
         res = await self.db.signals.insert_one(signal.to_mongo())
         sid = str(res.inserted_id)
         if approve:

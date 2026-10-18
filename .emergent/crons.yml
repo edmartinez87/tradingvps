@@ -1,0 +1,8 @@
+crons:
+  - name: ai-review-daily
+    description: "Dispara la revisión IA automática del bot a las 08:00 UTC; el backend decide si toca según la frecuencia configurada"
+    cron: "0 8 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/ai-review"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

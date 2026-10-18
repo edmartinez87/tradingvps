@@ -1,7 +1,27 @@
 import axios from "axios";
 
 export const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-export const http = axios.create({ baseURL: API, timeout: 60000 });
+export const http = axios.create({ baseURL: API, timeout: 90000 });
+
+const TOKEN_KEY = "bot_token";
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY));
+
+http.interceptors.request.use((cfg) => {
+  const t = getToken();
+  if (t) cfg.headers.Authorization = `Bearer ${t}`;
+  return cfg;
+});
+http.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err?.response?.status === 401 && !String(err.config?.url).includes("/auth/")) {
+      setToken(null);
+      window.dispatchEvent(new Event("auth:logout"));
+    }
+    return Promise.reject(err);
+  },
+);
 
 const num = (v, d) =>
   Number(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });

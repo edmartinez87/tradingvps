@@ -3,9 +3,11 @@ import "@/App.css";
 import { Toaster, toast } from "sonner";
 import { Layers, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { http, errMsg } from "@/lib/api";
+import { http, errMsg, getToken, setToken } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 import Header from "@/components/bot/Header";
+import Login from "@/components/bot/Login";
+import AdminSettings from "@/components/bot/AdminSettings";
 import KpiStrip from "@/components/bot/KpiStrip";
 import Watchlist from "@/components/bot/Watchlist";
 import PriceChart from "@/components/bot/PriceChart";
@@ -23,10 +25,11 @@ import { Panel } from "@/components/bot/Panel";
 
 const TAB_CLS = "rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider data-[state=active]:bg-amber-500 data-[state=active]:text-[#07090E]";
 
-function Dashboard() {
+function Dashboard({ onLogout }) {
   const [meta, setMeta] = useState(null);
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState("panel");
   const { data, refresh } = usePolling(() => http.get("/dashboard").then((r) => r.data), 3000);
 
   useEffect(() => {
@@ -68,9 +71,13 @@ function Dashboard() {
 
   return (
     <div data-testid="dashboard" className="app-bg grain min-h-screen">
-      <Header status={data.status} busy={busy} onToggle={toggleBot}
+      <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout}
+        onSettings={() => setView((v) => (v === "settings" ? "panel" : "settings"))}
         onScan={() => act(() => http.post("/bot/scan"), "Escaneo solicitado")}
-        onReset={() => act(() => http.post("/account/reset"), "Cuenta paper reiniciada")} />
+        onReset={() => act(() => http.post("/account/reset", {}), "Cuenta paper reiniciada")} />
+      {view === "settings" ? (
+        <main className="mx-auto max-w-[1920px] p-4 md:p-6"><AdminSettings account={data.account} refresh={refresh} /></main>
+      ) : (
       <main className="mx-auto max-w-[1920px] space-y-4 p-4 md:p-6">
         <KpiStrip account={data.account} />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -122,14 +129,22 @@ function Dashboard() {
           Simulación con precios reales · No es asesoría financiera · El trading con apalancamiento implica alto riesgo
         </p>
       </main>
+      )}
     </div>
   );
 }
 
 export default function App() {
+  const [authed, setAuthed] = useState(() => !!getToken());
+  useEffect(() => {
+    const onLogout = () => { setAuthed(false); toast.error("Sesión cerrada · vuelve a introducir la clave"); };
+    window.addEventListener("auth:logout", onLogout);
+    return () => window.removeEventListener("auth:logout", onLogout);
+  }, []);
+  const logout = () => { setToken(null); setAuthed(false); };
   return (
     <>
-      <Dashboard />
+      {authed ? <Dashboard onLogout={logout} /> : <Login onLogin={() => setAuthed(true)} />}
       <Toaster theme="dark" position="bottom-right" toastOptions={{ style: { background: "#0D111A", border: "1px solid #1E293B", fontFamily: "Outfit" } }} />
     </>
   );
