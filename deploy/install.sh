@@ -47,6 +47,7 @@ if [ ! -f backend.env ]; then
   } > backend.env
   chmod 600 backend.env
   NEW_PW="$PW"
+  echo "    Contraseña del panel: $PW   (guardada en backend.env como INITIAL_PASSWORD)"
 fi
 
 echo "==> [4/6] Construyendo e iniciando contenedores (la primera vez tarda 5-10 min)"
