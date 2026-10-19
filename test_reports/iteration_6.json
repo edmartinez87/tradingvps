@@ -1,0 +1,34 @@
+{
+  "summary": "Checked the /app/deploy Docker kit without Docker. (1) Ran the frontend.Dockerfile build stage in /tmp/dk: the frozen-lockfile path was used (BRANCH=FROZEN, 11s), yarn build passed (19s), main.*.js contains baseURL:\"/api\" and has 0 occurrences of emergentagent.com. (2) Without a lockfile, the || fallback ran a plain yarn install successfully (BRANCH=FALLBACK, 32s with a warm cache). That tree also built OK with baseURL:\"/api\". (3) install.sh, cron-ai-review.sh and update.sh pass bash -n. install.sh is idempotent, prints the password right after creating backend.env and again at the end, quotes INITIAL_PASSWORD in single quotes, and generates a valid Fernet key (20/20 keys valid). I also ran the exact backend.env generation block with a password containing ', $, a space and #. python-dotenv parses it correctly and every env var the backend needs is present. (4) Cron endpoint: valid secret -> 200 {accepted:true}, a repeated run_id -> duplicate:true, wrong secret or no auth -> 401. (5) docker-compose.yml is valid YAML. Ports: web 80/443, backend 127.0.0.1:8001 only, mongo not exposed. backend uses env_file backend.env. Both builds use context '..' with deploy/*.Dockerfile. The requirements grep removes pytest/pytest-xdist/black/isort/flake8/mypy and keeps all the required packages. (6) .dockerignore excludes .git, node_modules, .env and frontend/build, and does not exclude deploy/frontend.yarn.lock, backend/*.py or frontend/src. 18/18 pytest tests passed. Main risk: deploy/frontend.yarn.lock is NOT committed to git (see rca).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "deploy/frontend.yarn.lock (git)", "issue": "The file is untracked (git status '??'). The latest checkpoint commit 3752a96 included frontend.Dockerfile and install.sh but skipped this lockfile, just as it skipped frontend/yarn.lock (which .gitignore does not ignore either). So the platform probably filters *yarn.lock out of commits. On the VPS the lockfile will not exist, and the build will always use the fallback (non-frozen yarn install). The fallback works, so the build should succeed, but it is not reproducible.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "install.sh password UX", "issue": "On the user's first (failed) run, the old script only printed the generated password at the end, which never ran. backend.env now exists, so a re-run will not print the password at all (NEW_PW stays empty). The user has to read it with: sudo grep INITIAL_PASSWORD deploy/backend.env. Suggestion: if backend.env exists and NEW_PW is empty, print a hint to that command, or print INITIAL_PASSWORD from backend.env."},
+      {"endpoint": "backend/requirements.txt", "issue": "httpx is imported by bybit.py, market.py and notify.py but is not listed. It is installed only as a transitive dependency of emergentintegrations (openai/litellm). Pin httpx explicitly."},
+      {"endpoint": "frontend build index.html", "issue": "The self-hosted build still loads the external script https://assets.emergent.sh/scripts/emergent-main.js from public/index.html. Consider removing it for VPS deployments."},
+      {"endpoint": "install.sh line 17", "issue": "Under set -o pipefail, '! swapon --show --noheadings | grep -q .' could in theory see SIGPIPE (exit 141), go into the swap-creation branch and then fail at fallocate on an existing /swapfile. Unlikely, but a safer form is: [ -z \"$(swapon --show --noheadings)\" ]."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter6_deploy_artifacts.py", "/app/test_reports/pytest/pytest_iter6.xml"],
+  "action_items": [
+    "Make sure deploy/frontend.yarn.lock really reaches the GitHub repo. The platform seems to drop yarn.lock files, so verify on GitHub. If it is filtered, rename it to something without 'yarn.lock' in the name (e.g. deploy/frontend-lock.txt) and update the COPY/mv in frontend.Dockerfile, or accept the fallback.",
+    "Tell the user how to get the password from the first failed run: sudo grep INITIAL_PASSWORD /path/to/deploy/backend.env. Optionally make install.sh print it when backend.env already exists.",
+    "Add httpx to backend/requirements.txt explicitly.",
+    "Optional: remove the emergent-main.js script tag in the self-hosted build."
+  ],
+  "critical_code_review_comments": [
+    "On the VPS the fallback install (no lockfile) resolves from the live npm registry. Today the resolved versions are the same as the lockfile (only range keys differ, e.g. ajv@^8.20.0 vs ^8.9.0, both 8.20.0), but future semver drift could break builds.",
+    "Caddyfile, compose port binding and the cron script all look consistent. Mongo has no auth but is not published on the host, so that is acceptable.",
+    "backend.Dockerfile: rm -rf tests/.env is redundant with .dockerignore, but harmless. Note that the 'tests' entry in .dockerignore only matches /tests at the root, so backend/tests is removed by the Dockerfile rm."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter6_deploy_artifacts.py"],
+  "success_rate": {"backend": "100% (18/18 pytest + both build simulations)", "frontend": "skipped (not requested)"},
+  "seed_data_creation": "None. The cron test only added run_ids test-<ts> and test-dup-<ts> to the in-memory dedupe list.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Docker is not available in this pod. The deploy artifacts are validated by /app/backend/tests/test_iter6_deploy_artifacts.py, which calls the local backend at 127.0.0.1:8001 for the cron test and reads WEBHOOK_CRON_SECRET via dotenv without printing it. Build simulations were run in /tmp/dk and /tmp/dk2, both cleaned up.",
+  "rca of the issue": "Original VPS failure: frontend/yarn.lock is untracked in git (git ls-files lists only frontend/package.json), so COPY frontend/yarn.lock failed. The fix uses COPY with the deploy/frontend.yarn.loc[k] glob plus a || fallback. This prevents the COPY failure, because the glob may match nothing while package.json still matches. But deploy/frontend.yarn.lock is also untracked and was left out of the latest auto-commit, so on the VPS the fallback branch is what will run. I verified that the fallback works here: install 32s, build OK, baseURL:\"/api\"."
+}
