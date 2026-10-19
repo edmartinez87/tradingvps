@@ -66,10 +66,10 @@ fi
 echo
 echo "Esperando a que el backend responda..."
 for _ in $(seq 1 30); do
-  curl -fsS http://127.0.0.1:8001/api/meta >/dev/null 2>&1 && break
+  curl -fsS http://127.0.0.1:8001/api/ >/dev/null 2>&1 && break
   sleep 2
 done
-curl -fsS http://127.0.0.1:8001/api/meta >/dev/null 2>&1 && echo "Backend OK" || echo "El backend aún no responde; revisa: docker compose logs -f backend"
+curl -fsS http://127.0.0.1:8001/api/ >/dev/null 2>&1 && echo "Backend OK" || echo "El backend aún no responde; revisa: docker compose logs -f backend"
 
 SITE=$(grep '^SITE_ADDRESS=' .env | cut -d= -f2-)
 IP=$(curl -fsS -4 --max-time 5 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
