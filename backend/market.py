@@ -1,4 +1,5 @@
 import time
+import asyncio
 import logging
 import httpx
 
@@ -12,7 +13,7 @@ HTF = {"1m": "15m", "5m": "1h", "15m": "1h", "1h": "4h", "4h": "1d"}
 
 
 class MarketData:
-    """Bybit public data with automatic Bitget USDT-perp mirror when Bybit is geo-blocked."""
+    """Bybit public data with automatic Bitget USDT-perp mirror when Bybit is geo-blocked or fails."""
 
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=12)
@@ -20,6 +21,7 @@ class MarketData:
         self.tickers = {}
         self.tickers_ts = 0.0
         self._kcache = {}
+        self._fallback_warned = 0.0
 
     async def detect(self):
         try:
@@ -32,21 +34,51 @@ class MarketData:
         self.provider = "bitget"
         return self.provider
 
+    async def _bybit(self, path: str, params: dict):
+        err = "Bybit sin respuesta"
+        for attempt in range(2):
+            try:
+                r = await self.client.get(f"{BYBIT_URL}{path}", params=params)
+                data = r.json()
+                if r.status_code == 200 and data.get("retCode") == 0:
+                    return data["result"]
+                err = f"Bybit {data.get('retCode', r.status_code)}: {data.get('retMsg') or 'error'}"
+            except Exception as e:
+                err = f"Bybit: {type(e).__name__} {str(e)[:80]}"
+            await asyncio.sleep(0.4 * (attempt + 1))
+        raise RuntimeError(err)
+
+    async def _bitget(self, path: str, params: dict):
+        r = await self.client.get(f"{BITGET_URL}{path}", params=params)
+        data = r.json()
+        if r.status_code != 200 or str(data.get("code")) != "00000":
+            raise RuntimeError(f"Bitget {data.get('code', r.status_code)}: {data.get('msg') or 'error'}")
+        return data["data"]
+
+    def _warn_fallback(self, what: str, err: str):
+        if time.time() - self._fallback_warned > 300:
+            self._fallback_warned = time.time()
+            logger.warning(f"{what}: {err} → usando espejo Bitget")
+
     async def fetch_tickers(self) -> dict:
         out = {}
         if self.provider == "bybit":
-            r = await self.client.get(f"{BYBIT_URL}/v5/market/tickers", params={"category": "linear"})
-            for t in r.json()["result"]["list"]:
-                out[t["symbol"]] = {
-                    "symbol": t["symbol"], "price": float(t["lastPrice"]),
-                    "change_pct": float(t.get("price24hPcnt") or 0) * 100,
-                    "high": float(t.get("highPrice24h") or 0), "low": float(t.get("lowPrice24h") or 0),
-                    "volume_usdt": float(t.get("turnover24h") or 0),
-                    "funding_rate": float(t.get("fundingRate") or 0),
-                }
-        else:
-            r = await self.client.get(f"{BITGET_URL}/api/v2/mix/market/tickers", params={"productType": "USDT-FUTURES"})
-            for t in r.json()["data"]:
+            try:
+                rows = (await self._bybit("/v5/market/tickers", {"category": "linear"}))["list"]
+            except RuntimeError as e:
+                self._warn_fallback("tickers", str(e))
+                rows = None
+            if rows is not None:
+                for t in rows:
+                    out[t["symbol"]] = {
+                        "symbol": t["symbol"], "price": float(t["lastPrice"]),
+                        "change_pct": float(t.get("price24hPcnt") or 0) * 100,
+                        "high": float(t.get("highPrice24h") or 0), "low": float(t.get("lowPrice24h") or 0),
+                        "volume_usdt": float(t.get("turnover24h") or 0),
+                        "funding_rate": float(t.get("fundingRate") or 0),
+                    }
+        if not out:
+            for t in await self._bitget("/api/v2/mix/market/tickers", {"productType": "USDT-FUTURES"}):
                 out[t["symbol"]] = {
                     "symbol": t["symbol"], "price": float(t["lastPr"]),
                     "change_pct": float(t.get("change24h") or 0) * 100,
@@ -64,14 +96,22 @@ class MarketData:
         if hit and time.time() - hit[0] < cache_sec:
             return hit[1]
         bybit_tf, bitget_tf = TF_MAP[tf]
+        rows = None
         if self.provider == "bybit":
-            r = await self.client.get(f"{BYBIT_URL}/v5/market/kline", params={
-                "category": "linear", "symbol": symbol, "interval": bybit_tf, "limit": limit})
-            rows = list(reversed(r.json()["result"]["list"]))
-        else:
-            r = await self.client.get(f"{BITGET_URL}/api/v2/mix/market/candles", params={
-                "symbol": symbol, "granularity": bitget_tf, "limit": limit, "productType": "USDT-FUTURES"})
-            rows = r.json()["data"]
+            try:
+                rows = list(reversed((await self._bybit("/v5/market/kline", {
+                    "category": "linear", "symbol": symbol, "interval": bybit_tf, "limit": limit}))["list"]))
+            except RuntimeError as e:
+                self._warn_fallback(f"klines {symbol} {tf}", str(e))
+        if rows is None:
+            try:
+                rows = await self._bitget("/api/v2/mix/market/candles", {
+                    "symbol": symbol, "granularity": bitget_tf, "limit": limit, "productType": "USDT-FUTURES"})
+            except Exception as e:
+                if hit:
+                    logger.warning(f"klines {symbol} {tf}: {e} → usando caché de hace {int(time.time() - hit[0])}s")
+                    return hit[1]
+                raise RuntimeError(f"sin datos de mercado para {symbol} {tf}: {e}")
         data = [[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in rows]
         self._kcache[key] = (time.time(), data)
         return data
