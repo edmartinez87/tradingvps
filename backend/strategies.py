@@ -17,6 +17,30 @@ STRATEGY_INFO = {
         "rules": "Ruptura del máximo/mínimo de 20 velas con volumen ≥1.5× y ADX>20 a favor de EMA50. SL 2×ATR (N), TP 4×ATR.",
         "basis": "Sistema de las Tortugas de Richard Dennis (1983), uno de los casos de éxito más documentados del trading sistemático.",
     },
+    "supertrend_momentum": {
+        "name": "Supertrend + Momentum",
+        "rules": "Giro del Supertrend(10, 3×ATR) en las últimas 2 velas confirmado por precio sobre/bajo EMA50, RSI a favor (>50 / <50) y ADX con fuerza. SL 2×ATR, TP 4×ATR.",
+        "basis": "Seguimiento de tendencia con stop dinámico de volatilidad (Olivier Seban); popular en cripto por filtrar el ruido lateral.",
+    },
+    "ema_pullback": {
+        "name": "Pullback a EMA21",
+        "rules": "Tendencia definida (EMA50 sobre/bajo EMA200 y precio a favor), retroceso que toca la EMA21 y vela de continuación que cierra de nuevo a favor con RSI sin sobreextensión. SL 1.5×ATR, TP 3×ATR.",
+        "basis": "Compra de retrocesos en tendencia (Raschke, Minervini): entrar a favor de la tendencia con un stop más ajustado que en la ruptura.",
+    },
+}
+
+MODES = {
+    "strict": dict(trend_rsi=(50, 70), trend_macd=True, trend_ema200=True, trend_min_score=5, adx_conf=20, vol_conf=1.0,
+                   mr_adx=25, mr_rsi=35, turtle_vol=1.5, turtle_adx=20, st_adx=20, pb_adx=20, pb_rsi=(40, 65)),
+    "relaxed": dict(trend_rsi=(45, 75), trend_macd=True, trend_ema200=True, trend_min_score=4, adx_conf=15, vol_conf=0.8,
+                    mr_adx=30, mr_rsi=40, turtle_vol=1.2, turtle_adx=15, st_adx=15, pb_adx=15, pb_rsi=(35, 70)),
+    "minimal": dict(trend_rsi=(40, 80), trend_macd=False, trend_ema200=False, trend_min_score=4, adx_conf=10, vol_conf=0.6,
+                    mr_adx=35, mr_rsi=45, turtle_vol=1.0, turtle_adx=10, st_adx=10, pb_adx=10, pb_rsi=(30, 75)),
+}
+MODE_INFO = {
+    "strict": {"name": "Estrictos", "desc": "Umbrales originales: todas las confirmaciones deben coincidir"},
+    "relaxed": {"name": "Relajados", "desc": "RSI y ADX más amplios, volumen menos exigente: ~2× más señales"},
+    "minimal": {"name": "Mínimos", "desc": "Solo la condición principal de cada estrategia: máxima frecuencia, mínima calidad"},
 }
 
 
@@ -32,7 +56,28 @@ def _k(params, key, default):
     return float((params or {}).get(key) or default)
 
 
-def trend_ema(df, i, htf=None, params=None) -> Optional[dict]:
+def _rsi_ok(rsi, band, long):
+    lo, hi = band
+    return lo < rsi < hi if long else (100 - hi) < rsi < (100 - lo)
+
+
+def _against_htf(htf, long):
+    return htf is not None and htf == (-1 if long else 1)
+
+
+def _with_htf(htf, long):
+    return htf is not None and htf == (1 if long else -1)
+
+
+def _atr_levels(r, long, params, sl_def, tp_def):
+    atr = r["atr"]
+    sl_k, tp_k = _k(params, "sl_atr", sl_def), _k(params, "tp_atr", tp_def)
+    sl = r["close"] - sl_k * atr if long else r["close"] + sl_k * atr
+    tp = r["close"] + tp_k * atr if long else r["close"] - tp_k * atr
+    return sl, tp
+
+
+def trend_ema(df, i, htf=None, params=None, m=None) -> Optional[dict]:
     r = df.iloc[i]
     cross = None
     for j in range(i, i - 3, -1):
@@ -48,47 +93,44 @@ def trend_ema(df, i, htf=None, params=None) -> Optional[dict]:
     side, key_ts = cross
     long = side == "long"
     aligned = r["ema9"] > r["ema21"] if long else r["ema9"] < r["ema21"]
-    trend_ok = r["close"] > r["ema200"] if long else r["close"] < r["ema200"]
-    rsi_ok = 50 < r["rsi"] < 70 if long else 30 < r["rsi"] < 50
-    macd_ok = r["macd_hist"] > 0 if long else r["macd_hist"] < 0
-    if not (aligned and trend_ok and rsi_ok and macd_ok):
-        return None
-    if htf is not None and htf == (-1 if long else 1):
+    ref = r["ema200"] if m["trend_ema200"] else r["ema50"]
+    trend_ok = r["close"] > ref if long else r["close"] < ref
+    rsi_ok = _rsi_ok(r["rsi"], m["trend_rsi"], long)
+    macd_ok = (r["macd_hist"] > 0 if long else r["macd_hist"] < 0) if m["trend_macd"] else True
+    if not (aligned and trend_ok and rsi_ok and macd_ok) or _against_htf(htf, long):
         return None
     reasons = [
         f"Cruce {'alcista' if long else 'bajista'} EMA9/EMA21",
-        f"Precio {'sobre' if long else 'bajo'} EMA200",
+        f"Precio {'sobre' if long else 'bajo'} EMA{200 if m['trend_ema200'] else 50}",
         f"RSI {r['rsi']:.1f} en zona de momentum",
-        f"MACD histograma {'positivo' if long else 'negativo'}",
     ]
+    if m["trend_macd"]:
+        reasons.append(f"MACD histograma {'positivo' if long else 'negativo'}")
     score = 4
-    if r["adx"] > 20:
+    if r["adx"] > m["adx_conf"]:
         score += 1
         reasons.append(f"ADX {r['adx']:.1f} (tendencia con fuerza)")
-    if r["vol_ratio"] >= 1.0:
+    if r["vol_ratio"] >= m["vol_conf"]:
         score += 1
         reasons.append(f"Volumen {r['vol_ratio']:.2f}× el promedio")
-    if htf is not None and htf == (1 if long else -1):
+    if _with_htf(htf, long):
         score += 1
         reasons.append("Temporalidad superior a favor")
-    if score < 5:
+    if score < m["trend_min_score"]:
         return None
-    atr = r["atr"]
-    sl_k, tp_k = _k(params, "sl_atr", 1.5), _k(params, "tp_atr", 3.0)
-    sl = r["close"] - sl_k * atr if long else r["close"] + sl_k * atr
-    tp = r["close"] + tp_k * atr if long else r["close"] - tp_k * atr
+    sl, tp = _atr_levels(r, long, params, 1.5, 3.0)
     return _signal(side, r, sl, tp, "trend_ema", reasons, score, key_ts)
 
 
-def mean_reversion(df, i, htf=None, params=None) -> Optional[dict]:
+def mean_reversion(df, i, htf=None, params=None, m=None) -> Optional[dict]:
     r, p = df.iloc[i], df.iloc[i - 1]
-    if r["adx"] >= 25:
+    if r["adx"] >= m["mr_adx"]:
         return None
     atr = r["atr"]
     sl_k = _k(params, "sl_atr", 1.5)
-    if p["close"] < p["bb_low"] and r["close"] > r["bb_low"] and p["rsi"] < 35:
+    if p["close"] < p["bb_low"] and r["close"] > r["bb_low"] and p["rsi"] < m["mr_rsi"]:
         side, sl, tp = "long", r["close"] - sl_k * atr, r["bb_mid"]
-    elif p["close"] > p["bb_up"] and r["close"] < r["bb_up"] and p["rsi"] > 65:
+    elif p["close"] > p["bb_up"] and r["close"] < r["bb_up"] and p["rsi"] > 100 - m["mr_rsi"]:
         side, sl, tp = "short", r["close"] + sl_k * atr, r["bb_mid"]
     else:
         return None
@@ -101,13 +143,13 @@ def mean_reversion(df, i, htf=None, params=None) -> Optional[dict]:
         f"ADX {r['adx']:.1f}: mercado lateral",
         "Objetivo en la media de 20 periodos",
     ]
-    score = 4 + (1 if r["vol_ratio"] >= 1.0 else 0)
+    score = 4 + (1 if r["vol_ratio"] >= m["vol_conf"] else 0)
     return _signal(side, r, sl, tp, "mean_reversion", reasons, score, r["ts"], tp_mode="fixed")
 
 
-def breakout_turtle(df, i, htf=None, params=None) -> Optional[dict]:
+def breakout_turtle(df, i, htf=None, params=None, m=None) -> Optional[dict]:
     r, p = df.iloc[i], df.iloc[i - 1]
-    if r["vol_ratio"] < 1.5 or r["adx"] <= 20:
+    if r["vol_ratio"] < m["turtle_vol"] or r["adx"] <= m["turtle_adx"]:
         return None
     if r["close"] > r["don_high"] and p["close"] <= p["don_high"] and r["close"] > r["ema50"]:
         side = "long"
@@ -116,29 +158,87 @@ def breakout_turtle(df, i, htf=None, params=None) -> Optional[dict]:
     else:
         return None
     long = side == "long"
-    if htf is not None and htf == (-1 if long else 1):
+    if _against_htf(htf, long):
         return None
-    atr = r["atr"]
-    sl_k, tp_k = _k(params, "sl_atr", 2.0), _k(params, "tp_atr", 4.0)
-    sl = r["close"] - sl_k * atr if long else r["close"] + sl_k * atr
-    tp = r["close"] + tp_k * atr if long else r["close"] - tp_k * atr
+    sl, tp = _atr_levels(r, long, params, 2.0, 4.0)
     reasons = [
         f"Ruptura del {'máximo' if long else 'mínimo'} de 20 velas (Donchian)",
         f"Volumen {r['vol_ratio']:.2f}× el promedio",
         f"ADX {r['adx']:.1f}",
         f"Precio {'sobre' if long else 'bajo'} EMA50",
     ]
-    score = 5 + (1 if htf == (1 if long else -1) else 0)
+    score = 5 + (1 if _with_htf(htf, long) else 0)
     return _signal(side, r, sl, tp, "breakout_turtle", reasons, score, r["ts"])
 
 
-STRATEGIES = {"trend_ema": trend_ema, "mean_reversion": mean_reversion, "breakout_turtle": breakout_turtle}
+def supertrend_momentum(df, i, htf=None, params=None, m=None) -> Optional[dict]:
+    r = df.iloc[i]
+    flip = None
+    for j in (i, i - 1):
+        a, b = df.iloc[j], df.iloc[j - 1]
+        if a["st_dir"] != 0 and b["st_dir"] != 0 and a["st_dir"] != b["st_dir"]:
+            flip = ("long" if a["st_dir"] == 1 else "short", int(a["ts"]))
+            break
+    if not flip:
+        return None
+    side, key_ts = flip
+    long = side == "long"
+    still = r["st_dir"] == (1 if long else -1)
+    ema_ok = r["close"] > r["ema50"] if long else r["close"] < r["ema50"]
+    rsi_ok = r["rsi"] > 50 if long else r["rsi"] < 50
+    if not (still and ema_ok and rsi_ok and r["adx"] > m["st_adx"]) or _against_htf(htf, long):
+        return None
+    reasons = [
+        f"Supertrend girado a {'alcista' if long else 'bajista'} en {r['st']:.4g}",
+        f"Precio {'sobre' if long else 'bajo'} EMA50",
+        f"RSI {r['rsi']:.1f} {'>' if long else '<'} 50 (momentum a favor)",
+        f"ADX {r['adx']:.1f}",
+    ]
+    score = 4 + (1 if r["adx"] > 25 else 0) + (1 if r["vol_ratio"] >= m["vol_conf"] else 0) + (1 if _with_htf(htf, long) else 0)
+    sl, tp = _atr_levels(r, long, params, 2.0, 4.0)
+    return _signal(side, r, sl, tp, "supertrend_momentum", reasons, score, key_ts)
 
 
-def evaluate(df, i, strategy: str, htf=None, params=None) -> Optional[dict]:
-    keys = list(STRATEGIES) if strategy == "all" else [strategy]
-    for k in keys:
-        sig = STRATEGIES[k](df, i, htf, params)
+def ema_pullback(df, i, htf=None, params=None, m=None) -> Optional[dict]:
+    r, p = df.iloc[i], df.iloc[i - 1]
+    if r["adx"] <= m["pb_adx"]:
+        return None
+    up = r["ema50"] > r["ema200"] and r["close"] > r["ema50"]
+    down = r["ema50"] < r["ema200"] and r["close"] < r["ema50"]
+    if up and p["low"] <= p["ema21"] and r["close"] > r["ema21"] and r["close"] > r["open"] and _rsi_ok(r["rsi"], m["pb_rsi"], True):
+        side = "long"
+    elif down and p["high"] >= p["ema21"] and r["close"] < r["ema21"] and r["close"] < r["open"] and _rsi_ok(r["rsi"], m["pb_rsi"], False):
+        side = "short"
+    else:
+        return None
+    long = side == "long"
+    if _against_htf(htf, long):
+        return None
+    reasons = [
+        f"Tendencia {'alcista' if long else 'bajista'}: EMA50 {'sobre' if long else 'bajo'} EMA200",
+        f"Retroceso tocó la EMA21 y la vela cierra de nuevo {'por encima' if long else 'por debajo'}",
+        f"RSI {r['rsi']:.1f} sin sobreextensión",
+        f"ADX {r['adx']:.1f}",
+    ]
+    score = 4 + (1 if r["adx"] > 25 else 0) + (1 if r["vol_ratio"] >= m["vol_conf"] else 0) + (1 if _with_htf(htf, long) else 0)
+    sl, tp = _atr_levels(r, long, params, 1.5, 3.0)
+    return _signal(side, r, sl, tp, "ema_pullback", reasons, score, r["ts"])
+
+
+STRATEGIES = {"trend_ema": trend_ema, "mean_reversion": mean_reversion, "breakout_turtle": breakout_turtle,
+              "supertrend_momentum": supertrend_momentum, "ema_pullback": ema_pullback}
+
+
+def active_strategies(strategy: str, disabled=()) -> list:
+    if strategy != "all":
+        return [strategy]
+    return [k for k in STRATEGIES if k not in set(disabled or ())]
+
+
+def evaluate(df, i, strategy: str, htf=None, params=None, mode: str = "strict", disabled=()) -> Optional[dict]:
+    m = MODES.get(mode, MODES["strict"])
+    for k in active_strategies(strategy, disabled):
+        sig = STRATEGIES[k](df, i, htf, params, m)
         if sig:
             return sig
     return None

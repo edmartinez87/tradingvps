@@ -75,25 +75,35 @@ async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> 
     }
 
 
-ADVISOR_SYSTEM = (
-    "Eres el director de inversiones de un bot cuantitativo de futuros perpetuos USDT en modo paper trading. "
-    "Recibes métricas reales y de backtest y debes DECIDIR cambios concretos de configuración para mejorar la expectativa "
-    "y proteger el capital. Reglas estrictas: (1) los cambios estructurales (quitar pares, cambiar de estrategia, bajar o subir el riesgo, "
-    "máximo de posiciones, apalancamiento) requieren evidencia REAL del bot: al menos 30 operaciones cerradas en rendimiento_real y ≥ 20 por par o "
-    "estrategia afectada; el backtest por sí solo NO justifica esos cambios, solo recomendaciones en notes. (2) El backtest y el optimizador sí "
-    "justifican aplicar symbol_params (SL/TP/ATR) cuando el óptimo robusto supera claramente a la línea base con ≥ 20 operaciones. "
-    "(3) Nunca subas el riesgo por operación por encima de 1.5% ni el apalancamiento por encima de 5x; mantén al menos 2 pares activos. "
-    "(4) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
-    "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
-    '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), strategy, risk_per_trade, '
-    'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{sl_atr,tp_atr,atr_period})>},'
-    '"notes":["recomendaciones adicionales en español que no son cambios de configuración"]}'
-)
+DEFAULT_POLICY = {"caps": {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}, "min_trades": 30, "min_item_trades": 20, "level": 0, "name": "Conservador"}
+STRATEGY_KEYS_TXT = "trend_ema, mean_reversion, breakout_turtle, supertrend_momentum, ema_pullback"
 
 
-async def advise(scope: str, context: dict) -> dict:
+def advisor_system(policy: dict) -> str:
+    caps = policy["caps"]
+    return (
+        "Eres el director de inversiones de un bot cuantitativo de futuros perpetuos USDT en modo paper trading. "
+        "Recibes métricas reales y de backtest y debes DECIDIR cambios concretos de configuración para mejorar la expectativa "
+        f"y proteger el capital. El usuario eligió el perfil de riesgo '{policy['name']}' (nivel {policy['level']} de 4): respeta ese nivel de actividad, "
+        "no lo vuelvas más conservador ni más agresivo de lo que el usuario pidió; tu trabajo es podar lo que pierde y reforzar lo que gana dentro de ese perfil. "
+        f"Reglas estrictas: (1) los cambios estructurales (quitar pares, apagar estrategias, bajar o subir el riesgo, máximo de posiciones, apalancamiento) "
+        f"requieren evidencia REAL del bot: al menos {policy['min_trades']} operaciones cerradas en rendimiento_real y ≥ {policy['min_item_trades']} por par o "
+        "estrategia afectada; el backtest por sí solo NO justifica esos cambios, solo recomendaciones en notes. (2) El backtest y el optimizador sí "
+        "justifican aplicar symbol_params (SL/TP/ATR) cuando el óptimo robusto supera claramente a la línea base con ≥ 20 operaciones. "
+        f"(3) Nunca subas el riesgo por operación por encima de {caps['risk_per_trade']}% ni el apalancamiento por encima de {caps['leverage']}x ni el máximo de "
+        f"posiciones por encima de {caps['max_positions']}; mantén al menos 2 pares activos y al menos 1 estrategia activa. "
+        f"(4) Para apagar una estrategia usa disabled_strategies (lista completa de claves apagadas; claves válidas: {STRATEGY_KEYS_TXT}) y deja strategy en 'all'. "
+        "(5) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
+        "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
+        '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), disabled_strategies (lista), risk_per_trade, '
+        'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{sl_atr,tp_atr,atr_period})>},'
+        '"notes":["recomendaciones adicionales en español que no son cambios de configuración"]}'
+    )
+
+
+async def advise(scope: str, context: dict, policy: dict = None) -> dict:
     prompt = f"ÁMBITO: {scope}\nCONTEXTO (JSON):\n{json.dumps(context, ensure_ascii=False, default=str)}\n\nDecide los cambios de configuración."
-    text = await _ask(_chat(ADVISOR_SYSTEM, "advisor"), prompt)
+    text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY), "advisor"), prompt)
     match = re.search(r"\{.*\}", text, re.S)
     if not match:
         raise ValueError(f"Respuesta IA no válida: {text[:200]}")

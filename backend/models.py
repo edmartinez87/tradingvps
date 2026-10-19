@@ -10,7 +10,8 @@ AVAILABLE_SYMBOLS = [
     "AVAXUSDT", "LINKUSDT", "ADAUSDT", "NEARUSDT", "SUIUSDT", "LTCUSDT",
 ]
 TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h"]
-STRATEGY_KEYS = ["all", "trend_ema", "mean_reversion", "breakout_turtle"]
+STRATEGY_KEYS = ["all", "trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback"]
+SIGNAL_MODES = ["strict", "relaxed", "minimal"]
 
 
 def now_iso() -> str:
@@ -47,11 +48,29 @@ class Settings(BaseModel):
     trailing_enabled: bool = True
     htf_filter: bool = True
     symbol_params: Dict[str, Dict[str, float]] = {}
+    signal_mode: str = "strict"
+    disabled_strategies: List[str] = ["supertrend_momentum", "ema_pullback"]
+    risk_profile: int = 0
     plan_scenario: str = "base"
     plan_target_monthly: float = 1000.0
     plan_monthly_deposit: float = 0.0
     plan_phase: int = 0
     bot_running: bool = False
+
+    @field_validator("signal_mode")
+    @classmethod
+    def _mode(cls, v):
+        if v not in SIGNAL_MODES:
+            raise ValueError("Modo de señales inválido")
+        return v
+
+    @field_validator("disabled_strategies")
+    @classmethod
+    def _disabled(cls, v):
+        v = [s for s in dict.fromkeys(v or []) if s in STRATEGY_KEYS and s != "all"]
+        if len(v) >= len(STRATEGY_KEYS) - 1:
+            raise ValueError("Debe quedar al menos una estrategia activa")
+        return v
 
     @field_validator("symbol_params")
     @classmethod
@@ -101,6 +120,9 @@ class SettingsUpdate(BaseModel):
     trailing_enabled: Optional[bool] = None
     htf_filter: Optional[bool] = None
     symbol_params: Optional[Dict[str, Dict[str, float]]] = None
+    signal_mode: Optional[str] = None
+    disabled_strategies: Optional[List[str]] = None
+    risk_profile: Optional[int] = Field(default=None, ge=0, le=4)
     plan_scenario: Optional[str] = None
     plan_target_monthly: Optional[float] = Field(default=None, ge=50, le=10_000_000)
     plan_monthly_deposit: Optional[float] = Field(default=None, ge=0, le=1_000_000)
@@ -201,6 +223,10 @@ class OptimizeRequest(BaseModel):
 class AdviseRequest(BaseModel):
     scope: str
     optimizer_results: Optional[List[Dict[str, Any]]] = None
+
+
+class ProfileRequest(BaseModel):
+    level: int = Field(ge=0, le=4)
 
 
 class BybitTestRequest(BaseModel):

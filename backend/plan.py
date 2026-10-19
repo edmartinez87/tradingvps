@@ -97,7 +97,8 @@ async def backtest_stats(fetch_klines, settings, initial: float) -> dict:
     for sym in settings.symbols:
         params = settings.symbol_params.get(sym) or {}
         df = build_df(await fetch_klines(sym, settings.timeframe, 1000, cache_sec=300), int(params.get("atr_period", 14)))
-        res = run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, sym, params)
+        res = run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, sym, params,
+                           settings.signal_mode, settings.disabled_strategies)
         R += res["r_multiples"]
         per_symbol.append({"symbol": sym, "return_pct": res["return_pct"], "trades": res["total_trades"],
                            "win_rate": res["win_rate"], "profit_factor": res["profit_factor"],

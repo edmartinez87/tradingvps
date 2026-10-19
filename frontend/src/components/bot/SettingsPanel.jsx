@@ -5,7 +5,8 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Panel } from "./Panel";
-import { STRATEGY_LABELS } from "@/lib/api";
+import RiskProfileBar from "./RiskProfileBar";
+import { STRATEGY_LABELS, STRATEGY_KEYS, MODE_LABELS, activeStrategies } from "@/lib/api";
 
 const NUMS = [
   { k: "risk_per_trade", label: "Riesgo por operación (%)", step: 0.1, min: 0.1, max: 5 },
@@ -13,13 +14,16 @@ const NUMS = [
   { k: "leverage", label: "Apalancamiento (x)", step: 1, min: 1, max: 20 },
   { k: "daily_loss_limit", label: "Límite pérdida diaria (%)", step: 0.5, min: 1, max: 20 },
   { k: "ai_min_confidence", label: "Confianza mínima IA (%)", step: 5, min: 0, max: 100 },
-  { k: "scan_interval_sec", label: "Intervalo escaneo (s)", step: 10, min: 30, max: 900 },
+  { k: "scan_interval_sec", label: "Intervalo escaneo (seg)", step: 10, min: 30, max: 900 },
 ];
 const TOGGLES = [
   { k: "ai_enabled", label: "Confirmación con Claude Sonnet", hint: "La IA aprueba o rechaza cada señal" },
   { k: "trailing_enabled", label: "Breakeven + trailing stop", hint: "BE a +1R, trailing ATR desde +1.5R" },
   { k: "htf_filter", label: "Filtro de temporalidad superior", hint: "No operar contra la tendencia mayor" },
 ];
+const CHIP = "relative rounded-sm border px-2 py-1 font-mono text-[10px] transition-colors";
+const ON = "border-amber-500/60 bg-amber-500/15 text-amber-300";
+const OFF = "border-[#1E293B] text-slate-500 hover:text-slate-200";
 
 const Sel = ({ label, value, onChange, options, render, testId }) => (
   <div>
@@ -33,13 +37,20 @@ const Sel = ({ label, value, onChange, options, render, testId }) => (
   </div>
 );
 
-export default function SettingsPanel({ settings, meta, onSave }) {
+export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile }) {
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   useEffect(() => { if (!dirty) setForm(settings); }, [settings, dirty]);
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); };
   const toggleSym = (s) => set("symbols", form.symbols.includes(s) ? form.symbols.filter((x) => x !== s) : [...form.symbols, s]);
+  const active = activeStrategies(form);
+  const toggleStrat = (k) => {
+    const next = active.includes(k) ? active.filter((x) => x !== k) : [...active, k];
+    if (!next.length) return;
+    setForm((f) => ({ ...f, strategy: "all", disabled_strategies: STRATEGY_KEYS.filter((x) => !next.includes(x)) }));
+    setDirty(true);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -59,9 +70,21 @@ export default function SettingsPanel({ settings, meta, onSave }) {
           <Save className="mr-1 h-3 w-3" /> {saving ? "Guardando" : "Guardar"}
         </Button>
       }>
+      <RiskProfileBar profiles={meta?.profiles} active={profileActive} selected={settings.risk_profile} onApply={onProfile} />
       <div className="grid grid-cols-2 gap-3">
-        <Sel label="Estrategia" value={form.strategy} onChange={(v) => set("strategy", v)} options={meta?.strategies || []} render={(o) => STRATEGY_LABELS[o]} testId="settings-strategy-select" />
         <Sel label="Temporalidad" value={form.timeframe} onChange={(v) => set("timeframe", v)} options={meta?.timeframes || []} testId="settings-timeframe-select" />
+        <Sel label="Criterios de entrada" value={form.signal_mode} onChange={(v) => set("signal_mode", v)} options={meta?.signal_modes || []}
+          render={(o) => MODE_LABELS[o]} testId="settings-signal-mode-select" />
+      </div>
+      {meta?.mode_info?.[form.signal_mode] && <p data-testid="settings-signal-mode-hint" className="-mt-2 text-[11px] text-slate-500">{meta.mode_info[form.signal_mode].desc}</p>}
+      <div>
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">Estrategias activas ({active.length}/{STRATEGY_KEYS.length})</p>
+        <div className="flex flex-wrap gap-1.5">
+          {STRATEGY_KEYS.map((k) => (
+            <button key={k} data-testid={`settings-strategy-${k}`} onClick={() => toggleStrat(k)} title={meta?.strategy_info?.[k]?.rules}
+              className={`${CHIP} ${active.includes(k) ? ON : OFF}`}>{STRATEGY_LABELS[k]}</button>
+          ))}
+        </div>
       </div>
       <div>
         <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">Pares a operar ({form.symbols.length})</p>
@@ -70,7 +93,7 @@ export default function SettingsPanel({ settings, meta, onSave }) {
             const on = form.symbols.includes(s);
             return (
               <button key={s} data-testid={`settings-symbol-${s}`} onClick={() => toggleSym(s)} title={form.symbol_params?.[s] ? `SL ${form.symbol_params[s].sl_atr}× · TP ${form.symbol_params[s].tp_atr}× · ATR ${form.symbol_params[s].atr_period} (optimizado)` : undefined}
-                className={`relative rounded-sm border px-2 py-1 font-mono text-[10px] transition-colors ${on ? "border-amber-500/60 bg-amber-500/15 text-amber-300" : "border-[#1E293B] text-slate-500 hover:text-slate-200"}`}>
+                className={`${CHIP} ${on ? ON : OFF}`}>
                 {s.replace("USDT", "")}
                 {form.symbol_params?.[s] && <span data-testid={`settings-symbol-${s}-optimized`} className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />}
               </button>

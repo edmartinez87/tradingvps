@@ -1,7 +1,7 @@
 import { ShieldCheck, Sparkles } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { Panel } from "./Panel";
-import { fmtUsd, STRATEGY_LABELS } from "@/lib/api";
+import { fmtUsd, STRATEGY_LABELS, MODE_LABELS, activeStrategies } from "@/lib/api";
 
 const Stat = ({ label, value, testId }) => (
   <div className="rounded-sm border border-[#1E293B] bg-[#07090E]/60 px-3 py-2">
@@ -10,17 +10,24 @@ const Stat = ({ label, value, testId }) => (
   </div>
 );
 
-export default function BotPanel({ settings: s, meta, account, equity }) {
+const PROFILE_TONE = ["text-emerald-300", "text-lime-300", "text-amber-300", "text-orange-300", "text-rose-300"];
+
+export default function BotPanel({ settings: s, meta, account, equity, profileActive }) {
   const info = meta?.strategy_info || {};
-  const active = s.strategy === "all" ? Object.keys(info) : [s.strategy];
+  const active = activeStrategies(s);
+  const profile = profileActive != null ? meta?.profiles?.[profileActive] : null;
   const used = Math.min(100, Math.max(0, (-account.daily_pnl_pct / s.daily_loss_limit) * 100));
   const curve = equity.map((e) => ({ t: e.ts, v: e.equity }));
 
   return (
     <Panel testId="bot-plan-panel" title="Plan de trading" icon={ShieldCheck} className="lg:col-span-3" bodyClass="p-4 space-y-4 overflow-y-auto thin-scroll max-h-[540px]" delay={180}>
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Estrategia activa · {s.timeframe}</p>
-        <p data-testid="active-strategy-name" className="font-display mt-1 text-lg font-bold text-amber-400">{STRATEGY_LABELS[s.strategy]}</p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+          Perfil · <span data-testid="plan-profile-name" className={profile ? PROFILE_TONE[profileActive] : "text-slate-300"}>{profile ? profile.name : "Personalizado"}</span> · {s.timeframe} · criterios {MODE_LABELS[s.signal_mode]?.toLowerCase()}
+        </p>
+        <p data-testid="active-strategy-name" className="font-display mt-1 text-lg font-bold text-amber-400">
+          {active.length > 1 ? `Multi-estrategia (${active.length})` : STRATEGY_LABELS[active[0]]}
+        </p>
         <ul className="mt-2 space-y-2">
           {active.map((k) => info[k] && (
             <li key={k} className="border-l-2 border-amber-500/40 pl-2.5">

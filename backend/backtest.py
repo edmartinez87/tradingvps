@@ -8,11 +8,11 @@ def _iso(ts_ms) -> str:
     return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
 
 
-def scan_signals(df, strategy: str, params: dict = None) -> dict:
+def scan_signals(df, strategy: str, params: dict = None, mode: str = "strict", disabled=()) -> dict:
     """Signal detection is independent of SL/TP → scan once, simulate many times."""
     out, used = {}, set()
     for i in range(210, len(df)):
-        sig = evaluate(df, i, strategy, None, params)
+        sig = evaluate(df, i, strategy, None, params, mode, disabled)
         if sig and (sig["strategy"], sig["key_ts"]) not in used:
             used.add((sig["strategy"], sig["key_ts"]))
             out[i] = sig
@@ -113,5 +113,5 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
 
 
 def run_backtest(df, strategy: str, risk_pct: float, leverage: int, trailing: bool = True,
-                 initial: float = 10000.0, symbol: str = None, params: dict = None) -> dict:
-    return simulate(df, scan_signals(df, strategy, params), risk_pct, leverage, trailing, initial, symbol)
+                 initial: float = 10000.0, symbol: str = None, params: dict = None, mode: str = "strict", disabled=()) -> dict:
+    return simulate(df, scan_signals(df, strategy, params, mode, disabled), risk_pct, leverage, trailing, initial, symbol)

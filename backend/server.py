@@ -17,7 +17,7 @@ from bson import ObjectId  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from models import (  # noqa: E402
     Position, Trade, Signal, LogEntry, SettingsUpdate, BacktestRequest, ResetRequest, PlanRequest,
-    OptimizeRequest, AdviseRequest, BybitTestRequest, ModeRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS, now_iso,
+    OptimizeRequest, AdviseRequest, BybitTestRequest, ModeRequest, ProfileRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS, SIGNAL_MODES, now_iso,
 )
 from engine import TradingEngine  # noqa: E402
 from market import TF_SECONDS  # noqa: E402
@@ -34,7 +34,9 @@ from auth import (  # noqa: E402
 from config import ConfigStore, ConfigUpdate  # noqa: E402
 from bybit import BybitClient, BybitError  # noqa: E402
 import notify  # noqa: E402
-from review import plan_stats, build_context, apply_ai_changes, run_auto_review  # noqa: E402
+from review import plan_stats, build_context, apply_ai_changes, run_auto_review, start_global_optimization, job_state  # noqa: E402
+from profiles import PROFILES, detect_profile, profile_patch, ai_policy  # noqa: E402
+from strategies import MODE_INFO  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -296,7 +298,27 @@ async def cron_ai_review(request: Request):
 
 @api.get("/meta")
 async def meta():
-    return {"symbols": AVAILABLE_SYMBOLS, "timeframes": TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": STRATEGY_INFO}
+    return {"symbols": AVAILABLE_SYMBOLS, "timeframes": TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": STRATEGY_INFO,
+            "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO, "profiles": PROFILES}
+
+
+@api.post("/profile")
+async def set_profile(req: ProfileRequest):
+    settings = await engine.get_settings()
+    if engine.live and req.level >= 3 and engine.running:
+        raise HTTPException(409, "Detén el bot antes de pasar a un perfil agresivo en modo REAL")
+    p = PROFILES[req.level]
+    before = PROFILES[settings.risk_profile]["name"] if detect_profile(settings) is not None else "Personalizado"
+    s = await engine.update_settings(profile_patch(req.level))
+    st = p["settings"]
+    await engine.log("INFO", f"Perfil de riesgo: {before} → {p['name']} · {len(st['symbols'])} pares · {st['timeframe']} · riesgo {st['risk_per_trade']}% · {st['leverage']}x")
+    await notify.notify(
+        f"🎚 <b>Perfil de riesgo cambiado</b>: {before} → <b>{p['name']}</b>\n"
+        f"• {len(st['symbols'])} pares · velas {st['timeframe']} · criterios {MODE_INFO[st['signal_mode']]['name'].lower()}\n"
+        f"• Riesgo {st['risk_per_trade']}%/op · máx {st['max_positions']} posiciones · {st['leverage']}x · límite diario {st['daily_loss_limit']}%\n"
+        f"• Filtro 4h: {'sí' if st['htf_filter'] else 'no'} · IA: {'sí (≥' + str(st['ai_min_confidence']) + '%)' if st['ai_enabled'] else 'NO'}"
+        + (f"\n⚠️ {p['warning']}" if p["warning"] else ""), "review")
+    return {"settings": s.model_dump(), "profile_active": detect_profile(s)}
 
 
 @api.get("/dashboard")
@@ -316,6 +338,7 @@ async def dashboard():
         "status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(),
         "positions": positions, "trades": trades, "signals": signals, "logs": logs,
         "watchlist": watchlist, "equity": await _equity_curve(), "checkin": await engine.checkin(settings),
+        "profile_active": detect_profile(settings), "optimize_job": job_state()["status"],
     }
 
 
@@ -479,8 +502,20 @@ async def optimize_symbol(req: OptimizeRequest):
     s = await engine.get_settings()
     acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
     klines = await engine.market.fetch_klines(req.symbol, s.timeframe, 1000, cache_sec=300)
-    res = optimize(klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"], req.symbol)
+    res = optimize(klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"], req.symbol, s.signal_mode, s.disabled_strategies)
     return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
+
+
+@api.post("/ai/optimize-all")
+async def ai_optimize_all():
+    if not await start_global_optimization(engine, db):
+        raise HTTPException(409, "Ya hay una optimización global en curso")
+    return job_state()
+
+
+@api.get("/ai/optimize-all")
+async def ai_optimize_all_status():
+    return job_state()
 
 
 @api.post("/ai/advise")
@@ -495,11 +530,11 @@ async def ai_advise(req: AdviseRequest):
         ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (req.optimizer_results or [])]
     await engine.log("AI_EVAL", f"Claude analizando {'optimizador' if req.scope == 'optimizer' else 'plan'} y rendimiento real...")
     try:
-        res = await advise(req.scope, ctx)
+        res = await advise(req.scope, ctx, ai_policy(settings.risk_profile))
     except Exception as e:
         logger.exception("advise")
         raise HTTPException(424, f"Error IA: {str(e)[:160]}")
-    applied, previous = await apply_ai_changes(engine, res, before)
+    applied, previous = await apply_ai_changes(engine, res, before, settings)
     await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     return {**res, "applied": applied, "previous": previous}
 
@@ -516,7 +551,9 @@ async def backtest(req: BacktestRequest):
         raise HTTPException(400, "Parámetros inválidos")
     df = build_df(await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60))
     acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
-    result = run_backtest(df, req.strategy, req.risk_per_trade, req.leverage, initial=acc["initial_balance"], symbol=req.symbol)
+    s = await engine.get_settings()
+    result = run_backtest(df, req.strategy, req.risk_per_trade, req.leverage, initial=acc["initial_balance"], symbol=req.symbol,
+                          mode=s.signal_mode, disabled=s.disabled_strategies)
     result.pop("r_multiples", None)
     return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, **result}
 

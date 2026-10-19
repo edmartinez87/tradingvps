@@ -453,7 +453,7 @@ class TradingEngine:
                     htf = None
                     if settings.htf_filter:
                         htf = htf_trend(build_df(await self.market.fetch_klines(symbol, htf_tf, 200, cache_sec=120)))
-                    sig = evaluate(df, i, settings.strategy, htf, params)
+                    sig = evaluate(df, i, settings.strategy, htf, params, settings.signal_mode, settings.disabled_strategies)
                     self.analysis[symbol] = {
                         "trend": trend_label(row), "rsi": round(float(row["rsi"]), 1),
                         "macd_hist": float(row["macd_hist"]), "adx": round(float(row["adx"]), 1),

@@ -88,7 +88,7 @@ function Dashboard({ onLogout }) {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <Watchlist items={data.watchlist} selected={symbol} onSelect={setSymbol} />
           <PriceChart symbol={symbol} defaultTf={data.settings.timeframe} />
-          <BotPanel settings={data.settings} meta={meta} account={data.account} equity={data.equity} />
+          <BotPanel settings={data.settings} meta={meta} account={data.account} equity={data.equity} profileActive={data.profile_active} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
           <Panel testId="operations-panel" className="lg:col-span-8" delay={220}>
@@ -115,7 +115,9 @@ function Dashboard({ onLogout }) {
               </TabsContent>
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
               <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} /></TabsContent>
-              <TabsContent value="performance" className="mt-0"><Performance tradeCount={data.account.total_trades} /></TabsContent>
+              <TabsContent value="performance" className="mt-0">
+                <Performance tradeCount={data.account.total_trades} settings={data.settings} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
+              </TabsContent>
               <TabsContent value="optimizer" className="mt-0">
                 <Optimizer settings={data.settings} refresh={refresh} onSave={(body) => act(() => http.put("/settings", body), "Parámetros del bot actualizados")} />
               </TabsContent>
@@ -128,7 +130,9 @@ function Dashboard({ onLogout }) {
           <AiSignals signals={data.signals} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <SettingsPanel settings={data.settings} meta={meta} onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")} />
+          <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active}
+            onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")}
+            onProfile={(level) => act(() => http.post("/profile", { level }), `Perfil de riesgo aplicado: ${meta?.profiles?.[level]?.name || level}`)} />
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />
         </div>
         <p className="pb-4 pt-2 font-mono text-[10px] uppercase tracking-wider text-slate-600">

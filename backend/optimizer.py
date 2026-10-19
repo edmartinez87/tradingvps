@@ -15,11 +15,12 @@ def _metrics(res: dict) -> dict:
     return m
 
 
-def optimize(klines: list, strategy: str, risk_pct: float, leverage: int, trailing: bool, initial: float, symbol: str) -> dict:
+def optimize(klines: list, strategy: str, risk_pct: float, leverage: int, trailing: bool, initial: float, symbol: str,
+             mode: str = "strict", disabled=()) -> dict:
     rows = []
     for ap in ATR_GRID:
         df = build_df(klines, ap)
-        sigs = scan_signals(df, strategy)
+        sigs = scan_signals(df, strategy, None, mode, disabled)
         for sl in SL_GRID:
             for tp in TP_GRID:
                 if tp < sl * MIN_RR:
@@ -37,7 +38,7 @@ def optimize(klines: list, strategy: str, risk_pct: float, leverage: int, traili
         r["neighbors"] = len(neigh)
     valid = [r for r in rows if r["trades"] >= MIN_TRADES] or [r for r in rows if r["trades"] >= 5]
     best = max(valid, key=lambda r: (r["robust"], r["sqn"])) if valid else None
-    base_res = run_backtest(build_df(klines, 14), strategy, risk_pct, leverage, trailing, initial, symbol)
+    base_res = run_backtest(build_df(klines, 14), strategy, risk_pct, leverage, trailing, initial, symbol, None, mode, disabled)
     return {
         "symbol": symbol, "strategy": strategy, "candles": len(klines),
         "period_start": base_res["period_start"], "period_end": base_res["period_end"],

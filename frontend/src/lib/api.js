@@ -50,7 +50,12 @@ export const STRATEGY_LABELS = {
   trend_ema: "Tendencia EMA",
   mean_reversion: "Reversión a la media",
   breakout_turtle: "Ruptura Turtle",
+  supertrend_momentum: "Supertrend + momentum",
+  ema_pullback: "Pullback EMA21",
 };
+export const STRATEGY_KEYS = ["trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback"];
+export const MODE_LABELS = { strict: "Estrictos", relaxed: "Relajados", minimal: "Mínimos" };
+export const activeStrategies = (s) => (s.strategy === "all" ? STRATEGY_KEYS.filter((k) => !(s.disabled_strategies || []).includes(k)) : [s.strategy]);
 export const REASON_LABELS = { TP: "Take Profit", SL: "Stop Loss", TRAILING: "Trailing", MANUAL: "Manual" };
 export const errMsg = (e) => {
   const d = e?.response?.data?.detail;
