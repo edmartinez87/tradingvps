@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+frontend/build
+test_reports
+.screenshots
+.ruff_cache
+memory
+tests
+**/__pycache__

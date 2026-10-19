@@ -1,0 +1,39 @@
+services:
+  mongo:
+    image: ${MONGO_IMAGE:-mongo:7}
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    restart: unless-stopped
+    env_file: backend.env
+    depends_on:
+      - mongo
+    ports:
+      - "127.0.0.1:8001:8001"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/frontend.Dockerfile
+    restart: unless-stopped
+    environment:
+      - SITE_ADDRESS=${SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:
+  caddy_data:
+  caddy_config:

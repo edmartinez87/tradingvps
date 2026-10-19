@@ -49,6 +49,10 @@
 - UI: Ajustes → "Bybit · cuenta real" (entorno, key, secret, endpoint avanzado, probar conexión con equidad/disponible/posiciones/desfase, quitar) y "Modo de operación" (badge, checklist, botón "Pasar a modo REAL" con diálogo y texto REAL, "Volver a paper"); header con badge "Modo REAL · Bybit env"; banner si Bybit no responde; botón "Cerrar todas" con confirmación.
 - Testing: Bybit está geo-bloqueado en este pod → mock local firmado `scripts/bybit_mock.py` (puerto 8011). iteration_5: backend 20/20, frontend OK; fixes de seguridad posteriores (carrera al abrir, closed-pnl por side/qty, verificación obligatoria para iniciar en REAL, confirmación de cierre total).
 
+## Implemented (2026-06, iteration 6 · kit de despliegue VPS)
+- `/app/deploy/`: docker-compose.yml (mongo + backend + web=Caddy sirviendo el build y proxy /api → backend:8001; backend expuesto solo en 127.0.0.1:8001), backend.Dockerfile (python:3.11-slim, pip con extra-index de emergentintegrations, sin herramientas dev), frontend.Dockerfile (node:20-alpine build con REACT_APP_BACKEND_URL="" → API relativa `/api`; luego caddy:2-alpine), Caddyfile (`{$SITE_ADDRESS}`: `:80` por IP o dominio → HTTPS automático), install.sh (Docker, swap si <3.5GB, genera deploy/.env y backend.env con secretos aleatorios + contraseña, build, crontab 08:00 UTC, ufw), cron-ai-review.sh (POST /api/cron/ai-review con Bearer WEBHOOK_CRON_SECRET), update.sh (git pull + rebuild), README.md. `.dockerignore` en la raíz excluye .env/node_modules/.git.
+- Verificado localmente: build de producción del frontend genera baseURL "/api" sin URL de preview; `cron-ai-review.sh` → `{"accepted":true}`. Docker no está disponible en el pod, así que compose/Dockerfiles quedan por validar en el VPS.
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
