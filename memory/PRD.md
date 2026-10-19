@@ -54,12 +54,20 @@
 - Verificado localmente: build de producción del frontend genera baseURL "/api" sin URL de preview; `cron-ai-review.sh` → `{"accepted":true}`. Docker no está disponible en el pod, así que compose/Dockerfiles quedan por validar en el VPS.
 - Fix tras primer intento en el VPS (Vultr, dominio macdeploy.work): `frontend/yarn.lock` no está en git (la plataforma no lo commitea) → copia en `deploy/frontend.yarn.lock`; frontend.Dockerfile usa `COPY ... deploy/frontend.yarn.loc[k]` + frozen-lockfile con fallback a `yarn install` si falta. install.sh imprime la contraseña generada justo tras crear backend.env. iteration_6: ambas ramas (frozen/fallback) construyen con "/api"; cron 200/401/duplicate OK. Si cambia package.json, re-copiar el lockfile a deploy/.
 
+## Implemented (2026-06, iteration 7 · perfil de riesgo, estrategias nuevas, optimización global IA)
+- profiles.py: 5 presets (0 Conservador = config original · 1 Moderado · 2 Activo · 3 Agresivo · 4 Máximo) que fijan symbols (6/8/10/12/12), timeframe (1h→15m desde L3), signal_mode (strict/relaxed/minimal), htf_filter, ai_enabled/ai_min_confidence (60/55/50/40/off), risk_per_trade (1/1.25/1.5/2/3), max_positions (3/4/5/6/8), leverage (3/3/5/5/10), daily_loss_limit (5/6/8/10/15), disabled_strategies (nuevas apagadas en L0-L1). `detect_profile` → nivel activo o null (Personalizado). `ai_policy(level)` → topes IA = max(base 1.5%/5x/5pos, preset) y mínimos de evidencia (30/20 ops en L0-1, 20/15 en L2+).
+- strategies.py: MODES con umbrales por modo (RSI, ADX, volumen, MACD/EMA200 opcionales, score mínimo); 2 estrategias nuevas `supertrend_momentum` (giro Supertrend 10/3 + EMA50 + RSI + ADX) y `ema_pullback` (EMA50>EMA200, toque EMA21 y vela de continuación); `evaluate(..., mode, disabled)`; `disabled` solo aplica con strategy="all". indicators.py añade `st`/`st_dir`.
+- Settings: `signal_mode`, `disabled_strategies` (≥1 activa), `risk_profile`. Endpoints: GET /api/meta (+signal_modes, mode_info, profiles), POST /api/profile {level} (log + Telegram "review"; 409 si REAL+bot corriendo+nivel≥3), /api/dashboard (+profile_active, optimize_job). backtest/optimizer/plan reciben mode/disabled.
+- review.py: `apply_ai_changes` usa topes del perfil, soporta `disabled_strategies` (fuerza strategy="all"); prompt del asesor dinámico (respeta el nivel elegido, no lo vuelve más conservador/agresivo). `run_global_optimization` + job en background: POST /api/ai/optimize-all (409 si en curso) / GET estado {status, step, result{summary, applied, previous, notes, optimizer[por par], ran_at}}; aplica directamente y avisa por Telegram.
+- UI: RiskProfileBar.jsx (slider 5 niveles, chips del preset, aviso, AlertDialog en L3-L4, badge Personalizado, reset del formulario al aplicar), SettingsPanel (chips de estrategias on/off, selector de criterios con descripción, intervalo en "seg"), Performance (botón Activo/Apagado por estrategia y por par), Optimizer (tarjeta "Optimizar todo con IA" con polling y AiResult reutilizable), BotPanel (perfil + nº estrategias activas).
+- Tested iteration_7: backend 16/16, frontend completo OK; fixes: reset de formulario sucio al aplicar perfil, revertir preview al cancelar diálogo, contraste de etiquetas. Medición: señales 42 días BTC 1h = 38 (strict, 3 estrategias) → 56 relaxed → 76 minimal → 150 minimal con 5 estrategias.
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
 ## Backlog
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
-- P1: Telegram notifications for entries/exits/AI decisions
-- P1: One-click disable of a losing pair/strategy from the Rendimiento tab
+- P1: Telegram: configurar token/chat en el VPS y validar alertas end-to-end
 - P2: Walk-forward validation of optimizer params (in-sample/out-of-sample), AI backtest sampling
 - P2: Funding-rate & news sentiment context for AI
+- P2: Backup nocturno de Mongo en el VPS

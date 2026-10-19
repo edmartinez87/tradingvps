@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Gauge, Loader2, AlertTriangle, Flame } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ export default function RiskProfileBar({ profiles = [], active, selected = 0, on
   const [level, setLevel] = useState(active ?? selected ?? 0);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const applying = useRef(false);
   useEffect(() => { setLevel(active ?? selected ?? 0); }, [active, selected]);
   if (!profiles.length) return null;
 
@@ -37,10 +38,12 @@ export default function RiskProfileBar({ profiles = [], active, selected = 0, on
   const dirty = level !== active;
 
   const apply = async () => {
+    applying.current = true;
     setBusy(true);
     const ok = await onApply(level);
     setBusy(false);
     setConfirm(false);
+    applying.current = false;
     if (!ok) setLevel(active ?? selected ?? 0);
   };
   const request = () => (level >= 3 ? setConfirm(true) : apply());
@@ -70,7 +73,7 @@ export default function RiskProfileBar({ profiles = [], active, selected = 0, on
         <div className="mt-2 flex justify-between font-mono text-[9px] uppercase tracking-wider">
           {profiles.map((x) => (
             <button key={x.level} data-testid={`risk-profile-step-${x.level}`} onClick={() => setLevel(x.level)}
-              className={`transition-colors ${x.level === level ? TONE[x.level].text : "text-slate-600 hover:text-slate-400"}`}>
+              className={`transition-colors ${x.level === level ? TONE[x.level].text : "text-slate-400 hover:text-slate-200"}`}>
               {x.name}
             </button>
           ))}
@@ -97,7 +100,7 @@ export default function RiskProfileBar({ profiles = [], active, selected = 0, on
         </p>
       )}
 
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+      <AlertDialog open={confirm} onOpenChange={(o) => { setConfirm(o); if (!o && !applying.current) setLevel(active ?? selected ?? 0); }}>
         <AlertDialogContent data-testid="risk-profile-dialog" className="border-rose-500/30 bg-[#0D111A]">
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display text-rose-300">Activar perfil {p.name}</AlertDialogTitle>

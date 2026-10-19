@@ -1,0 +1,41 @@
+{
+  "summary": "Tested iteration 7 (risk profile bar with 5 levels, disabled_strategies, signal_mode, new strategies supertrend_momentum and ema_pullback, background 'Optimizar todo con IA' job) on backend and frontend. Backend: 16/16 pytest pass when run serially. Frontend: every requested flow works: level 2 apply, level 4 with AlertDialog (cancel and confirm), restore to level 0, strategy chips with the Personalizado badge, the last chip cannot be turned off, signal mode hint, Rendimiento empty state, Backtest listing 6 strategies and running Supertrend, Optimizar todo with live step text, disabled buttons while running, result, toast and undo. Found 1 real UI state bug in SettingsPanel and a few minor items. Final state restored: profile 0, symbol_params {}, disabled_strategies [supertrend_momentum, ema_pullback], strict.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "review.apply_ai_changes", "issue": "float(patch[k]) cap conversion runs outside the try. If Claude returns a non-numeric value for risk_per_trade, leverage or max_positions, a ValueError is raised and the whole optimize-all job ends in status 'error' (and /api/ai/advise returns 500) instead of the value being dropped with a note."},
+      {"endpoint": "POST /api/optimize, POST /api/backtest", "issue": "CPU-bound optimize() and run_backtest() run synchronously inside async handlers, which blocks the event loop for every other request (this predates the iteration). The global job already uses asyncio.to_thread; do the same here."},
+      {"endpoint": "profiles.ai_policy", "issue": "On profile 0, AI_CAPS_BASE lets the AI raise risk to 1.5%, leverage to 5x and positions to 5, which is above the Conservador preset (1%/3x/3). Doing so would also silently move the profile to 'Personalizado'. Confirm this is intended."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SettingsPanel + RiskProfileBar", "issue": "Applying a risk profile while the settings form has unsaved edits (dirty=true) does not reset the form. useEffect only syncs when !dirty, so the strategy chips, pairs and inputs keep the stale local values. Repro: toggle a few strategy chips without saving, then apply level 0: the bar says Conservador but the chips still show only 1 strategy active. Pressing Guardar afterwards overwrites the profile that was just applied. Fix: after onProfile succeeds, call setDirty(false) and setForm(newSettings), for example by passing a reset callback or keying the form on profile changes.", "selector": "[data-testid^=settings-strategy-]", "priority": "MEDIUM"},
+      {"component": "RiskProfileBar dialog cancel", "issue": "After cancelling the level 3/4 confirmation, the slider preview stays on the cancelled level (button shows 'Aplicar nivel 4'). Nothing is applied, which is correct. It would be clearer to revert the preview to the active level on cancel.", "selector": "[data-testid=risk-profile-cancel]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Risk profile bar", "issues": ["The unselected step labels under the slider (text-slate-600, 9px) have very low contrast on the dark background"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter7_profiles_strategies.py", "/app/test_reports/pytest/iter7.xml"],
+  "action_items": [
+    "Reset SettingsPanel form/dirty state after a risk profile is applied (onProfile success) so the form reflects the new settings",
+    "Wrap the cap float() conversion in apply_ai_changes in a try (or validate it) so bad AI values are dropped instead of failing the job",
+    "Optional: revert the RiskProfileBar preview level on dialog cancel; raise contrast of the step labels",
+    "Optional: run optimize/backtest in asyncio.to_thread in their endpoints"
+  ],
+  "critical_code_review_comments": [
+    "SettingsPanel useEffect(() => { if (!dirty) setForm(settings) }) causes stale form after a profile apply (see ui_bugs)",
+    "apply_ai_changes: float() cast outside try/except",
+    "Sync CPU-heavy work in async endpoints /api/optimize and /api/backtest",
+    "backend/pytest.ini runs xdist with 2 workers: the iteration 7 tests share the single settings doc and must be run with -n 0 (a race was seen in a parallel run)"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter7_profiles_strategies.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "95% (all requested flows pass; 1 stale-form state bug)"},
+  "seed_data_creation": "None. The AI optimize-all runs applied symbol_params for AVAXUSDT; this was reverted via previous/undo. Final state: profile 0, symbol_params {}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=... pytest tests/test_iter7_profiles_strategies.py -n 0. Password in /app/memory/test_credentials.md. There are no closed trades, so perf-toggle-* buttons could not be checked in the UI (performance-empty is shown). optimize-all takes about 15-35 s; Claude usually proposes only symbol_params, for AVAX.",
+  "rca of the issue": "Stale form: SettingsPanel keeps the local form state and only re-syncs from props when dirty=false. RiskProfileBar.onApply updates the server settings but never clears the dirty flag of SettingsPanel, so the props change is ignored."
+}

@@ -70,7 +70,8 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
           <Save className="mr-1 h-3 w-3" /> {saving ? "Guardando" : "Guardar"}
         </Button>
       }>
-      <RiskProfileBar profiles={meta?.profiles} active={profileActive} selected={settings.risk_profile} onApply={onProfile} />
+      <RiskProfileBar profiles={meta?.profiles} active={profileActive} selected={settings.risk_profile}
+        onApply={async (level) => { const ok = await onProfile(level); if (ok) setDirty(false); return ok; }} />
       <div className="grid grid-cols-2 gap-3">
         <Sel label="Temporalidad" value={form.timeframe} onChange={(v) => set("timeframe", v)} options={meta?.timeframes || []} testId="settings-timeframe-select" />
         <Sel label="Criterios de entrada" value={form.signal_mode} onChange={(v) => set("signal_mode", v)} options={meta?.signal_modes || []}
