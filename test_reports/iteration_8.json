@@ -1,0 +1,30 @@
+{
+  "summary": "Independent verification of market.py Bybit error-handling fix (KeyError 'list'). 12/12 pytest passed: Bybit retCode 10006 -> Bitget fallback for klines (300 numeric candles, ts increasing) and tickers (>50 symbols, XRPUSDT price>0); Bybit 403 non-JSON -> fallback OK; Bybit+Bitget failing (500 non-JSON / code 40001) -> stale cache returned (same object) with 'caché' warning, without cache -> RuntimeError starting 'sin datos de mercado para'; _bybit makes exactly 2 attempts; provider=bitget happy path OK. API regression (local 127.0.0.1:8001): dashboard watchlist 6 pairs with price, /api/klines 200, /api/bot/scan -> new 'SCAN Escaneo 1h completado · 6 pares' log within 10s, no ERROR log with 'list'; /api/backtest SOLUSDT 200. Backend logs contain 0 occurrences of 'list'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "market.py fetch_tickers/fetch_klines (Bybit path)", "issue": "Only RuntimeError is caught around _bybit(...)['list']. If Bybit returns retCode 0 but result has no 'list' key (rare), KeyError('list') would still bubble up and skip the Bitget fallback. Suggest catching (RuntimeError, KeyError, TypeError) or using .get('list')."},
+      {"endpoint": "market.py fetch_tickers (Bitget path)", "issue": "No fallback to previous self.tickers if Bitget also fails; exception propagates (and a non-JSON Bitget body raises ValueError, not RuntimeError). Klines handles this, tickers does not."},
+      {"endpoint": "market.py _bybit", "issue": "Sleeps after the final failed attempt too (extra 0.8s before fallback); with httpx timeout=12s a hanging Bybit can cost ~25s per symbol before falling back."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter8_market.py", "/app/test_reports/pytest/pytest_iter8.xml"],
+  "action_items": [
+    "Optional: also catch KeyError/TypeError around Bybit ['list'] access so fallback triggers on any malformed Bybit payload",
+    "Optional: in fetch_tickers return last known self.tickers when both providers fail",
+    "Optional: skip sleep after last _bybit attempt"
+  ],
+  "critical_code_review_comments": [
+    "Fix is correct for the reported scenario (retCode != 0 / empty result / non-JSON).",
+    "_fallback_warned is global across symbols: only 1 fallback warning per 5 min for all symbols (by design, fine)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter8_market.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend only)"},
+  "test_credentials": "Password from /app/memory/test_credentials.md (BlackCat2233@) worked",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Market tests patch MarketData.client.get to fake Bybit/Bitget responses; real Bitget used for fallback. pytest.ini forces -n 2; use -n0 for serial/-s output. Bot was running during test so SCAN log is emitted.",
+  "rca of the issue": "Original: market.py accessed r.json()['result']['list'] without checking retCode; Bybit rate-limit (10006) returns result {} -> KeyError('list') logged by engine.scan_once as '<SYM>: 'list''. Mitigated by _bybit retCode check + retry + Bitget fallback + stale cache; verified."
+}

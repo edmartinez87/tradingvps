@@ -62,6 +62,9 @@
 - UI: RiskProfileBar.jsx (slider 5 niveles, chips del preset, aviso, AlertDialog en L3-L4, badge Personalizado, reset del formulario al aplicar), SettingsPanel (chips de estrategias on/off, selector de criterios con descripción, intervalo en "seg"), Performance (botón Activo/Apagado por estrategia y por par), Optimizer (tarjeta "Optimizar todo con IA" con polling y AiResult reutilizable), BotPanel (perfil + nº estrategias activas).
 - Tested iteration_7: backend 16/16, frontend completo OK; fixes: reset de formulario sucio al aplicar perfil, revertir preview al cancelar diálogo, contraste de etiquetas. Medición: señales 42 días BTC 1h = 38 (strict, 3 estrategias) → 56 relaxed → 76 minimal → 150 minimal con 5 estrategias.
 
+## Implemented (2026-06, iteration 8 · robustez de datos de mercado)
+- Bug VPS: `[ERROR] XRPUSDT: 'list'` → market.py accedía a `result.list` sin comprobar retCode (Bybit devolvió error, p.ej. 10006 rate limit). Fix: `_bybit()` (status/retCode, 2 intentos con backoff, error descriptivo), `_bitget()` (code 00000), fallback automático Bybit→Bitget por petición (aviso en log máx. 1/5 min), caché obsoleta si ambos fallan, error claro "sin datos de mercado para…". iteration_8: 12/12 + regresión API OK.
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
