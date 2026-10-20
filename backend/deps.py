@@ -1,0 +1,25 @@
+"""Shared application state (db, engine, config store, news agent, auth) used by server.py and the routers."""
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
+
+from fastapi import APIRouter, Depends  # noqa: E402
+from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
+from engine import TradingEngine  # noqa: E402
+from config import ConfigStore  # noqa: E402
+from news import NewsAgent  # noqa: E402
+from auth import make_require_auth  # noqa: E402
+
+client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+db = client[os.environ["DB_NAME"]]
+engine = TradingEngine(db)
+store = ConfigStore(db)
+news = NewsAgent(db, engine)
+engine.news = news
+require_auth = make_require_auth(lambda: store.cfg.token_version)
+
+
+def protected_router() -> APIRouter:
+    return APIRouter(prefix="/api", dependencies=[Depends(require_auth)])

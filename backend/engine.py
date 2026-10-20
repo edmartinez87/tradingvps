@@ -501,8 +501,9 @@ class TradingEngine:
         news_block, risk_factor = self.news.gate(symbol) if self.news else (None, 1.0)
         if not block and news_block:
             block, kind = news_block, "NOTICIAS"
-        funding_rate = self.market.tickers.get(symbol, {}).get("funding_rate")
-        f_block, f_factor = funding.gate(funding_rate, sig["side"], self.cfg)
+        t0 = self.market.tickers.get(symbol, {})
+        funding_rate, funding_h = t0.get("funding_rate"), t0.get("funding_interval_h", 8)
+        f_block, f_factor = funding.gate(funding_rate, sig["side"], self.cfg, funding_h)
         if not block and f_block:
             block, kind = f_block, "FUNDING"
         risk_reason = " y ".join(r for r, f in (("riesgo de noticias", risk_factor), ("funding alto en contra", f_factor)) if f < 1)
@@ -528,7 +529,7 @@ class TradingEngine:
             ctx = {
                 "htf_tf": htf_tf, "htf_trend": {1: "ALCISTA", -1: "BAJISTA", 0: "NEUTRAL"}.get(htf, "N/D"),
                 "change_24h": t.get("change_pct", 0), "funding_rate": t.get("funding_rate", 0),
-                "funding": funding.assess(funding_rate, sig["side"], self.cfg),
+                "funding": funding.assess(funding_rate, sig["side"], self.cfg, funding_h),
                 "recent_changes": [round(x, 3) for x in (closes.pct_change().dropna() * 100).tolist()],
                 "open_positions": len(open_syms), "daily_pnl_pct": acc["daily_pnl_pct"],
                 "news": self.news.context(symbol) if self.news else None,

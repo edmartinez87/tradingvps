@@ -210,6 +210,7 @@ async def _engine_e2e(db):
 
     async def inject(sym, side, rate, bump):
         eng.market.tickers[sym]["funding_rate"] = rate
+        eng.market.tickers[sym]["funding_interval_h"] = 8
         df = build_df(await eng.market.fetch_klines(sym, s.timeframe, 300))
         row = df.iloc[-2]
         atr, c = row["atr"], row["close"]

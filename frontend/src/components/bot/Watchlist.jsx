@@ -9,6 +9,24 @@ const TREND_CLS = {
   NEUTRAL: "text-slate-400 bg-slate-500/10 border-slate-500/25",
 };
 
+const FUNDING_CLS = { EXTREMO: "bg-rose-500/15 text-rose-300", ALTO: "bg-amber-500/15 text-amber-300" };
+const pct = (v) => `${v > 0 ? "+" : ""}${(v * 100).toFixed(3)}%`;
+
+function FundingChip({ w }) {
+  const h = w.funding_interval_h || 8;
+  const tiny = Math.abs(w.funding_rate) < 0.000005;
+  const pays = tiny ? "neutro" : w.funding_rate > 0 ? "largos pagan" : "cortos pagan";
+  const title = `Funding ${w.funding_level === "NORMAL" ? "normal" : w.funding_level} · cada ${h} h · ${pays}`
+    + (h !== 8 && !tiny ? ` · ≈ ${pct((w.funding_rate * 8) / h)} por 8 h` : "");
+  return (
+    <span data-testid={`watchlist-funding-${w.symbol}`} title={title}
+      className={`num rounded-sm px-1 text-[10px] ${FUNDING_CLS[w.funding_level] || "text-slate-500"}`}>
+      {tiny ? "F ≈0%" : `F ${pct(w.funding_rate)}`}
+      {h !== 8 && <span data-testid={`watchlist-funding-interval-${w.symbol}`} className="ml-px opacity-70">/{h}h</span>}
+    </span>
+  );
+}
+
 function Row({ w, active, onSelect }) {
   const prev = useRef(w.price);
   const [flash, setFlash] = useState("");
@@ -44,12 +62,7 @@ function Row({ w, active, onSelect }) {
             </span>
           )}
           {w.rsi != null && <span className="num text-[10px] text-slate-500">RSI {w.rsi}</span>}
-          {w.funding_rate != null && (
-            <span data-testid={`watchlist-funding-${w.symbol}`} title={`Funding ${w.funding_level === "NORMAL" ? "normal" : w.funding_level} · ${Math.abs(w.funding_rate) < 0.000005 ? "neutro" : w.funding_rate > 0 ? "largos pagan" : "cortos pagan"}`}
-              className={`num rounded-sm px-1 text-[10px] ${w.funding_level === "EXTREMO" ? "bg-rose-500/15 text-rose-300" : w.funding_level === "ALTO" ? "bg-amber-500/15 text-amber-300" : "text-slate-500"}`}>
-              {Math.abs(w.funding_rate) < 0.000005 ? "F ≈0%" : `F ${w.funding_rate > 0 ? "+" : ""}${(w.funding_rate * 100).toFixed(3)}%`}
-            </span>
-          )}
+          {w.funding_rate != null && <FundingChip w={w} />}
           {w.signal && (
             <span data-testid={`watchlist-signal-${w.symbol}`} className="rounded-sm bg-amber-500 px-1.5 py-px font-mono text-[9px] font-bold uppercase text-[#07090E]">
               Señal {w.signal}

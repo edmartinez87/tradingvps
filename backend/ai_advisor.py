@@ -44,6 +44,7 @@ SYSTEM = (
     "con volatilidad anormal o funding rate extremo en contra. Funding: si la señal va EN CONTRA del funding y el nivel es ALTO baja la confianza "
     "de forma clara (el lado está sobrecargado y la posición paga por mantenerse); si es EXTREMO en contra, rechaza salvo confluencia excepcional. "
     "Un funding A FAVOR es un pequeño punto positivo, nunca suficiente por sí solo para aprobar. "
+    "El nivel del funding ya está normalizado a 8h: en pares que liquidan cada 4h o 1h el valor por periodo parece menor pero se cobra más veces. "
     "Si se incluye contexto de noticias, úsalo como factor de riesgo: "
     "una noticia grave sobre el par o un evento macro inminente justifican rechazar o bajar la confianza; un sentimiento favorable no basta por sí solo para aprobar. "
     "Aprueba solo setups con confluencia clara. "

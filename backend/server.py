@@ -1,64 +1,47 @@
 import os
 import time
-import hmac
 import asyncio
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
 from dotenv import load_dotenv
+from pathlib import Path
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / ".env")
+load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request  # noqa: E402
+from fastapi import FastAPI, APIRouter, HTTPException, Request  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
-from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 from bson import ObjectId  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from models import (  # noqa: E402
     Position, Trade, Signal, LogEntry, SettingsUpdate, BacktestRequest, ResetRequest, PlanRequest,
     OptimizeRequest, AdviseRequest, BybitTestRequest, ModeRequest, ProfileRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS, SIGNAL_MODES, now_iso,
 )
-from engine import TradingEngine  # noqa: E402
 from market import TF_SECONDS  # noqa: E402
 from indicators import build_df  # noqa: E402
 from strategies import STRATEGY_INFO  # noqa: E402
 from backtest import run_backtest  # noqa: E402
 from performance import performance  # noqa: E402
 from plan import build_plan, SCENARIOS  # noqa: E402
-from optimizer import optimize, walk_forward, WF_CANDLES  # noqa: E402
+from optimizer import optimize  # noqa: E402
 from ai_advisor import advise, ping as ai_ping, current as ai_current  # noqa: E402
-from auth import (  # noqa: E402
-    hash_password, verify_password, create_token, client_ip, check_locked, register_failure, clear_failures, make_require_auth,
-)
-from config import ConfigStore, ConfigUpdate  # noqa: E402
+from auth import hash_password, verify_password, create_token, client_ip, check_locked, register_failure, clear_failures  # noqa: E402
+from config import ConfigUpdate  # noqa: E402
 from bybit import BybitClient, BybitError  # noqa: E402
 import notify  # noqa: E402
 from review import plan_stats, build_context, apply_ai_changes, run_auto_review, start_global_optimization, job_state  # noqa: E402
 from profiles import PROFILES, detect_profile, profile_patch, ai_policy  # noqa: E402
 from strategies import MODE_INFO  # noqa: E402
-from news import NewsAgent  # noqa: E402
 import migrations  # noqa: E402
-import wfcheck  # noqa: E402
-import weekly  # noqa: E402
 import funding  # noqa: E402
+from deps import client, db, engine, store, news, protected_router  # noqa: E402
+from routers import cron_routes, weekly_routes, walk_forward_routes  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-db = client[os.environ["DB_NAME"]]
-engine = TradingEngine(db)
-store = ConfigStore(db)
-news = NewsAgent(db, engine)
-engine.news = news
-require_auth = make_require_auth(lambda: store.cfg.token_version)
-
 app = FastAPI(title="Bybit AI Trading Bot")
 public = APIRouter(prefix="/api")
-api = APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
-cron = APIRouter(prefix="/api/cron")
+api = protected_router()
 
 
 class LoginRequest(BaseModel):
@@ -264,98 +247,6 @@ async def ai_auto_review_now():
         raise HTTPException(424, f"Error IA: {str(e)[:200]}")
 
 
-_cron_seen: list = []
-
-
-async def _safe_auto_review():
-    try:
-        await run_auto_review(engine, db, store)
-    except Exception as e:
-        logger.exception("scheduled auto review")
-        await engine.log("ERROR", f"Revisión IA automática falló: {str(e)[:160]}")
-        await notify.notify(f"⚠️ <b>Revisión IA automática falló</b>\n{str(e)[:300]}", "review")
-
-
-@cron.post("/ai-review")
-async def cron_ai_review(request: Request):
-    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
-    auth = request.headers.get("authorization", "")
-    secret = os.environ.get("WEBHOOK_CRON_SECRET", "")
-    if not (auth.lower().startswith("bearer ") and secret and hmac.compare_digest(auth[7:], secret)):
-        raise HTTPException(401, "No autorizado")
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "Cuerpo inválido")
-    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
-    if run_id and run_id in _cron_seen:
-        return {"accepted": True, "duplicate": True}
-    if run_id:
-        _cron_seen.append(run_id)
-        del _cron_seen[:-200]
-    cfg = store.cfg
-    now = datetime.now(timezone.utc)
-    due = cfg.auto_review_enabled and (cfg.auto_review_frequency == "daily" or (now.weekday() + 1) % 7 == cfg.auto_review_day)
-    if due and cfg.auto_review_last_at:
-        due = (now - datetime.fromisoformat(cfg.auto_review_last_at)).total_seconds() > 20 * 3600
-    if due:
-        asyncio.create_task(_safe_auto_review())
-    return {"accepted": True, "scheduled": bool(due)}
-
-
-def _cron_auth(request: Request):
-    auth = request.headers.get("authorization", "")
-    secret = os.environ.get("WEBHOOK_CRON_SECRET", "")
-    if not (auth.lower().startswith("bearer ") and secret and hmac.compare_digest(auth[7:], secret)):
-        raise HTTPException(401, "No autorizado")
-
-
-@cron.post("/walk-forward")
-async def cron_walk_forward(request: Request):
-    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
-    _cron_auth(request)
-    run_id = await _cron_run_id(request)
-    if run_id and run_id in _cron_seen:
-        return {"accepted": True, "duplicate": True}
-    if run_id:
-        _cron_seen.append(run_id)
-        del _cron_seen[:-200]
-    started = await wfcheck.start_check(engine, db, store, "auto")
-    return {"accepted": True, "scheduled": started}
-
-
-async def _cron_run_id(request: Request) -> str:
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "Cuerpo inválido")
-    if body is not None and not isinstance(body, dict):
-        raise HTTPException(400, "Cuerpo inválido")
-    return request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
-
-
-async def _safe_weekly():
-    try:
-        await weekly.send_weekly(engine, db)
-    except Exception as e:
-        logger.exception("weekly summary")
-        await engine.log("ERROR", f"Resumen semanal falló: {str(e)[:160]}")
-
-
-@cron.post("/weekly-summary")
-async def cron_weekly_summary(request: Request):
-    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
-    _cron_auth(request)
-    run_id = await _cron_run_id(request)
-    if run_id and run_id in _cron_seen:
-        return {"accepted": True, "duplicate": True}
-    if run_id:
-        _cron_seen.append(run_id)
-        del _cron_seen[:-200]
-    asyncio.create_task(_safe_weekly())
-    return {"accepted": True, "scheduled": True}
-
-
 @api.get("/meta")
 async def meta():
     return {"symbols": AVAILABLE_SYMBOLS, "timeframes": TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": STRATEGY_INFO,
@@ -393,7 +284,8 @@ async def dashboard():
         t = engine.market.tickers.get(sym, {})
         watchlist.append({"symbol": sym, "price": t.get("price"), "change_pct": t.get("change_pct"),
                           "volume_usdt": t.get("volume_usdt"), "funding_rate": t.get("funding_rate"),
-                          "funding_level": funding.level(t.get("funding_rate"), store.cfg),
+                          "funding_interval_h": t.get("funding_interval_h", 8),
+                          "funding_level": funding.level(t.get("funding_rate"), store.cfg, t.get("funding_interval_h", 8)),
                           **engine.analysis.get(sym, {})})
     return {
         "status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(),
@@ -582,45 +474,6 @@ async def optimize_symbol(req: OptimizeRequest):
     return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
 
 
-@api.post("/optimize/walk-forward")
-async def optimize_walk_forward(req: OptimizeRequest):
-    if req.symbol not in AVAILABLE_SYMBOLS:
-        raise HTTPException(400, "Símbolo inválido")
-    s = await engine.get_settings()
-    acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
-    klines = await engine.market.fetch_history(req.symbol, s.timeframe, WF_CANDLES)
-    res = await asyncio.to_thread(walk_forward, klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"],
-                                  req.symbol, s.signal_mode, s.disabled_strategies, s.symbol_params.get(req.symbol))
-    return {**res, "timeframe": s.timeframe, "applied_params": s.symbol_params.get(req.symbol)}
-
-
-@api.get("/walk-forward/check")
-async def walk_forward_check_status():
-    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db), "auto_remove": store.cfg.wf_auto_remove}
-
-
-@api.post("/walk-forward/check")
-async def walk_forward_check_run():
-    if not await wfcheck.start_check(engine, db, store, "manual"):
-        raise HTTPException(409, "Ya hay una revalidación en curso")
-    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db), "auto_remove": store.cfg.wf_auto_remove}
-
-
-@api.get("/weekly-summary")
-async def weekly_summary_preview():
-    w = await weekly.build_weekly(engine, db)
-    last = await db.weekly.find_one({"_id": "latest"}, {"_id": 0, "sent_at": 1})
-    return {**w, "text": weekly.format_weekly(w), "last_sent_at": (last or {}).get("sent_at")}
-
-
-@api.post("/weekly-summary/send")
-async def weekly_summary_send():
-    try:
-        return await weekly.send_weekly(engine, db, force=True)
-    except Exception as e:
-        raise HTTPException(424, str(e)[:200])
-
-
 @api.post("/ai/optimize-all")
 async def ai_optimize_all():
     if not await start_global_optimization(engine, db):
@@ -675,7 +528,9 @@ async def backtest(req: BacktestRequest):
 
 app.include_router(public)
 app.include_router(api)
-app.include_router(cron)
+app.include_router(cron_routes.router)
+app.include_router(weekly_routes.router)
+app.include_router(walk_forward_routes.router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

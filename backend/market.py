@@ -22,6 +22,8 @@ class MarketData:
         self.tickers_ts = 0.0
         self._kcache = {}
         self._fallback_warned = 0.0
+        self.funding_intervals = {}
+        self._intervals_ts = 0.0
 
     async def detect(self):
         try:
@@ -86,8 +88,44 @@ class MarketData:
                     "volume_usdt": float(t.get("quoteVolume") or 0),
                     "funding_rate": float(t.get("fundingRate") or 0),
                 }
+        intervals = await self.fetch_funding_intervals()
+        for sym, t in out.items():
+            t["funding_interval_h"] = intervals.get(sym, 8)
         self.tickers = out
         self.tickers_ts = time.time()
+        return out
+
+    async def fetch_funding_intervals(self, cache_sec: int = 3600) -> dict:
+        """Funding settlement interval in hours per symbol (Bybit instruments-info / Bitget contracts). Cached 1h, retried in 5 min on failure."""
+        if self.funding_intervals and time.time() - self._intervals_ts < cache_sec:
+            return self.funding_intervals
+        out = {}
+        if self.provider == "bybit":
+            try:
+                cursor = ""
+                while True:
+                    res = await self._bybit("/v5/market/instruments-info", {"category": "linear", "limit": 1000, **({"cursor": cursor} if cursor else {})})
+                    for it in res["list"]:
+                        mins = int(it.get("fundingInterval") or 0)
+                        if mins:
+                            out[it["symbol"]] = mins // 60 if mins % 60 == 0 else mins / 60
+                    cursor = res.get("nextPageCursor") or ""
+                    if not cursor:
+                        break
+            except RuntimeError as e:
+                self._warn_fallback("intervalos de funding", str(e))
+                out = {}
+        if not out:
+            try:
+                for it in await self._bitget("/api/v2/mix/market/contracts", {"productType": "USDT-FUTURES"}):
+                    h = float(it.get("fundInterval") or 0)
+                    if h:
+                        out[it["symbol"]] = int(h) if h.is_integer() else h
+            except Exception as e:
+                logger.warning(f"intervalos de funding: {e} → se asume 8h")
+                self._intervals_ts = time.time() - cache_sec + 300
+                return self.funding_intervals
+        self.funding_intervals, self._intervals_ts = out, time.time()
         return out
 
     async def fetch_klines(self, symbol: str, tf: str, limit: int = 300, cache_sec: int = 8) -> list:
