@@ -112,6 +112,7 @@ class HfmTestRequest(BaseModel):
     mt_server: Optional[str] = None
     mt_platform: Optional[str] = None
     metaapi_region: Optional[str] = None
+    metaapi_base_url: Optional[str] = None
 
 
 class FxBacktestRequest(BaseModel):

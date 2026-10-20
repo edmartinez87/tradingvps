@@ -15,9 +15,11 @@ from fx.symbols import SPECS, fmt_price, pips
 from fx import risk
 from fx.ai import evaluate_signal
 from fx.backtest import build_fx_df
+from fx.live import FxLiveBroker
 
 logger = logging.getLogger("fx.engine")
 INITIAL_BALANCE = 500.0
+LIVE_GRACE_SEC = 20
 BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado", "SESION": "sesión"}
 NEWS_STRATEGY = {"news_event": {"name": "Noticia macro", "rules": "Dato de alto impacto publicado con sorpresa clara frente a la previsión; Claude fija la dirección y la confianza, el precio debe confirmar en los primeros minutos. SL/TP por ATR 15m y cierre máximo por tiempo.", "basis": "Trading de noticias: el flujo posterior a sorpresas macro (tipos, NFP, IPC) tiende a persistir durante horas."}}
 FX_STRATEGY_INFO = {**STRATEGY_INFO, **NEWS_STRATEGY}
@@ -59,13 +61,29 @@ class FxEngine:
         self.news = None
         self.cfg = None
         self.live = False
+        self.broker = None
+        self._broker_key = None
+        self.broker_error = None
+        self._external_warned = set()
 
     async def apply_config(self, cfg):
         self.cfg = cfg
+        self.live = cfg.trading_mode == "live"
+        key = (cfg.metaapi_token, cfg.metaapi_account_id, cfg.metaapi_region, cfg.metaapi_base_url, cfg.mt_symbol_suffix)
+        if key != self._broker_key:
+            if self.broker:
+                await self.broker.aclose()
+            self.broker = FxLiveBroker(*key) if cfg.metaapi_token and cfg.metaapi_account_id else None
+            self._broker_key = key
+            self.broker_error = None
 
     @property
     def mode_label(self) -> str:
-        return "PAPER"
+        return "REAL" if self.live else "PAPER"
+
+    @property
+    def env(self) -> str:
+        return (self.cfg.mt_server if self.cfg and self.cfg.mt_server else "HFM")
 
     async def tg(self, text: str, kind: str):
         await notify.notify(f"🏦 <b>HotForex AI</b>\n{text}", kind)
@@ -87,6 +105,8 @@ class FxEngine:
         for t in self.tasks:
             t.cancel()
         await self.market.aclose()
+        if self.broker:
+            await self.broker.aclose()
 
     async def _new_account(self, initial: float = INITIAL_BALANCE):
         await self.db.account.replace_one({"_id": "main"}, {
@@ -113,8 +133,9 @@ class FxEngine:
     async def start(self):
         self.running = True
         await self.db.settings.update_one({"_id": "main"}, {"$set": {"bot_running": True}})
-        await self.log("INFO", "Bot ACTIVADO · forex y metales en paper trading" + ("" if market_open() else " · el mercado está cerrado, operará al abrir"))
-        await self.tg("▶️ <b>Bot ACTIVADO</b> · paper trading forex/metales", "orders")
+        mode = f"REAL en HFM ({self.env})" if self.live else "paper trading"
+        await self.log("INFO", f"Bot ACTIVADO · forex y metales en {mode}" + ("" if market_open() else " · el mercado está cerrado, operará al abrir"))
+        await self.tg(f"▶️ <b>Bot ACTIVADO</b> · {mode} forex/metales", "orders")
         self.scan_event.set()
 
     async def stop(self):
@@ -124,12 +145,27 @@ class FxEngine:
         await self.tg("⏹ <b>Bot DETENIDO</b> · las posiciones abiertas siguen protegidas por SL/TP", "orders")
 
     async def reset_account(self, initial: float = None):
+        if not initial and self.live:
+            info = await self._broker_info(0)
+            initial = info["equity"] if info else (self.cfg.hfm_verified_equity if self.cfg else None)
         initial = initial or INITIAL_BALANCE
         async with self.lock:
             for col in ("positions", "trades", "signals", "equity", "news_trades"):
                 await self.db[col].delete_many({})
             await self._new_account(initial)
-        await self.log("INFO", f"Estadísticas reiniciadas · capital inicial ${initial:,.2f} · paper trading")
+        await self.log("INFO", f"Estadísticas reiniciadas · capital inicial ${initial:,.2f} · modo {self.mode_label}")
+
+    async def _broker_info(self, max_age: float = 10.0):
+        if not (self.live and self.broker):
+            return None
+        try:
+            info = await self.broker.info(max_age)
+            self.broker_error = None
+            return info
+        except Exception as e:
+            self.broker_error = str(e)[:160]
+            logger.warning(f"hfm info: {e}")
+            return None
 
     async def account_summary(self) -> dict:
         acc = await self.db.account.find_one({"_id": "main"})
@@ -137,6 +173,9 @@ class FxEngine:
         unreal = sum(p["unrealized_pnl"] for p in positions)
         used = sum(p["margin"] for p in positions)
         balance, equity, available = acc["balance"], acc["balance"] + unreal, acc["balance"] - used
+        info = await self._broker_info()
+        if info:
+            balance, equity, available, unreal, used = info["balance"], info["equity"], info["available"], info["unrealised"], info["margin"]
         agg = await self.db.trades.aggregate([{"$group": {
             "_id": None, "n": {"$sum": 1}, "realized": {"$sum": "$pnl"},
             "wins": {"$sum": {"$cond": [{"$gt": ["$pnl", 0]}, 1, 0]}},
@@ -155,7 +194,8 @@ class FxEngine:
             "profit_factor": round(st["gw"] / abs(st["gl"]), 2) if st["gl"] else None,
             "total_return_pct": round((equity - acc["initial_balance"]) / acc["initial_balance"] * 100, 2) if acc["initial_balance"] else 0,
             "max_drawdown": round(acc["max_drawdown"], 2), "peak_equity": round(acc["peak_equity"], 2),
-            "open_positions": len(positions), "mode": self.mode_label, "exchange_error": None, "exchange_synced": False,
+            "open_positions": len(positions), "mode": self.mode_label, "exchange_error": self.broker_error if self.live else None,
+            "exchange_synced": info is not None, "currency": info["currency"] if info else "USD",
         }
 
     # ---------- monitor ----------
@@ -180,8 +220,22 @@ class FxEngine:
                 await self.log("RISK", f"Cierre de fin de semana · {len(ids)} posiciones cerradas antes del cierre del mercado")
                 for pid in ids:
                     await self.close_position(pid, reason="FIN_SEMANA")
+        ex = None
+        if self.live and self.broker:
+            try:
+                ex = {p["id"]: p for p in await self.broker.positions()}
+                self.broker_error = None
+            except Exception as e:
+                self.broker_error = str(e)[:160]
+                logger.warning(f"hfm positions sync: {e}")
+        local_ids = set()
         async for doc in self.db.positions.find():
             p = Position.from_mongo(doc)
+            if p.live:
+                local_ids.add(p.order_id)
+                if ex is not None:
+                    await self._sync_live_position(p, ex.get(p.order_id), tickers.get(p.symbol), settings, now)
+                continue
             t = tickers.get(p.symbol)
             if not t:
                 continue
@@ -203,12 +257,77 @@ class FxEngine:
                     if be and not p.breakeven:
                         await self.log("RISK", f"{p.symbol}: stop movido a breakeven ({fmt_price(p.symbol, new_sl)})")
             await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+        if ex:
+            for pid, xp in ex.items():
+                if pid not in local_ids and pid not in self._external_warned:
+                    self._external_warned.add(pid)
+                    await self.log("RISK", f"{self.broker.our_symbol(xp['symbol'])}: posición externa detectada en HFM (no gestionada por el bot) · {xp['volume']:.2f} lotes")
         await self._update_account_metrics(settings)
+
+    async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: FxSettings, now: datetime):
+        if not ex:
+            if (now - datetime.fromisoformat(p.opened_at)).total_seconds() < LIVE_GRACE_SEC:
+                return
+            try:
+                fresh = await self.broker.position(p.order_id, max_age=0)
+            except Exception as e:
+                logger.warning(f"hfm recheck {p.symbol}: {e}")
+                return
+            if fresh:
+                ex = fresh
+            else:
+                await self._close_live_from_broker(p)
+                return
+        price = ex["mark"] or (ticker or {}).get("price") or p.mark_price
+        updates = {"mark_price": price, "unrealized_pnl": round(ex["profit"] + ex["swap"] + ex["commission"], 4)}
+        if abs(ex["volume"] - p.qty) > 1e-9:
+            updates["qty"] = ex["volume"]
+        if p.expires_at and now >= datetime.fromisoformat(p.expires_at):
+            await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+            await self.close_position(p.id, price, "TIEMPO")
+            return
+        if settings.trailing_enabled:
+            new_sl, be = risk.update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price, SPECS[p.symbol]["spread"])
+            new_sl = round(new_sl, SPECS[p.symbol]["digits"])
+            if new_sl != p.sl and abs(new_sl - p.sl) >= SPECS[p.symbol]["pip"]:
+                try:
+                    await self.broker.set_stop(p.symbol, p.order_id, new_sl, p.tp)
+                    updates.update(sl=new_sl, breakeven=be)
+                    await self.log("RISK", f"{p.symbol}: stop REAL movido a {fmt_price(p.symbol, new_sl)}{' (breakeven)' if be and not p.breakeven else ''}")
+                except Exception as e:
+                    await self.log("ERROR", f"{p.symbol}: no se pudo mover el stop en HFM · {str(e)[:120]}")
+        await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+
+    async def _close_live_from_broker(self, p: Position):
+        async with self.lock:
+            if not await self.db.positions.find_one({"_id": ObjectId(p.id)}):
+                return
+            cr = None
+            try:
+                cr = await self.broker.closed_result(p.order_id)
+            except Exception as e:
+                logger.warning(f"hfm deals {p.symbol}: {e}")
+            price = (cr or {}).get("exit") or p.mark_price
+            fees = (cr or {}).get("fees") or p.fees
+            net = cr["pnl"] if cr else risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, self.market.tickers) - p.fees
+            reason = (cr or {}).get("reason") or ("TP" if abs(price - p.tp) <= abs(price - p.sl) else ("TRAILING" if p.breakeven else "SL"))
+            if reason == "SL" and p.breakeven:
+                reason = "TRAILING"
+            await self.db.positions.delete_one({"_id": ObjectId(p.id)})
+            trade = await self._record_trade(p, price, net, fees, reason)
+        await self._announce_close(p, trade, reason, cr is None)
+
+    async def _announce_close(self, p: Position, trade: Trade, reason: str, estimated: bool = False):
+        tag = "REAL " if p.live else ""
+        est = " · PnL estimado, pendiente de confirmar con HFM" if estimated else ""
+        await self.log("ORDER", f"CERRADA {tag}{p.side.upper()} {p.symbol} @ {fmt_price(p.symbol, trade.exit_price)} · {reason} · PnL {trade.pnl:+.2f} USD{est}")
+        await self.tg(f"{'✅' if trade.pnl >= 0 else '❌'} <b>CERRADA {tag}{p.side.upper()} {p.symbol}</b> @ {fmt_price(p.symbol, trade.exit_price)} · {reason}\n"
+                      f"PnL <b>{trade.pnl:+.2f} USD</b> ({trade.pnl_pct:+.2f}%) · entrada {fmt_price(p.symbol, p.entry_price)}{est}", "orders")
 
     async def _record_trade(self, p: Position, price: float, net: float, fees: float, reason: str) -> Trade:
         trade = Trade(symbol=p.symbol, side=p.side, strategy=p.strategy, entry_price=p.entry_price, exit_price=price, qty=p.qty,
                       leverage=p.leverage, margin=p.margin, pnl=round(net, 4), pnl_pct=round(net / p.margin * 100, 2) if p.margin else 0,
-                      fees=round(fees, 4), reason=reason, opened_at=p.opened_at)
+                      fees=round(fees, 4), reason=reason, opened_at=p.opened_at, live=p.live)
         res = await self.db.trades.insert_one(trade.to_mongo())
         trade.id = str(res.inserted_id)
         return trade
@@ -252,28 +371,65 @@ class FxEngine:
             entry = price
             sl = entry - (sig["price"] - sig["sl"])
             tp = entry + (sig["tp"] - sig["price"])
-            s = await self.account_summary()
-            lots, margin, real_risk = risk.position_size(s["equity"], s["available"], risk_pct, entry, sl, settings.leverage, symbol, tickers,
-                                                         settings.min_lot_max_risk)
-            if lots <= 0 or margin < 1:
-                need = risk.min_lot_risk_pct(s["equity"], entry, sl, symbol, tickers)
-                reason = (f"tamaño por debajo del lote mínimo (0.01): con este stop el lote mínimo arriesga el {need}% de la equidad "
-                          f"(objetivo {risk_pct:g}%, tope con lote mínimo {settings.min_lot_max_risk:g}%) · sube el capital, el tope o usa una temporalidad menor")
-                await self.log("RISK", f"{symbol}: {reason}")
-                return None, reason
-            fee = risk.spread_cost(symbol, lots, tickers)
-            pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, leverage=settings.leverage,
-                           margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"], fees=fee, mark_price=price, signal_id=signal_id, expires_at=expires_at)
-            res = await self.db.positions.insert_one(pos.to_mongo())
-            pos.id = str(res.inserted_id)
-            await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
+            if self.live:
+                if not self.broker:
+                    await self.log("ERROR", f"{symbol}: modo REAL sin cuenta HFM vinculada · orden no enviada")
+                    return None, "modo REAL sin cuenta HFM vinculada"
+                try:
+                    info = await self.broker.info(max_age=0)
+                    if not info.get("trade_allowed", True):
+                        await self.log("ERROR", f"{symbol}: la cuenta HFM no permite operar (trading deshabilitado o contraseña investor)")
+                        return None, "la cuenta HFM no permite operar"
+                    lot = await self.broker.lot(symbol)
+                    leverage = info["leverage"] or settings.leverage
+                    lots, margin, real_risk = risk.position_size(info["equity"], info["available"], risk_pct, entry, sl, leverage, symbol, tickers,
+                                                                 settings.min_lot_max_risk, lot)
+                    if lots <= 0 or margin < 1:
+                        need = risk.min_lot_risk_pct(info["equity"], entry, sl, symbol, tickers, lot["min"])
+                        reason = (f"tamaño por debajo del lote mínimo del bróker ({lot['min']:g}): con este stop arriesga el {need}% de la equidad real "
+                                  f"(objetivo {risk_pct:g}%, tope {settings.min_lot_max_risk:g}%)")
+                        await self.log("RISK", f"{symbol}: {reason}")
+                        return None, reason
+                    r = await self.broker.open(symbol, sig["side"], lots, sl, tp)
+                except Exception as e:
+                    await self.log("ERROR", f"{symbol}: orden REAL rechazada por HFM/MetaApi · {str(e)[:160]}")
+                    await self.tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{str(e)[:300]}", "orders")
+                    return None, f"orden REAL rechazada: {str(e)[:120]}"
+                entry, lots, fee = (r["entry"] or entry), r["lots"], abs(r["commission"])
+                sl, tp = r["sl"], r["tp"]
+                margin = lots * SPECS[symbol]["contract"] * risk.base_usd(symbol, tickers, entry) / leverage
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, leverage=leverage, margin=margin,
+                               sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"], fees=fee, mark_price=price, signal_id=signal_id, expires_at=expires_at,
+                               live=True, order_id=r["position_id"], link_id=r["link_id"])
+                res = await self.db.positions.insert_one(pos.to_mongo())
+                pos.id = str(res.inserted_id)
+                if not r["filled"]:
+                    await self.log("RISK", f"{symbol}: orden enviada (posición {r['position_id']}) pero sin confirmación de llenado · se sincronizará con HFM")
+            else:
+                leverage = settings.leverage
+                s = await self.account_summary()
+                lots, margin, real_risk = risk.position_size(s["equity"], s["available"], risk_pct, entry, sl, settings.leverage, symbol, tickers,
+                                                             settings.min_lot_max_risk)
+                if lots <= 0 or margin < 1:
+                    need = risk.min_lot_risk_pct(s["equity"], entry, sl, symbol, tickers)
+                    reason = (f"tamaño por debajo del lote mínimo (0.01): con este stop el lote mínimo arriesga el {need}% de la equidad "
+                              f"(objetivo {risk_pct:g}%, tope con lote mínimo {settings.min_lot_max_risk:g}%) · sube el capital, el tope o usa una temporalidad menor")
+                    await self.log("RISK", f"{symbol}: {reason}")
+                    return None, reason
+                fee = risk.spread_cost(symbol, lots, tickers)
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, leverage=settings.leverage,
+                               margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"], fees=fee, mark_price=price, signal_id=signal_id, expires_at=expires_at)
+                res = await self.db.positions.insert_one(pos.to_mongo())
+                pos.id = str(res.inserted_id)
+                await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
+        tag = "REAL " if self.live else ""
         reduced = f" · tamaño ajustado al {int(risk_factor * 100)}% por {risk_reason}" if risk_factor != 1 else ""
         if real_risk > risk_pct + 0.05:
             reduced += f" · lote mínimo: riesgo real {real_risk:g}% (objetivo {risk_pct:g}%)"
         f = lambda v: fmt_price(symbol, v)  # noqa: E731
-        await self.log("ORDER", f"ABIERTA {sig['side'].upper()} {symbol} @ {f(entry)} · {lots:.2f} lotes · 1:{settings.leverage} · SL {f(sl)} ({pips(symbol, abs(entry - sl)):.1f} pips) · TP {f(tp)}{reduced}")
-        await self.tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {sig['side'].upper()} {symbol}</b> @ {f(entry)}\n"
-                      f"{lots:.2f} lotes · 1:{settings.leverage} · margen ${margin:,.2f}\nSL {f(sl)} · TP {f(tp)}\n"
+        await self.log("ORDER", f"ABIERTA {tag}{sig['side'].upper()} {symbol} @ {f(entry)} · {lots:.2f} lotes · 1:{leverage} · SL {f(sl)} ({pips(symbol, abs(entry - sl)):.1f} pips) · TP {f(tp)}{reduced}")
+        await self.tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {tag}{sig['side'].upper()} {symbol}</b> @ {f(entry)}\n"
+                      f"{lots:.2f} lotes · 1:{leverage} · margen ${margin:,.2f}\nSL {f(sl)} · TP {f(tp)}\n"
                       f"Estrategia: {FX_STRATEGY_INFO.get(sig['strategy'], {}).get('name', sig['strategy'])}{reduced}", "orders")
         return pos, None
 
@@ -284,16 +440,37 @@ class FxEngine:
             if not doc:
                 return None
             p = Position.from_mongo(doc)
-            await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
-            price = price or tickers.get(p.symbol, {}).get("price") or p.mark_price
-            exit_fee = risk.spread_cost(p.symbol, p.qty, tickers)
-            gross = risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers)
-            net = gross - p.fees - exit_fee
-            await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - exit_fee}})
-            trade = await self._record_trade(p, price, net, p.fees + exit_fee, reason)
-        await self.log("ORDER", f"CERRADA {p.side.upper()} {p.symbol} @ {fmt_price(p.symbol, price)} · {reason} · PnL {trade.pnl:+.2f} USD")
-        await self.tg(f"{'✅' if trade.pnl >= 0 else '❌'} <b>CERRADA {p.side.upper()} {p.symbol}</b> @ {fmt_price(p.symbol, price)} · {reason}\n"
-                      f"PnL <b>{trade.pnl:+.2f} USD</b> ({trade.pnl_pct:+.2f}%) · entrada {fmt_price(p.symbol, p.entry_price)}", "orders")
+            if p.live:
+                if not self.broker:
+                    await self.log("ERROR", f"{p.symbol}: cierre REAL imposible · sin cuenta HFM vinculada")
+                    return None
+                try:
+                    await self.broker.close(p.order_id)
+                except Exception as e:
+                    if getattr(e, "code", "") != "TRADE_RETCODE_POSITION_CLOSED":
+                        await self.log("ERROR", f"{p.symbol}: cierre REAL fallido · {str(e)[:160]}")
+                        return None
+                cr = None
+                try:
+                    cr = await self.broker.closed_result(p.order_id)
+                except Exception as e:
+                    logger.warning(f"hfm deals {p.symbol}: {e}")
+                price = (cr or {}).get("exit") or tickers.get(p.symbol, {}).get("price") or p.mark_price
+                fees = (cr or {}).get("fees") or p.fees
+                net = cr["pnl"] if cr else risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers) - p.fees
+                await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
+                trade = await self._record_trade(p, price, net, fees, reason)
+                estimated = cr is None
+            else:
+                await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
+                price = price or tickers.get(p.symbol, {}).get("price") or p.mark_price
+                exit_fee = risk.spread_cost(p.symbol, p.qty, tickers)
+                gross = risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers)
+                net = gross - p.fees - exit_fee
+                await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - exit_fee}})
+                trade = await self._record_trade(p, price, net, p.fees + exit_fee, reason)
+                estimated = False
+        await self._announce_close(p, trade, reason, estimated)
         return trade
 
     # ---------- scanning ----------

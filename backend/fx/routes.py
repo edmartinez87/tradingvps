@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import HTTPException, Request
 from bson import ObjectId
 
-from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
+from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, ModeRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
 from strategies import MODE_INFO
 from indicators import build_df
 from performance import performance
@@ -21,6 +21,7 @@ from fx.symbols import SPECS, AVAILABLE, CURRENCIES, CURRENCY_NAMES, pips
 from fx.market import TF_SECONDS, market_status, SESSIONS
 from fx.engine import FX_STRATEGY_INFO
 from fx.metaapi import MetaApi, MetaApiError
+from fx.live import FxLiveBroker
 from fx.profiles import PROFILES, detect_profile, profile_patch
 from fx.backtest import run_backtest
 from fx.optimizer import optimize, walk_forward, WF_CANDLES
@@ -38,8 +39,8 @@ SESSION_LIST = [{"id": s[0], "name": s[1]} for s in SESSIONS]
 def _status() -> dict:
     return {"running": engine.running, "scanning": engine.scanning, "provider": "yahoo", "last_scan": engine.last_scan,
             "next_scan_in": max(0, int(engine.next_scan_ts - time.time())) if engine.next_scan_ts else None,
-            "mode": engine.mode_label, "env": fx_store.cfg.mt_server or "HFM", "market": "Forex · Metales", "telegram": notify.is_on(), "ai": ai_current(),
-            "exchange_error": engine.market.error, "market_hours": market_status()}
+            "mode": engine.mode_label, "env": engine.env, "market": "Forex · Metales", "telegram": notify.is_on(), "ai": ai_current(),
+            "exchange_error": engine.market.error, "broker_error": engine.broker_error if engine.live else None, "market_hours": market_status()}
 
 
 async def _equity_curve(limit: int = 1440) -> list:
@@ -157,7 +158,8 @@ async def dashboard():
     return {"status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(), "positions": positions, "trades": trades,
             "signals": signals, "logs": logs, "watchlist": watchlist, "equity": await _equity_curve(), "profile_active": detect_profile(settings), "news": news.summary(),
             "optimize_job": {k: fx_review.job[k] for k in ("status", "step")},
-            "hfm": {"configured": fx_store.public()["hfm_configured"], "state": fx_store.cfg.hfm_state, "verified_at": fx_store.cfg.hfm_verified_at}}
+            "hfm": {"configured": fx_store.public()["hfm_configured"], "state": fx_store.cfg.hfm_state, "connection": fx_store.cfg.hfm_connection,
+                    "verified_at": fx_store.cfg.hfm_verified_at, "trade_allowed": fx_store.cfg.hfm_trade_allowed, "live": engine.live}}
 
 
 @router.get("/klines")
@@ -202,6 +204,12 @@ async def klines(symbol: str, tf: str = "1h", limit: int = 300):
 
 @router.post("/bot/start")
 async def bot_start():
+    if engine.live:
+        c = fx_store.cfg
+        if not (c.metaapi_token and c.metaapi_account_id and c.hfm_verified_at):
+            raise HTTPException(409, "Modo REAL: vincula y verifica la cuenta HFM (Ajustes → HotForex) antes de iniciar el bot")
+        if c.hfm_trade_allowed is False:
+            raise HTTPException(409, "Modo REAL: la cuenta HFM no permite operar (trading deshabilitado o contraseña investor)")
     await engine.start()
     return _status()
 
@@ -284,6 +292,8 @@ async def account():
 
 @router.post("/account/reset")
 async def reset_account(body: ResetRequest = None):
+    if await engine.db.positions.count_documents({"live": True}):
+        raise HTTPException(409, "Hay posiciones REALES abiertas en HFM: ciérralas antes de reiniciar las estadísticas")
     await engine.reset_account(body.initial_balance if body else None)
     return await engine.account_summary()
 
@@ -331,6 +341,8 @@ async def put_config(request: Request):
         raise HTTPException(400, "Cuerpo inválido")
     g = {k: v for k, v in body.items() if k in ConfigUpdate.model_fields and k not in FxConfigUpdate.model_fields}
     f = {k: v for k, v in body.items() if k in FxConfigUpdate.model_fields}
+    if body.get("clear_hfm") and fx_store.cfg.trading_mode == "live":
+        raise HTTPException(409, "Vuelve a modo paper antes de quitar la cuenta HFM")
     try:
         gp = store.patch_from(ConfigUpdate(**g)) if g else {}
         fp = fx_store.patch_from(FxConfigUpdate(**f)) if f else {}
@@ -352,9 +364,15 @@ def _metaapi(body: HfmTestRequest = None):
     if not token:
         raise HTTPException(400, "Introduce el token de MetaApi primero")
     region = (body.metaapi_region if body and body.metaapi_region else c.metaapi_region)
+    base = (body.metaapi_base_url.strip() if body and body.metaapi_base_url is not None else c.metaapi_base_url)
     login = (body.mt_login.strip() if body and body.mt_login else c.mt_login)
     server = (body.mt_server.strip() if body and body.mt_server is not None else c.mt_server)
-    return MetaApi(token, region), use_saved, login, server
+    return MetaApi(token, region, base), use_saved, login, server
+
+
+def _acc_view(acc: dict) -> dict:
+    return {"id": acc.get("_id") or acc.get("id"), "login": acc.get("login"), "server": acc.get("server"), "state": acc.get("state"),
+            "connection": acc.get("connectionStatus"), "region": acc.get("region"), "platform": acc.get("platform") or acc.get("version")}
 
 
 @router.post("/hfm/test")
@@ -367,10 +385,9 @@ async def hfm_test(body: HfmTestRequest = None):
         out["accounts_total"] = len(accounts)
         acc = next((a for a in accounts if str(a.get("login")) == str(login) and (not server or str(a.get("server", "")).lower() == server.lower())), None) if login else None
         if acc:
-            out["account"] = {"id": acc.get("_id"), "login": acc.get("login"), "server": acc.get("server"), "state": acc.get("state"),
-                              "connection": acc.get("connectionStatus"), "region": acc.get("region"), "platform": acc.get("platform") or acc.get("version")}
+            out["account"] = _acc_view(acc)
             if acc.get("state") == "DEPLOYED" and acc.get("connectionStatus") == "CONNECTED":
-                out["info"] = await api.account_info(acc["_id"], acc.get("region") or api.region)
+                out["info"] = await api.account_info(acc["_id"], acc.get("region") or api.region, refresh=True)
                 out["positions"] = await api.positions(acc["_id"], acc.get("region") or api.region)
     except MetaApiError as e:
         raise HTTPException(424, e.msg)
@@ -379,16 +396,21 @@ async def hfm_test(body: HfmTestRequest = None):
     finally:
         await api.aclose()
     if saved:
-        patch = {"hfm_state": (out["account"] or {}).get("state") or ("TOKEN_OK" if out["token_valid"] else "")}
+        patch = {"hfm_state": (out["account"] or {}).get("state") or ("TOKEN_OK" if out["token_valid"] else ""),
+                 "hfm_connection": (out["account"] or {}).get("connection") or ""}
         if out["account"]:
             patch["metaapi_account_id"] = out["account"]["id"]
         if out["info"]:
-            patch.update(hfm_verified_at=now_iso(), hfm_verified_equity=out["info"].get("equity"), hfm_currency=out["info"].get("currency", ""),
-                         hfm_leverage=out["info"].get("leverage"))
-            await engine.log("INFO", f"Cuenta HFM verificada vía MetaApi · {out['info'].get('broker', 'HFM')} {server} · equidad {out['info'].get('equity')} {out['info'].get('currency', '')}")
+            info = out["info"]
+            patch.update(hfm_verified_at=now_iso(), hfm_verified_equity=info.get("equity"), hfm_currency=info.get("currency", ""),
+                         hfm_leverage=info.get("leverage"), hfm_broker=info.get("broker", ""), hfm_trade_allowed=bool(info.get("tradeAllowed", True)))
+            await engine.log("INFO", f"Cuenta HFM verificada vía MetaApi · {info.get('broker', 'HFM')} {server} · equidad {info.get('equity')} {info.get('currency', '')}"
+                                     + ("" if info.get("tradeAllowed", True) else " · SIN permiso de trading (contraseña investor)"))
         await fx_store.update(patch)
     out["hint"] = (None if out["info"] else "Cuenta vinculada pero aún no conectada: espera unos minutos y vuelve a probar" if out["account"]
                    else "Token válido. La cuenta MT todavía no está vinculada en MetaApi: pulsa «Vincular cuenta»." if login else "Token válido. Guarda el login/servidor de HFM para vincular la cuenta.")
+    if out["info"] and not out["info"].get("tradeAllowed", True):
+        out["hint"] = "La cuenta está conectada pero NO permite operar: usa la contraseña master (no investor) para el modo REAL."
     return out
 
 
@@ -397,7 +419,7 @@ async def hfm_link():
     c = fx_store.cfg
     if not (c.metaapi_token and c.mt_login and c.mt_password and c.mt_server):
         raise HTTPException(400, "Guarda primero el token de MetaApi, login, contraseña y servidor de HFM")
-    api = MetaApi(c.metaapi_token, c.metaapi_region)
+    api = MetaApi(c.metaapi_token, c.metaapi_region, c.metaapi_base_url)
     try:
         acc = await api.find_account(c.mt_login, c.mt_server)
         if not acc:
@@ -413,7 +435,96 @@ async def hfm_link():
         raise HTTPException(424, f"No se pudo vincular la cuenta: {str(e)[:160]}")
     finally:
         await api.aclose()
-    await fx_store.update({"metaapi_account_id": acc["_id"], "hfm_state": acc.get("state", "")})
-    return {"ok": True, "account": {"id": acc["_id"], "login": acc.get("login"), "server": acc.get("server"), "state": acc.get("state"),
-                                    "connection": acc.get("connectionStatus"), "region": acc.get("region")},
-            "hint": "Despliegue solicitado: la conexión tarda 1-3 minutos. Pulsa «Probar conexión» para ver el estado."}
+    await fx_store.update({"metaapi_account_id": acc["_id"], "hfm_state": acc.get("state", ""), "hfm_connection": acc.get("connectionStatus", "")})
+    return {"ok": True, "account": _acc_view(acc), "hint": "Despliegue solicitado: la conexión tarda 1-3 minutos. Pulsa «Probar conexión» para ver el estado."}
+
+
+@router.post("/hfm/redeploy")
+async def hfm_redeploy():
+    c = fx_store.cfg
+    if not (c.metaapi_token and c.metaapi_account_id):
+        raise HTTPException(400, "Vincula primero la cuenta en MetaApi")
+    api = MetaApi(c.metaapi_token, c.metaapi_region, c.metaapi_base_url)
+    try:
+        await api.redeploy(c.metaapi_account_id)
+        acc = await api.account(c.metaapi_account_id)
+    except MetaApiError as e:
+        raise HTTPException(424, e.msg)
+    finally:
+        await api.aclose()
+    await fx_store.update({"hfm_state": acc.get("state", ""), "hfm_connection": acc.get("connectionStatus", ""), "hfm_verified_at": None})
+    await engine.log("INFO", "Redespliegue de la cuenta HFM en MetaApi solicitado")
+    return {"ok": True, "account": _acc_view(acc), "hint": "Redespliegue en curso (1-3 minutos). Vuelve a «Probar conexión»."}
+
+
+@router.post("/hfm/symbols")
+async def hfm_symbols():
+    c = fx_store.cfg
+    if not (c.metaapi_token and c.metaapi_account_id):
+        raise HTTPException(400, "Vincula y verifica primero la cuenta en MetaApi")
+    s = await engine.get_settings()
+    broker = engine.broker or FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix)
+    try:
+        rows = {sym: await broker.check_symbol(sym) for sym in s.symbols}
+    finally:
+        if broker is not engine.broker:
+            await broker.aclose()
+    bad = [sym for sym, r in rows.items() if not r["ok"]]
+    await engine.log("INFO", f"Símbolos HFM comprobados · {len(rows) - len(bad)}/{len(rows)} disponibles" + (f" · sin cotización: {', '.join(bad)}" if bad else ""))
+    return {"suffix": c.mt_symbol_suffix, "symbols": rows, "missing": bad}
+
+
+async def _mode_checks() -> dict:
+    c = fx_store.cfg
+    open_pos = await engine.db.positions.count_documents({})
+    acc = await engine.account_summary()
+    checks = [
+        {"key": "keys", "label": "Token de MetaApi y cuenta HFM guardados", "ok": bool(c.metaapi_token and c.mt_login and c.mt_password and c.mt_server), "required": True},
+        {"key": "linked", "label": "Cuenta vinculada y desplegada en MetaApi", "ok": bool(c.metaapi_account_id and c.hfm_state == "DEPLOYED"), "required": True,
+         "detail": f"{c.hfm_state or 'sin vincular'}{' · ' + c.hfm_connection if c.hfm_connection else ''}"},
+        {"key": "verified", "label": f"Conexión verificada con HFM {c.mt_server or ''}".strip(), "ok": bool(c.hfm_verified_at), "required": True,
+         "detail": f"equidad {c.hfm_verified_equity:,.2f} {c.hfm_currency}" if c.hfm_verified_equity is not None else None},
+        {"key": "trade_allowed", "label": "La cuenta permite operar (contraseña master)", "ok": c.hfm_trade_allowed is not False, "required": True,
+         "detail": None if c.hfm_trade_allowed is not False else "trading deshabilitado o contraseña investor"},
+        {"key": "stopped", "label": "Bot detenido", "ok": not engine.running, "required": True},
+        {"key": "flat", "label": "Sin posiciones abiertas", "ok": open_pos == 0, "required": True, "detail": f"{open_pos} abiertas" if open_pos else None},
+        {"key": "paper", "label": "Validación en paper: ≥ 30 operaciones con profit factor ≥ 1.2", "required": False,
+         "ok": acc["total_trades"] >= 30 and (acc["profit_factor"] or 0) >= 1.2, "detail": f"{acc['total_trades']} ops · PF {acc['profit_factor'] or '—'}"},
+    ]
+    return {"mode": c.trading_mode, "env": c.mt_server or "HFM", "live_since": c.live_since, "checks": checks,
+            "can_go_live": all(x["ok"] for x in checks if x["required"]), "verified_equity": c.hfm_verified_equity, "currency": c.hfm_currency or "USD"}
+
+
+@router.get("/mode")
+async def get_mode():
+    return await _mode_checks()
+
+
+@router.post("/mode")
+async def set_mode(body: ModeRequest):
+    if body.mode not in ("paper", "live"):
+        raise HTTPException(400, "Modo inválido")
+    checks = await _mode_checks()
+    if body.mode == checks["mode"]:
+        return checks
+    blocked = [x["label"] for x in checks["checks"] if x["required"] and not x["ok"] and x["key"] in ("stopped", "flat")]
+    if blocked:
+        raise HTTPException(409, "Antes de cambiar de modo: " + " · ".join(blocked))
+    if body.mode == "live":
+        if body.confirm.strip().upper() != "REAL":
+            raise HTTPException(400, "Escribe REAL para confirmar el cambio a modo real")
+        if not checks["can_go_live"]:
+            raise HTTPException(409, "Faltan requisitos: " + " · ".join(x["label"] for x in checks["checks"] if x["required"] and not x["ok"]))
+        await fx_store.update({"trading_mode": "live", "live_since": now_iso()})
+        if body.reset_stats:
+            await engine.reset_account(fx_store.cfg.hfm_verified_equity or None)
+        await engine.log("RISK", f"MODO REAL ACTIVADO · HFM {fx_store.cfg.mt_server} vía MetaApi · el bot operará con dinero real al iniciarse")
+        await engine.tg(f"🚨 <b>MODO REAL ACTIVADO</b> · HFM {fx_store.cfg.mt_server}\nEquidad {fx_store.cfg.hfm_verified_equity or 0:,.2f} {fx_store.cfg.hfm_currency}. "
+                        "El bot operará con dinero real cuando lo inicies.", "orders")
+    else:
+        await fx_store.update({"trading_mode": "paper", "live_since": None})
+        if body.reset_stats:
+            await engine.reset_account()
+        await engine.log("INFO", "Vuelta a modo PAPER · simulación con precios de Yahoo Finance")
+        await engine.tg("📄 <b>Vuelta a modo PAPER</b> · simulación con precios de Yahoo Finance", "orders")
+    return await _mode_checks()

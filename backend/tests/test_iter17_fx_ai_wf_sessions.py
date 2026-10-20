@@ -100,7 +100,7 @@ def test_unit_fx_ai_policy_and_prompt():
     assert p4["caps"]["leverage"] == 500 and p4["caps"]["risk_per_trade"] == 2.0 and p4["caps"]["max_positions"] == 8
     txt = advisor_system(p0, FX_MARKET)
     assert "1:100" in txt and "sessions_allowed" in txt and "forex" in txt
-    assert "sessions_allowed" not in advisor_system(p0, CRYPTO_MARKET) and "5x" in advisor_system({"caps": {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}, "min_trades": 30, "min_item_trades": 20, "level": 0, "name": "x"})
+    assert "(6) sessions_allowed" not in advisor_system(p0, CRYPTO_MARKET) and "5x" in advisor_system({"caps": {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}, "min_trades": 30, "min_item_trades": 20, "level": 0, "name": "x"})
 
 
 # ---------- API: sessions ----------

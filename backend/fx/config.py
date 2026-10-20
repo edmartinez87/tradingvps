@@ -12,14 +12,20 @@ PLATFORMS = ["mt5", "mt4"]
 class FxConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
     trading_mode: str = "paper"
+    live_since: Optional[str] = None
     metaapi_token: str = ""
     mt_login: str = ""
     mt_password: str = ""
     mt_server: str = ""
     mt_platform: str = "mt5"
+    mt_symbol_suffix: str = ""
     metaapi_region: str = "new-york"
+    metaapi_base_url: str = ""
     metaapi_account_id: str = ""
     hfm_state: str = ""
+    hfm_connection: str = ""
+    hfm_broker: str = ""
+    hfm_trade_allowed: Optional[bool] = None
     hfm_verified_at: Optional[str] = None
     hfm_verified_equity: Optional[float] = None
     hfm_currency: str = ""
@@ -51,7 +57,9 @@ class FxConfigUpdate(BaseModel):
     mt_password: Optional[str] = Field(default=None, max_length=200)
     mt_server: Optional[str] = Field(default=None, max_length=80)
     mt_platform: Optional[str] = None
+    mt_symbol_suffix: Optional[str] = Field(default=None, max_length=12)
     metaapi_region: Optional[str] = None
+    metaapi_base_url: Optional[str] = Field(default=None, max_length=200)
     news_enabled: Optional[bool] = None
     news_interval_min: Optional[int] = Field(default=None, ge=5, le=240)
     news_countries: Optional[List[str]] = None
@@ -118,18 +126,20 @@ class FxConfigStore:
                 continue
             patch[k] = v.strip() if isinstance(v, str) else v
         if body.clear_hfm:
-            patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", hfm_state="",
-                         hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None)
+            patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", hfm_state="", hfm_connection="", hfm_broker="",
+                         hfm_trade_allowed=None, hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None)
         if "mt_platform" in patch and patch["mt_platform"] not in PLATFORMS:
             raise ValueError("Plataforma inválida (mt4 o mt5)")
         if "metaapi_region" in patch and patch["metaapi_region"] not in REGIONS:
             raise ValueError("Región de MetaApi inválida")
+        if "metaapi_base_url" in patch and patch["metaapi_base_url"] and not patch["metaapi_base_url"].startswith(("http://", "https://")):
+            raise ValueError("El endpoint de MetaApi debe empezar por http:// o https://")
         if "mt_login" in patch and patch["mt_login"] and not patch["mt_login"].isdigit():
             raise ValueError("El login de MetaTrader debe ser numérico")
         if "news_countries" in patch:
             patch["news_countries"] = [c for c in dict.fromkeys(patch["news_countries"]) if c in CURRENCIES] or list(CURRENCIES)
-        if any(k in patch for k in ("metaapi_token", "mt_login", "mt_password", "mt_server", "mt_platform", "metaapi_region")) and not body.clear_hfm:
-            patch.update(hfm_verified_at=None, hfm_verified_equity=None, hfm_state="")
-            if any(k in patch for k in ("mt_login", "mt_server", "mt_platform", "metaapi_region")):
+        if any(k in patch for k in ("metaapi_token", "mt_login", "mt_password", "mt_server", "mt_platform", "metaapi_region", "metaapi_base_url")) and not body.clear_hfm:
+            patch.update(hfm_verified_at=None, hfm_verified_equity=None, hfm_state="", hfm_connection="", hfm_trade_allowed=None)
+            if any(k in patch for k in ("mt_login", "mt_server", "mt_platform", "metaapi_region", "metaapi_base_url")):
                 patch["metaapi_account_id"] = ""
         return patch

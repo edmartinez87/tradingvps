@@ -30,9 +30,11 @@ export const FX_BRAND = {
   subtitle: "Forex · Metales · Claude Sonnet",
   icon: Landmark,
   liveLabel: (status) => `Modo REAL · HFM ${status.env}`,
-  dataLabel: () => "Datos: Yahoo Finance",
-  dataTooltip: () => "Precios y velas de Yahoo Finance (sin API key): pares spot y futuros de oro (GC=F) y plata (SI=F) que replican el spot. Cuando vincules tu cuenta HFM vía MetaApi, el modo real usará los precios y símbolos de tu propio bróker.",
-  resetHint: "Se borrarán posiciones, historial, señales, operaciones de noticias y curva de equidad. El balance vuelve al capital inicial configurado (por defecto $500).",
+  dataLabel: (status) => (status.mode === "REAL" ? "Señales: Yahoo · Ejecución: HFM" : "Datos: Yahoo Finance"),
+  dataTooltip: (status) => (status.mode === "REAL"
+    ? "Las señales se calculan con velas de Yahoo Finance; las órdenes, el PnL y la equidad vienen de tu cuenta HFM vía MetaApi."
+    : "Precios y velas de Yahoo Finance (sin API key): pares spot y futuros de oro (GC=F) y plata (SI=F) que replican el spot. En modo REAL las órdenes y el PnL vienen de tu cuenta HFM vía MetaApi."),
+  resetHint: "Se borrarán posiciones, historial, señales, operaciones de noticias y curva de equidad. En paper el balance vuelve al capital inicial configurado (por defecto $500); en REAL las estadísticas parten de la equidad actual de HFM.",
 };
 const EXTRA_TOGGLES = [{ k: "close_before_weekend", label: "Cerrar antes del fin de semana", hint: "Cierra todo 30 min antes del cierre del viernes (evita gaps del domingo)" }];
 const EXTRA_NUMS = [{ k: "min_lot_max_risk", label: "Riesgo máx. lote mínimo (%)", step: 0.5, min: 0, max: 10,
@@ -86,7 +88,7 @@ export default function FxDashboard({ onLogout }) {
   const toggleBot = async () => {
     setBusy(true);
     const running = data.status.running;
-    await act(() => http.post(running ? "/bot/stop" : "/bot/start"), running ? "Bot detenido" : "Bot iniciado · operando en horario forex");
+    await act(() => http.post(running ? "/bot/stop" : "/bot/start"), running ? "Bot detenido" : data.status.mode === "REAL" ? "Bot iniciado · MODO REAL en HFM" : "Bot iniciado · operando en horario forex");
     setBusy(false);
   };
   const newsAlert = data.news?.risk === "ALTO" || data.news?.blocked || data.news?.critical?.length > 0;
@@ -104,6 +106,11 @@ export default function FxDashboard({ onLogout }) {
         {data.status.exchange_error && (
           <div data-testid="fx-exchange-error-banner" className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 font-mono text-[11px] text-rose-200">
             Yahoo Finance sin respuesta: {data.status.exchange_error} · mostrando los últimos datos locales
+          </div>
+        )}
+        {data.status.broker_error && (
+          <div data-testid="fx-broker-error-banner" className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 font-mono text-[11px] text-rose-200">
+            HFM / MetaApi sin respuesta: {data.status.broker_error} · equidad y posiciones reales pendientes de sincronizar
           </div>
         )}
         <SessionsStrip hours={data.status.market_hours} allowed={data.settings.sessions_allowed} />

@@ -38,36 +38,40 @@ def spread_cost(symbol: str, lots: float, tickers: dict) -> float:
     return SPECS[symbol]["spread"] / 2 * usd_per_unit(symbol, lots, tickers)
 
 
-def round_lots(lots: float) -> float:
-    lots = math.floor(lots / LOT_STEP + 1e-9) * LOT_STEP
-    return round(min(lots, MAX_LOT), 2) if lots >= MIN_LOT else 0.0
+def round_lots(lots: float, lot: dict = None) -> float:
+    mn, step, mx = (lot["min"], lot["step"], lot["max"]) if lot else (MIN_LOT, LOT_STEP, MAX_LOT)
+    lots = math.floor(lots / step + 1e-9) * step
+    return round(min(lots, mx), 8) if lots >= mn - 1e-9 else 0.0
 
 
 def position_size(equity: float, available: float, risk_pct: float, entry: float, sl: float, leverage: int, symbol: str, tickers: dict,
-                  min_lot_max_risk: float = 0.0):
+                  min_lot_max_risk: float = 0.0, lot: dict = None):
     """Returns (lots, margin_usd, real_risk_pct). Risk = equity × risk% lost if SL is hit; margin = notional / leverage.
-    If the ideal size is below the 0.01 minimum lot, the minimum is used when its risk stays ≤ min_lot_max_risk % of equity."""
+    If the ideal size is below the minimum lot, the minimum is used when its risk stays ≤ min_lot_max_risk % of equity.
+    `lot` = {min, step, max, contract?} from the broker (REAL mode); defaults to HFM 0.01 lots."""
     dist = abs(entry - sl)
     if dist <= 0 or entry <= 0 or equity <= 0:
         return 0.0, 0.0, 0.0
-    per_lot_loss = dist * usd_per_unit(symbol, 1.0, tickers)
+    min_lot = lot["min"] if lot else MIN_LOT
+    contract = lot.get("contract") if lot and lot.get("contract") else SPECS[symbol]["contract"]
+    per_lot_loss = dist * contract * quote_usd(symbol, tickers)
     lots = (equity * risk_pct / 100) / per_lot_loss
-    notional_per_lot = SPECS[symbol]["contract"] * base_usd(symbol, tickers, entry)
+    notional_per_lot = contract * base_usd(symbol, tickers, entry)
     max_affordable = available * leverage * 0.95 / notional_per_lot
     lots = min(lots, max_affordable)
-    if lots < MIN_LOT and max_affordable >= MIN_LOT and per_lot_loss * MIN_LOT / equity * 100 <= min_lot_max_risk:
-        lots = MIN_LOT
-    lots = round_lots(lots)
+    if lots < min_lot and max_affordable >= min_lot and per_lot_loss * min_lot / equity * 100 <= min_lot_max_risk:
+        lots = min_lot
+    lots = round_lots(lots, lot)
     if lots <= 0:
         return 0.0, 0.0, 0.0
     return lots, lots * notional_per_lot / leverage, round(per_lot_loss * lots / equity * 100, 2)
 
 
-def min_lot_risk_pct(equity: float, entry: float, sl: float, symbol: str, tickers: dict) -> float:
+def min_lot_risk_pct(equity: float, entry: float, sl: float, symbol: str, tickers: dict, min_lot: float = MIN_LOT) -> float:
     """Risk (% of equity) of trading the minimum lot with this stop — used to explain rejected sizes."""
     if equity <= 0:
         return 0.0
-    return round(abs(entry - sl) * usd_per_unit(symbol, MIN_LOT, tickers) / equity * 100, 2)
+    return round(abs(entry - sl) * usd_per_unit(symbol, min_lot, tickers) / equity * 100, 2)
 
 
 def pnl(symbol: str, side: str, entry: float, price: float, lots: float, tickers: dict) -> float:

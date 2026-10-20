@@ -12,7 +12,15 @@ import { Panel } from "../Panel";
 import { http, errMsg, fmtUsd, fmtDateTime } from "@/lib/api";
 import { INPUT, BTN_OUT } from "./SecuritySection";
 
-export default function LiveModeSection({ config, refresh }) {
+export const BYBIT_LIVE_LABELS = {
+  exchange: "Bybit",
+  liveDesc: (data) => <>Operando con dinero real en Bybit <span className="text-slate-200">{data.env}</span> desde {fmtDateTime(data.live_since)}. Las órdenes se envían con SL/TP adjuntos y el trailing stop se actualiza en el exchange.</>,
+  paperDesc: () => <>Deja el bot en paper hasta completar la Fase 0 del plan. Cuando los requisitos estén en verde, pasa a real: el bot usará la misma estrategia, el mismo riesgo y la equidad real de tu cuenta Bybit para dimensionar cada orden.</>,
+  dialogDesc: (data) => <>El bot enviará órdenes reales a Bybit <b className="text-slate-200">{data.env}</b> con una equidad verificada de <b className="text-slate-200">{fmtUsd(data.verified_equity || 0)}</b>. Riesgo por operación, apalancamiento y límites de la configuración actual se aplican tal cual.</>,
+  resetLabel: "Reiniciar estadísticas con la equidad real de Bybit",
+};
+
+export default function LiveModeSection({ config, refresh, labels = BYBIT_LIVE_LABELS }) {
   const [data, setData] = useState(null);
   const [confirm, setConfirm] = useState("");
   const [resetStats, setResetStats] = useState(true);
@@ -42,9 +50,7 @@ export default function LiveModeSection({ config, refresh }) {
     <Panel testId="livemode-section" title="Modo de operación" icon={Rocket} bodyClass="p-4 space-y-3"
       actions={<span data-testid="livemode-badge" className={`rounded-sm border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${live ? "border-rose-500/50 bg-rose-500/10 text-rose-300" : "border-amber-500/40 bg-amber-500/10 text-amber-300"}`}>{live ? `REAL · ${data.env}` : "PAPER"}</span>}>
       <p className="text-[12px] leading-relaxed text-slate-400">
-        {live
-          ? <>Operando con dinero real en Bybit <span className="text-slate-200">{data.env}</span> desde {fmtDateTime(data.live_since)}. Las órdenes se envían con SL/TP adjuntos y el trailing stop se actualiza en el exchange.</>
-          : <>Deja el bot en paper hasta completar la Fase 0 del plan. Cuando los requisitos estén en verde, pasa a real: el bot usará la misma estrategia, el mismo riesgo y la equidad real de tu cuenta Bybit para dimensionar cada orden.</>}
+        {live ? labels.liveDesc(data) : labels.paperDesc(data)}
       </p>
       <ul data-testid="livemode-checklist" className="space-y-1.5">
         {data.checks.map((c) => (
@@ -72,13 +78,13 @@ export default function LiveModeSection({ config, refresh }) {
             <AlertDialogHeader>
               <AlertDialogTitle className="font-display text-rose-300">Activar trading con dinero real</AlertDialogTitle>
               <AlertDialogDescription className="space-y-2 text-slate-400">
-                <span className="block">El bot enviará órdenes reales a Bybit <b className="text-slate-200">{data.env}</b> con una equidad verificada de <b className="text-slate-200">{fmtUsd(data.verified_equity || 0)}</b>. Riesgo por operación, apalancamiento y límites de la configuración actual se aplican tal cual.</span>
+                <span className="block">{labels.dialogDesc(data)}</span>
                 <span className="block">Escribe <b className="font-mono text-rose-300">REAL</b> para confirmar.</span>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <Input data-testid="livemode-confirm-input" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="REAL" className={`${INPUT} uppercase`} />
             <label className="flex items-center justify-between gap-3 rounded-sm border border-[#1E293B] px-3 py-2 text-[12px] text-slate-200">
-              <span>Reiniciar estadísticas con la equidad real de Bybit<span className="block text-[11px] text-slate-500">Borra historial paper, posiciones y señales; el plan empieza desde el capital real.</span></span>
+              <span>{labels.resetLabel}<span className="block text-[11px] text-slate-500">Borra historial paper, posiciones y señales; las estadísticas empiezan desde el capital real.</span></span>
               <Switch data-testid="livemode-reset-switch" checked={resetStats} onCheckedChange={setResetStats} />
             </label>
             <AlertDialogFooter>
