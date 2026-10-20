@@ -6,3 +6,10 @@ crons:
     method: POST
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
+  - name: walk-forward-weekly
+    description: "Revalida cada lunes 07:00 UTC con walk-forward los pares con SL/TP optimizados y avisa por Telegram si alguno se sobreajusta"
+    cron: "0 7 * * 1"
+    endpoint: "{{BASE_URL}}/api/cron/walk-forward"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

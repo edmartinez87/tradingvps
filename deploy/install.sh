@@ -53,10 +53,11 @@ fi
 echo "==> [4/6] Construyendo e iniciando contenedores (la primera vez tarda 5-10 min)"
 docker compose up -d --build
 
-echo "==> [5/6] Cron de revisión IA (08:00 UTC)"
-chmod +x cron-ai-review.sh update.sh
+echo "==> [5/6] Crons: revisión IA (08:00 UTC) y walk-forward semanal (lunes 07:00 UTC)"
+chmod +x cron-ai-review.sh cron-walk-forward.sh update.sh
 CRON_LINE="0 8 * * * /bin/bash $(pwd)/cron-ai-review.sh >> /var/log/cryptobot-cron.log 2>&1"
-( crontab -l 2>/dev/null | grep -v 'cron-ai-review.sh' || true; echo "$CRON_LINE" ) | crontab -
+WF_LINE="0 7 * * 1 /bin/bash $(pwd)/cron-walk-forward.sh >> /var/log/cryptobot-cron.log 2>&1"
+( crontab -l 2>/dev/null | grep -v 'cron-ai-review.sh' | grep -v 'cron-walk-forward.sh' || true; echo "$CRON_LINE"; echo "$WF_LINE" ) | crontab -
 
 echo "==> [6/6] Firewall"
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active'; then

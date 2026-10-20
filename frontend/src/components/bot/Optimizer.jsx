@@ -9,12 +9,13 @@ import OptimizerCompare from "./optimizer/OptimizerCompare";
 import OptimizerHeatmap from "./optimizer/OptimizerHeatmap";
 import OptimizerSummary from "./optimizer/OptimizerSummary";
 import WalkForward from "./optimizer/WalkForward";
+import WalkForwardAuto from "./optimizer/WalkForwardAuto";
 
 export default function Optimizer({ settings, onSave, refresh }) {
   const [symbol, setSymbol] = useState(settings.symbols[0]);
   const [results, setResults] = useState({});
   const [wf, setWf] = useState({});
-  const [wfLoading, setWfLoading] = useState(false);
+  const [wfLoading, setWfLoading] = useState(null);
   const [loading, setLoading] = useState(null);
   const [job, setJob] = useState(null);
   const timer = useRef(null);
@@ -33,16 +34,49 @@ export default function Optimizer({ settings, onSave, refresh }) {
     setLoading(null);
     if (all) toast.success(`Optimización completada para ${syms.length} pares`);
   };
-  const validate = async () => {
-    setWfLoading(true);
-    try {
-      const { data } = await http.post("/optimize/walk-forward", { symbol });
-      setWf((w) => ({ ...w, [symbol]: data }));
-    } catch (e) {
-      toast.error(`${symbol}: ${errMsg(e)}`);
+  const validate = async (syms = [symbol]) => {
+    for (const s of syms) {
+      setWfLoading(s);
+      try {
+        const { data } = await http.post("/optimize/walk-forward", { symbol: s });
+        setWf((w) => ({ ...w, [s]: data }));
+      } catch (e) {
+        toast.error(`${s}: ${errMsg(e)}`);
+      }
     }
-    setWfLoading(false);
+    setWfLoading(null);
+    if (syms.length > 1) toast.success(`Walk-forward completado para ${syms.length} pares`);
   };
+
+  const [check, setCheck] = useState(null);
+  const [checkJob, setCheckJob] = useState(null);
+  const checkTimer = useRef(null);
+  const pollCheck = async () => {
+    try {
+      const { data } = await http.get("/walk-forward/check");
+      setCheckJob(data.job);
+      setCheck(data.latest);
+      if (data.job.status === "running") checkTimer.current = setTimeout(pollCheck, 2500);
+      else if (data.job.status === "error") toast.error(data.job.error || "La revalidación falló");
+      else if (data.job.status === "done" && data.latest) toast.success("Revalidación walk-forward completada");
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  };
+  const runCheck = async () => {
+    try {
+      const { data } = await http.post("/walk-forward/check");
+      setCheckJob(data.job);
+      checkTimer.current = setTimeout(pollCheck, 2500);
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  };
+  useEffect(() => {
+    http.get("/walk-forward/check").then(({ data }) => { setCheck(data.latest); setCheckJob(data.job); if (data.job.status === "running") checkTimer.current = setTimeout(pollCheck, 2500); }).catch(() => {});
+    return () => clearTimeout(checkTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const absorb = (j) => {
     setJob(j);
@@ -89,10 +123,12 @@ export default function Optimizer({ settings, onSave, refresh }) {
     await onSave({ symbol_params: next });
   };
 
-  const withApplied = (r) => ({ ...r, applied: settings.symbol_params[r.symbol] || null, wf_verdict: wf[r.symbol]?.verdict || r.walk_forward?.verdict || null });
+  const withApplied = (r) => ({ ...r, applied: settings.symbol_params[r.symbol] || null,
+    wf_verdict: wf[r.symbol]?.verdict || r.walk_forward?.verdict || check?.results?.[r.symbol]?.verdict || null });
   const res = results[symbol] ? withApplied(results[symbol]) : null;
   const list = Object.values(results).map(withApplied);
   const running = job?.status === "running";
+  const appliedCount = settings.symbols.filter((s) => settings.symbol_params[s]).length;
   return (
     <div data-testid="optimizer-panel" className="space-y-4 p-4">
       <div data-testid="optimize-all-card" className="rounded-md border border-purple-500/30 bg-purple-500/[0.06] p-4">
@@ -139,13 +175,19 @@ export default function Optimizer({ settings, onSave, refresh }) {
         <Button data-testid="optimizer-run-all-button" onClick={() => run(true)} disabled={!!loading || running} variant="outline" className="h-9 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider text-slate-200 hover:bg-[#111827]">
           {loading ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> {loading}</> : `Optimizar todos (${settings.symbols.length})`}
         </Button>
-        <Button data-testid="optimizer-walk-forward-button" onClick={validate} disabled={wfLoading || running} variant="outline" className="h-9 border-sky-500/40 bg-transparent font-mono text-[11px] uppercase tracking-wider text-sky-200 hover:bg-sky-500/10">
-          {wfLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="mr-1.5 h-3.5 w-3.5" />} Validar walk-forward
+        <Button data-testid="optimizer-walk-forward-button" onClick={() => validate()} disabled={!!wfLoading || running} variant="outline" className="h-9 border-sky-500/40 bg-transparent font-mono text-[11px] uppercase tracking-wider text-sky-200 hover:bg-sky-500/10">
+          {wfLoading === symbol ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="mr-1.5 h-3.5 w-3.5" />} Validar walk-forward
+        </Button>
+        <Button data-testid="optimizer-walk-forward-all-button" onClick={() => validate(settings.symbols)} disabled={!!wfLoading || running} variant="outline" className="h-9 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider text-slate-200 hover:bg-[#111827]">
+          {wfLoading && wfLoading !== symbol ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> {wfLoading}</> : `Validar todos (${settings.symbols.length})`}
         </Button>
       </div>
       <p className="text-[11px] leading-relaxed text-slate-500">
         <span className="text-sky-300">Walk-forward</span>: descarga 2.000 velas, optimiza en tramos pasados y comprueba a ciegas si esos parámetros siguen ganando en los tramos siguientes. Es la prueba de que el óptimo no está sobreajustado.
+        En la tabla multi-par, la columna <span className="text-slate-300">Decisión</span> cruza el óptimo robusto con ese veredicto: verde aplicar, ámbar con cautela, rojo no aplicar.
       </p>
+
+      <WalkForwardAuto check={check} running={checkJob?.status === "running"} step={checkJob?.step} onRun={runCheck} appliedCount={appliedCount} />
 
       {wf[symbol] && <WalkForward res={wf[symbol]} />}
 
@@ -158,7 +200,7 @@ export default function Optimizer({ settings, onSave, refresh }) {
           <OptimizerHeatmap key={res.symbol} res={res} />
         </div>
       )}
-      {list.length > 1 && <OptimizerSummary list={list} onSelect={setSymbol} />}
+      {list.length > 1 && <OptimizerSummary list={list} onSelect={setSymbol} onValidate={(s) => validate([s])} validating={wfLoading} />}
     </div>
   );
 }

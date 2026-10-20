@@ -46,6 +46,11 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
                                                          "by_confidence sirve para calibrar ai_min_confidence con evidencia.")
     if engine.news and engine.news.latest:
         ctx["noticias"] = {"mercado": engine.news.latest["market"], "alertas": engine.news.latest.get("alerts", [])[:5]}
+    wf_latest = await db.wf_checks.find_one({"_id": "latest"}, {"_id": 0, "ran_at": 1, "results": 1})
+    if wf_latest and wf_latest.get("results"):
+        ctx["walk_forward_pares_aplicados"] = {"revisado": wf_latest["ran_at"], "pares": {s: {k: r[k] for k in ("verdict", "wfe", "oos", "previous_verdict")}
+                                                                                       for s, r in wf_latest["results"].items()},
+                                               "_explicacion": "Revalidación walk-forward de los pares con symbol_params aplicados; SOBREAJUSTADO/NO_RENTABLE = quitar sus symbol_params."}
     if with_backtest:
         bt = await plan_stats(engine, settings, acc["initial_balance"])
         ctx["backtest"] = {k: bt[k] for k in ("per_symbol", "by_strategy", "monte_carlo", "trades_per_month", "days")}

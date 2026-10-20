@@ -39,6 +39,7 @@ from profiles import PROFILES, detect_profile, profile_patch, ai_policy  # noqa:
 from strategies import MODE_INFO  # noqa: E402
 from news import NewsAgent  # noqa: E402
 import migrations  # noqa: E402
+import wfcheck  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -300,6 +301,31 @@ async def cron_ai_review(request: Request):
     return {"accepted": True, "scheduled": bool(due)}
 
 
+def _cron_auth(request: Request):
+    auth = request.headers.get("authorization", "")
+    secret = os.environ.get("WEBHOOK_CRON_SECRET", "")
+    if not (auth.lower().startswith("bearer ") and secret and hmac.compare_digest(auth[7:], secret)):
+        raise HTTPException(401, "No autorizado")
+
+
+@cron.post("/walk-forward")
+async def cron_walk_forward(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    _cron_auth(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Cuerpo inválido")
+    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
+    if run_id and run_id in _cron_seen:
+        return {"accepted": True, "duplicate": True}
+    if run_id:
+        _cron_seen.append(run_id)
+        del _cron_seen[:-200]
+    started = await wfcheck.start_check(engine, db, "auto")
+    return {"accepted": True, "scheduled": started}
+
+
 @api.get("/meta")
 async def meta():
     return {"symbols": AVAILABLE_SYMBOLS, "timeframes": TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": STRATEGY_INFO,
@@ -535,6 +561,18 @@ async def optimize_walk_forward(req: OptimizeRequest):
     res = await asyncio.to_thread(walk_forward, klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"],
                                   req.symbol, s.signal_mode, s.disabled_strategies)
     return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
+
+
+@api.get("/walk-forward/check")
+async def walk_forward_check_status():
+    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db)}
+
+
+@api.post("/walk-forward/check")
+async def walk_forward_check_run():
+    if not await wfcheck.start_check(engine, db, "manual"):
+        raise HTTPException(409, "Ya hay una revalidación en curso")
+    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db)}
 
 
 @api.post("/ai/optimize-all")
