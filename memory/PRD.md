@@ -100,8 +100,21 @@
 - Refactor sin cambio de contrato: `deps.py` (client/db/engine/store/news/require_auth, `protected_router()`), `routers/cron_routes.py` (ai-review, walk-forward, weekly-summary con `_accept` = auth + idempotencia por run_id/X-Webhook-Id compartida; body no-dict → 400 también en ai-review), `routers/weekly_routes.py`, `routers/walk_forward_routes.py`. server.py ~540 líneas. Guardia de reintento: el cron semanal omite el envío si ya se envió hace < 6 días (log INFO).
 - Tested iteration_14: backend 15 nuevos (tests/test_iter14_funding_interval_routers.py) + regresión iter11-13 → 70/70; frontend 100 % (watchlist chips, Optimizador walk-forward + revalidación semanal, Telegram vista previa, Filtro de funding). Nota: los 12 pares disponibles liquidan cada 8h en Bitget, así que el sufijo /4h solo se ve con pares 4h/1h (cubierto por unit tests). test_iter4_auth_config.py tiene 6 asserts obsoletos (502→424, alerta news, 3 crons) anteriores a esta iteración.
 
+## Implemented (2026-06, iteration 15 · HotForex AI Trading · Fase 1 conectada y probada)
+- UX: Login (título neutro "AI Trading") → `pages/BotSelector.jsx` (tarjetas Bybit / HotForex con estado en vivo vía GET /api/overview y /api/fx/overview) → `/bybit` (Dashboard cripto intacto) o `/hotforex` (`fx/FxDashboard.jsx`). App.js usa BrowserRouter (`*` → `/`); botón "Cambiar bot" (`switch-bot-button`) en el header de ambos paneles. `setApiBase()` se fija en el render de cada dashboard para que el primer polling ya apunte a `/api` o `/api/fx`.
+- Backend FX (`/app/backend/fx/`): engine (paper, horario forex, cierre pre-fin de semana, trading por noticias), market (Yahoo Finance con httpx + UA propio, NO usar yfinance), news (ForexFactory + RSS → Claude), ai, risk (lotes/pips/spread), symbols (12 pares con specs HFM), config/metaapi (Fase 2), routes (`/api/fx/*`). Colecciones `fx_*` aisladas de cripto.
+- Fix tamaño en metales: con $500 y 1 % el tamaño ideal en XAUUSD/XAGUSD queda < 0.01 lotes y nunca abría. `risk.position_size(..., min_lot_max_risk)` usa el lote mínimo si su riesgo ≤ `settings.min_lot_max_risk` (def. 4 %, 0 = nunca, PUT ≤ 10); el log ORDER indica "lote mínimo: riesgo real X %"; si se rechaza, `open_position` devuelve `(None, motivo)` y la señal guarda `note` "No ejecutada: …" (también en operaciones de noticias). UI: campo "Riesgo máx. lote mínimo (%)" en Estrategia y riesgo (FX). Plata sigue necesitando más capital o un tope mayor (≈7 % con $500).
+- Pulido: `/api/fx/klines` solo acepta FX_TIMEFRAMES (5m/15m/1h/4h → 400 en 1m); Watchlist muestra pares forex como XAU/USD; SettingsPanel acepta `maxPositions` (12 en FX) y `extraNums`, y avisa con toast cuando recorta un valor al rango; "1 posición" singular en el selector; el temporizador del header dice "Análisis en Ns" con el bot detenido.
+- QA: `scripts/fx_inject_signal.py SYMBOL long|short [noai]`. Tested iteration_15: backend 24/24 (`tests/test_iter15_fx_phase1.py`: auth, overview, dashboard, meta, klines, settings/422, start/stop/scan, ciclo paper completo con fallback de lote mínimo, duplicado BLOQUEADA, close-all, reset, news, config, HFM 4xx, logs/performance, aislamiento y regresión cripto), frontend 100 % de los flujos (selector, FX dashboard, pestañas, ajustes HFM/noticias, cambio de bot, recarga directa, logout).
+
+## Fase 2 HotForex (pendiente)
+- P0: Backtesting + optimizador + walk-forward adaptados a forex (sesiones, pips, spread, sin funding) reutilizando backtest.py/optimizer.py con `fx.risk`.
+- P1: Ejecución REAL en HFM vía MetaApi.cloud (`fx/metaapi.py` ya tiene test/link; falta broker de órdenes, sync de posiciones, modo REAL con checklist como en cripto).
+- P2: Perfiles de riesgo FX (hoy `profiles: null`), plan de crecimiento FX.
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
+- HotForex paper: precios de Yahoo Finance (mayores con 4 decimales → granularidad 1 pip; 429 esporádicos reintentados). MetaApi no configurado hasta Fase 2.
 
 ## Backlog
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)

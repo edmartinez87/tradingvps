@@ -24,6 +24,7 @@ class FxSettings(BaseModel):
     signal_mode: str = "relaxed"
     disabled_strategies: List[str] = ["supertrend_momentum"]
     close_before_weekend: bool = True
+    min_lot_max_risk: float = 4.0
     risk_profile: int = 0
     bot_running: bool = False
 
@@ -93,6 +94,7 @@ class FxSettingsUpdate(BaseModel):
     signal_mode: Optional[str] = None
     disabled_strategies: Optional[List[str]] = None
     close_before_weekend: Optional[bool] = None
+    min_lot_max_risk: Optional[float] = Field(default=None, ge=0, le=10)
 
 
 class HfmTestRequest(BaseModel):

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 15: first test of HotForex AI Trading (FX Phase 1) backend + new router/BotSelector frontend, plus crypto regression. Backend: 24 pytest cases (overview, dashboard, meta, klines 5m/15m/1h/4h, settings + 422 limits, start/stop/scan, full paper cycle inject→mark update→manual close→trade/fees/balance, duplicate block BLOQUEADA, close-all, reset {} and {initial_balance:1000}, news/refresh/news-trades, config PUT valid/422, HFM test/link 4xx, logs/performance, crypto isolation + crypto regression endpoints). 23/24 pass; only failure is minor (klines accepts tf=1m). Found one important business issue: XAUUSD (and by the same math XAGUSD) can never be opened with the default $500 / 1% risk because computed size < 0.01 lot. Frontend: all requested flows verified (login → selector cards with status, FX dashboard, sessions strip, 12 pairs as XAU/USD, chart XAUUSD · Oro with 5m/15m/1h/4h, Plan de trading, tabs incl. Noticias y agenda, start/stop/scan toasts, close position toast + history MANUAL, SettingsPanel save/restore incl. lev 500 + weekend toggle, FX Ajustes sections + HFM inputs, HFM test with fake token → 424 handled, switch bot both ways, crypto tabs + AdminSettings, direct reload /hotforex & /bybit, /foo → /, logout, no-session → login). No JS console errors besides the expected 424 network log.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "FxEngine.open_position / fx/risk.position_size", "issue": "With default account $500, risk 1%, leverage 100 and 1h ATR-based SL (~1.5×ATR ≈ $16 on gold), lots = 5 / (16.6×100) ≈ 0.003 < MIN_LOT 0.01 → returns 0 and logs 'tamaño por debajo del lote mínimo'. Verified: injecting XAUUSD short never opens a position (signal stored SIN_IA executed=false). XAGUSD (contract 5000) has the same problem. Flagship metals pairs are effectively untradeable in the default config; scanner/news trades on metals will silently be discarded. Decide: allow min-lot fallback when risk at 0.01 lot ≤ some cap (e.g. ≤2-3% equity), warn in UI, or raise default capital/explain in Plan de trading.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/fx/klines", "issue": "tf=1m (and 1d) accepted with 200 because validation uses market.TF_SECONDS instead of FX_TIMEFRAMES ['5m','15m','1h','4h']"},
+      {"endpoint": "POST /api/fx/hfm/test, /hfm/link, /news/refresh errors", "issue": "Upstream failures return 424 (Failed Dependency); controlled and fine, but 400 for missing token is returned as expected. Just noting 424 is unusual (consider 502)."},
+      {"endpoint": "FX Yahoo ticker", "issue": "EURUSD/GBPUSD prices come with 4 decimals (1.1237) while digits=5 for pairs like USDCHF (0.82480); mark_price moved only 1 pip over the test window. Not a bug per se, but P&L granularity for majors is 1 pip."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SettingsPanel (FX)", "issue": "Máx. posiciones input max=10 hard-coded in NUMS while FX backend allows 1..12 (12 pairs)", "selector": "[data-testid='settings-max-positions-input']", "priority": "LOW"},
+      {"component": "SettingsPanel", "issue": "Leverage 600 is silently clamped to 500 client-side and toast says 'Configuración guardada' (no feedback that value was clamped)", "selector": "[data-testid='settings-leverage-input']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login / document.title", "issues": ["Browser tab title on Login is still 'Bybit AI Trader' (index.html) although the login card is now neutral 'AI TRADING · BYBIT · HOTFOREX'"]},
+      {"screen": "BotSelector", "issues": ["'1 posiciones' — singular/plural not handled"]},
+      {"screen": "FX header", "issues": ["'Próximo escaneo 60s' countdown shown while bot is DETENIDO (same as crypto)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter15_fx_phase1.py", "/app/test_reports/pytest/iter15_fx.xml"],
+  "action_items": [
+    "HIGH: fix metals sizing (XAUUSD/XAGUSD never open at $500/1%): min-lot fallback with risk cap, or surface a clear warning in UI/Plan de trading",
+    "Restrict /api/fx/klines tf to FX_TIMEFRAMES (return 400 for 1m/1d)",
+    "SettingsPanel: make max_positions max configurable (12 for FX) and inform user when a value is clamped",
+    "Minor polish: neutral document.title on login, '1 posición' singular, hide next-scan timer when bot stopped"
+  ],
+  "critical_code_review_comments": [
+    "setApiBase() is called during render in Dashboard/FxDashboard/BotSelector (global axios baseURL mutation as a render side effect). Works in tests, but any shared component polling (PriceChart, AdminSettings sections) mounted across a route change could hit the wrong base; prefer a per-bot axios instance via context.",
+    "fx_inject_signal.py instantiates a separate FxEngine, so the in-memory signal_keys dedup never applies across runs; duplicate protection relies solely on _blocks (works: second EURUSD → BLOQUEADA).",
+    "position_size silently returns 0 for metals with small accounts; only a RISK log line explains it, signals stay executed=false with empty note — set signal.note to the reason so the AI-signal panel shows why it wasn't executed."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter15_fx_phase1.py"],
+  "success_rate": {"backend": "96% (23/24)", "frontend": "100% of requested flows (minor UX notes only)"},
+  "seed_data_creation": "Injected EURUSD long, XAUUSD short (not opened), GBPUSD short via scripts/fx_inject_signal.py; all closed. FX account reset to $500, FX bot stopped, FX settings and fx config restored to originals. Crypto bot untouched (still running).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app && REACT_APP_BACKEND_URL=... python -m pytest backend/tests/test_iter15_fx_phase1.py -n0 (pytest.ini adds xdist; -n0 shows prints). test_paper_cycle_and_isolation resets the FX account and injects signals via the QA script. After metals sizing fix, add assertion that XAUUSD inject opens a position. HFM test button is disabled until a token is typed; link button disabled until hfm_configured. hfm-state-badge only renders when hfm_configured.",
+  "rca of the issue": "Metals sizing: risk.position_size → lots = equity*risk%/(|entry-sl| * contract * quote_usd). XAUUSD contract=100, SL distance 1.5×ATR(1h)≈16.6 → per-lot loss ≈ $1660; $5 risk → 0.003 lots → round_lots → 0 → open_position returns None. Repro: reset FX account, `python3 scripts/fx_inject_signal.py XAUUSD short noai` → 'open positions: 0' and log 'XAUUSD: tamaño por debajo del lote mínimo'."
+}

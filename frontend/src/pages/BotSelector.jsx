@@ -35,7 +35,7 @@ function Status({ s }) {
       </span>
       <span className="text-slate-300">Equidad <span className="num text-slate-100">{fmtUsd(s.equity)}</span></span>
       <span className={`num ${pnlClass(s.total_return_pct)}`}>{fmtPct(s.total_return_pct)}</span>
-      <span className="text-slate-400">{s.open_positions} posiciones</span>
+      <span className="text-slate-400">{s.open_positions} {s.open_positions === 1 ? "posición" : "posiciones"}</span>
       {s.mode && <span className={`rounded-sm border px-1.5 py-px text-[9px] uppercase ${s.mode === "REAL" ? "border-rose-500/50 text-rose-300" : "border-[#1E293B] text-slate-400"}`}>{s.mode}</span>}
       {s.market_open === false && <span className="rounded-sm border border-slate-600 px-1.5 py-px text-[9px] uppercase text-slate-400">Mercado cerrado</span>}
     </div>

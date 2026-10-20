@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Zap, Eye, EyeOff, Loader2, LockKeyhole } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ export default function Login({ onLogin }) {
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  useEffect(() => { document.title = "AI Trading · Acceso"; }, []);
 
   const submit = async (e) => {
     e.preventDefault();

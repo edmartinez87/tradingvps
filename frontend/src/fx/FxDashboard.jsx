@@ -33,6 +33,8 @@ export const FX_BRAND = {
   resetHint: "Se borrarán posiciones, historial, señales, operaciones de noticias y curva de equidad. El balance vuelve al capital inicial configurado (por defecto $500).",
 };
 const EXTRA_TOGGLES = [{ k: "close_before_weekend", label: "Cerrar antes del fin de semana", hint: "Cierra todo 30 min antes del cierre del viernes (evita gaps del domingo)" }];
+const EXTRA_NUMS = [{ k: "min_lot_max_risk", label: "Riesgo máx. lote mínimo (%)", step: 0.5, min: 0, max: 10,
+  hint: "Si el tamaño ideal queda por debajo de 0.01 lotes (típico en oro/plata con poco capital), se abre el lote mínimo siempre que su riesgo no supere este % de la equidad. 0 = nunca." }];
 
 export default function FxDashboard({ onLogout }) {
   setApiBase("fx");
@@ -132,7 +134,7 @@ export default function FxDashboard({ onLogout }) {
           <AiSignals signals={data.signals} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <SettingsPanel settings={data.settings} meta={meta} profileActive={null} leverageMax={500} extraToggles={EXTRA_TOGGLES}
+          <SettingsPanel settings={data.settings} meta={meta} profileActive={null} leverageMax={500} maxPositions={12} extraToggles={EXTRA_TOGGLES} extraNums={EXTRA_NUMS}
             onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")} onProfile={async () => false} />
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />
         </div>

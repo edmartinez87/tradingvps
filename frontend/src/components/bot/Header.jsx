@@ -76,8 +76,8 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
             <TooltipContent className="max-w-xs text-xs">{brand.dataTooltip(status)}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        <span data-testid="next-scan-timer" className="inline-flex items-center gap-1.5 font-mono text-[11px] text-slate-400">
-          <Timer className="h-3.5 w-3.5" /> Próximo escaneo {count != null ? `${count}s` : "—"}
+        <span data-testid="next-scan-timer" className="inline-flex items-center gap-1.5 font-mono text-[11px] text-slate-400" title={status.running ? undefined : "El bot está detenido: el escaneo solo actualiza el mercado en vivo, no abre operaciones"}>
+          <Timer className="h-3.5 w-3.5" /> {status.running ? "Próximo escaneo" : "Análisis en"} {count != null ? `${count}s` : "—"}
         </span>
         <StatusPill status={status} />
 

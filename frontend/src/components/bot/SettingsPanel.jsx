@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { SlidersHorizontal, Save } from "lucide-react";
+import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -37,7 +38,7 @@ const Sel = ({ label, value, onChange, options, render, testId }) => (
   </div>
 );
 
-export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, extraToggles = [] }) {
+export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [] }) {
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -45,7 +46,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); };
   const toggleSym = (s) => set("symbols", form.symbols.includes(s) ? form.symbols.filter((x) => x !== s) : [...form.symbols, s]);
   const active = activeStrategies(form);
-  const nums = NUMS.map((n) => (n.k === "leverage" ? { ...n, max: leverageMax } : n));
+  const nums = [...NUMS.map((n) => (n.k === "leverage" ? { ...n, max: leverageMax } : n.k === "max_positions" ? { ...n, max: maxPositions } : n)), ...extraNums];
   const toggles = [...TOGGLES, ...extraToggles];
   const toggleStrat = (k) => {
     const next = active.includes(k) ? active.filter((x) => x !== k) : [...active, k];
@@ -57,11 +58,20 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
   const save = async () => {
     setSaving(true);
     const body = { ...form };
-    nums.forEach(({ k, min, max }) => { body[k] = Math.min(max, Math.max(min, Number(body[k]) || min)); });
+    const clamped = [];
+    nums.forEach(({ k, min, max, label }) => {
+      const v = Number(body[k]);
+      body[k] = Math.min(max, Math.max(min, v || min));
+      if (body[k] !== v) clamped.push(`${label.replace(/ \(.*\)$/, "")} → ${body[k]}`);
+    });
     delete body.bot_running;
     const ok = await onSave(body);
     setSaving(false);
-    if (ok) { setDirty(false); setForm((f) => ({ ...f, ...body })); }
+    if (ok) {
+      setDirty(false);
+      setForm((f) => ({ ...f, ...body }));
+      if (clamped.length) toast.info(`Valores ajustados al rango permitido: ${clamped.join(" · ")}`);
+    }
   };
 
   return (
@@ -110,7 +120,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
         {nums.map((n) => (
           <div key={n.k}>
             <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">{n.label}</p>
-            <Input data-testid={`settings-${n.k.replace(/_/g, "-")}-input`} type="number" step={n.step} min={n.min} max={n.max} value={form[n.k]}
+            <Input data-testid={`settings-${n.k.replace(/_/g, "-")}-input`} type="number" step={n.step} min={n.min} max={n.max} value={form[n.k] ?? ""} title={n.hint}
               onChange={(e) => set(n.k, e.target.value)} className="num h-9 border-[#1E293B] bg-[#07090E] text-xs" />
           </div>
         ))}

@@ -69,7 +69,7 @@ async def dashboard():
 
 @router.get("/klines")
 async def klines(symbol: str, tf: str = "1h", limit: int = 300):
-    if symbol not in AVAILABLE or tf not in TF_SECONDS:
+    if symbol not in AVAILABLE or tf not in FX_TIMEFRAMES:
         raise HTTPException(400, "Símbolo o temporalidad inválida")
     df = build_df(await engine.market.fetch_klines(symbol, tf, min(max(limit, 100), 1000), cache_sec=20))
     times = (df["ts"] // 1000).astype(int).tolist()

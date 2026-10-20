@@ -238,23 +238,28 @@ class FxEngine:
     # ---------- execution ----------
     async def open_position(self, symbol: str, sig: dict, settings: FxSettings, signal_id: str, risk_factor: float = 1.0,
                             risk_reason: str = "noticias", expires_at: str = None):
+        """Returns (Position | None, reason) — reason explains why nothing was opened."""
         risk_pct = settings.risk_per_trade * risk_factor
         tickers = self.market.tickers
         async with self.lock:
             open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
             if symbol in open_syms or len(open_syms) >= settings.max_positions:
                 await self.log("RISK", f"{symbol}: apertura cancelada · límite de posiciones o par ya abierto")
-                return None
+                return None, "límite de posiciones o par ya abierto"
             price = tickers.get(symbol, {}).get("price") or sig["price"]
             long = sig["side"] == "long"
             entry = price
             sl = entry - (sig["price"] - sig["sl"])
             tp = entry + (sig["tp"] - sig["price"])
             s = await self.account_summary()
-            lots, margin = risk.position_size(s["equity"], s["available"], risk_pct, entry, sl, settings.leverage, symbol, tickers)
+            lots, margin, real_risk = risk.position_size(s["equity"], s["available"], risk_pct, entry, sl, settings.leverage, symbol, tickers,
+                                                         settings.min_lot_max_risk)
             if lots <= 0 or margin < 1:
-                await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo (0.01) o margen insuficiente · aumenta capital, apalancamiento o riesgo")
-                return None
+                need = risk.min_lot_risk_pct(s["equity"], entry, sl, symbol, tickers)
+                reason = (f"tamaño por debajo del lote mínimo (0.01): con este stop el lote mínimo arriesga el {need}% de la equidad "
+                          f"(objetivo {risk_pct:g}%, tope con lote mínimo {settings.min_lot_max_risk:g}%) · sube el capital, el tope o usa una temporalidad menor")
+                await self.log("RISK", f"{symbol}: {reason}")
+                return None, reason
             fee = risk.spread_cost(symbol, lots, tickers)
             pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, leverage=settings.leverage,
                            margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"], fees=fee, mark_price=price, signal_id=signal_id, expires_at=expires_at)
@@ -262,12 +267,14 @@ class FxEngine:
             pos.id = str(res.inserted_id)
             await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
         reduced = f" · tamaño ajustado al {int(risk_factor * 100)}% por {risk_reason}" if risk_factor != 1 else ""
+        if real_risk > risk_pct + 0.05:
+            reduced += f" · lote mínimo: riesgo real {real_risk:g}% (objetivo {risk_pct:g}%)"
         f = lambda v: fmt_price(symbol, v)  # noqa: E731
         await self.log("ORDER", f"ABIERTA {sig['side'].upper()} {symbol} @ {f(entry)} · {lots:.2f} lotes · 1:{settings.leverage} · SL {f(sl)} ({pips(symbol, abs(entry - sl)):.1f} pips) · TP {f(tp)}{reduced}")
         await self.tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {sig['side'].upper()} {symbol}</b> @ {f(entry)}\n"
                       f"{lots:.2f} lotes · 1:{settings.leverage} · margen ${margin:,.2f}\nSL {f(sl)} · TP {f(tp)}\n"
                       f"Estrategia: {FX_STRATEGY_INFO.get(sig['strategy'], {}).get('name', sig['strategy'])}{reduced}", "orders")
-        return pos
+        return pos, None
 
     async def close_position(self, pos_id: str, price: float = None, reason: str = "MANUAL"):
         tickers = self.market.tickers
@@ -410,9 +417,8 @@ class FxEngine:
         res = await self.db.signals.insert_one(signal.to_mongo())
         if approve:
             risk_reason = "riesgo de noticias" if risk_factor < 1 else ""
-            pos = await self.open_position(symbol, sig, settings, str(res.inserted_id), risk_factor, risk_reason)
-            if pos:
-                await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True}})
+            pos, reason = await self.open_position(symbol, sig, settings, str(res.inserted_id), risk_factor, risk_reason)
+            await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True} if pos else {"note": f"No ejecutada: {reason}"}})
 
     # ---------- news trading ----------
     async def news_trade(self, symbol: str, side: str, confidence: int, reasoning: str, event: dict, cfg) -> dict:
@@ -459,8 +465,9 @@ class FxEngine:
                         note=f"Operación de noticias · {label}", key=key)
         res = await self.db.signals.insert_one(signal.to_mongo())
         expires = (datetime.now(timezone.utc) + timedelta(hours=cfg.news_trade_max_hours)).isoformat()
-        pos = await self.open_position(symbol, sig, settings, str(res.inserted_id), cfg.news_trade_risk_factor, "operación de noticias", expires_at=expires)
+        pos, reason = await self.open_position(symbol, sig, settings, str(res.inserted_id), cfg.news_trade_risk_factor, "operación de noticias", expires_at=expires)
         if not pos:
-            return {"status": "OMITIDA", "reason": "no se pudo abrir (tamaño/margen/límite)"}
+            await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"note": f"No ejecutada: {reason}"}})
+            return {"status": "OMITIDA", "reason": reason}
         await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True}})
         return {"status": "EJECUTADA", "reason": move_txt, "position_id": pos.id, "entry": price, "sl": sl, "tp": tp, "lots": pos.qty}
