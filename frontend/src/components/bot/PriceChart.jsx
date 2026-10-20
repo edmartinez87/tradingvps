@@ -39,7 +39,7 @@ function useChart(ref) {
   return api;
 }
 
-export default function PriceChart({ symbol, defaultTf }) {
+export default function PriceChart({ symbol, defaultTf, kind = "Perpetuo", tfs = TFS }) {
   const [tf, setTf] = useState(defaultTf);
   const ref = useRef(null);
   const api = useChart(ref);
@@ -70,10 +70,10 @@ export default function PriceChart({ symbol, defaultTf }) {
 
   const last = data?.candles?.[data.candles.length - 1];
   return (
-    <Panel testId="price-chart-panel" title={`${symbol} · Perpetuo`} icon={CandlestickChart} className="lg:col-span-6" bodyClass="flex flex-col" delay={120}
+    <Panel testId="price-chart-panel" title={`${symbol} · ${kind}`} icon={CandlestickChart} className="lg:col-span-6" bodyClass="flex flex-col" delay={120}
       actions={
         <div className="flex items-center gap-1 rounded-sm border border-[#1E293B] p-0.5">
-          {TFS.map((t) => (
+          {tfs.map((t) => (
             <button key={t} data-testid={`chart-tf-${t}`} onClick={() => setTf(t)}
               className={`rounded-sm px-2 py-0.5 font-mono text-[11px] transition-colors ${t === tf ? "bg-amber-500 text-[#07090E]" : "text-slate-400 hover:text-slate-100"}`}>
               {t}

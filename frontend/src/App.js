@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import "@/App.css";
 import { Toaster, toast } from "sonner";
 import { Layers, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { http, errMsg, getToken, setToken } from "@/lib/api";
+import { http, errMsg, getToken, setToken, setApiBase } from "@/lib/api";
+import BotSelector from "@/pages/BotSelector";
+import FxDashboard from "@/fx/FxDashboard";
 import { usePolling } from "@/hooks/usePolling";
 import Header from "@/components/bot/Header";
 import Login from "@/components/bot/Login";
@@ -27,6 +30,8 @@ import { Panel } from "@/components/bot/Panel";
 const TAB_CLS = "rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider data-[state=active]:bg-amber-500 data-[state=active]:text-[#07090E]";
 
 function Dashboard({ onLogout }) {
+  setApiBase("");
+  const nav = useNavigate();
   const [meta, setMeta] = useState(null);
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [busy, setBusy] = useState(false);
@@ -72,7 +77,7 @@ function Dashboard({ onLogout }) {
 
   return (
     <div data-testid="dashboard" className="app-bg grain min-h-screen">
-      <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout}
+      <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} onSwitchBot={() => nav("/")}
         onSettings={() => setView((v) => (v === "settings" ? "panel" : "settings"))}
         onScan={() => act(() => http.post("/bot/scan"), "Escaneo solicitado")}
         onReset={() => act(() => http.post("/account/reset", {}), "Cuenta paper reiniciada")} />
@@ -161,9 +166,16 @@ export default function App() {
   }, []);
   const logout = () => { setToken(null); setAuthed(false); };
   return (
-    <>
-      {authed ? <Dashboard onLogout={logout} /> : <Login onLogin={() => setAuthed(true)} />}
+    <BrowserRouter>
+      {authed ? (
+        <Routes>
+          <Route path="/" element={<BotSelector onLogout={logout} />} />
+          <Route path="/bybit" element={<Dashboard onLogout={logout} />} />
+          <Route path="/hotforex" element={<FxDashboard onLogout={logout} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      ) : <Login onLogin={() => setAuthed(true)} />}
       <Toaster theme="dark" position="bottom-right" toastOptions={{ style: { background: "#0D111A", border: "1px solid #1E293B", fontFamily: "Outfit" } }} />
-    </>
+    </BrowserRouter>
   );
 }

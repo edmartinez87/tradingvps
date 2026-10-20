@@ -149,6 +149,7 @@ class Position(BaseDocument):
     live: bool = False
     order_id: Optional[str] = None
     link_id: Optional[str] = None
+    expires_at: Optional[str] = None
     opened_at: str = Field(default_factory=now_iso)
 
 

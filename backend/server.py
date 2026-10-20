@@ -32,8 +32,10 @@ from profiles import PROFILES, detect_profile, profile_patch, ai_policy  # noqa:
 from strategies import MODE_INFO  # noqa: E402
 import migrations  # noqa: E402
 import funding  # noqa: E402
-from deps import client, db, engine, store, news, protected_router  # noqa: E402
+from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news  # noqa: E402
 from routers import cron_routes, weekly_routes, walk_forward_routes  # noqa: E402
+from routers.shared_routes import add_shared_routes  # noqa: E402
+from fx import routes as fx_routes  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -42,19 +44,11 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 app = FastAPI(title="Bybit AI Trading Bot")
 public = APIRouter(prefix="/api")
 api = protected_router()
+add_shared_routes(api, engine, "Bybit AI Trader")
 
 
 class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
-
-
-class PasswordChange(BaseModel):
-    current: str = Field(min_length=1, max_length=200)
-    new: str = Field(min_length=8, max_length=200)
-
-
-class ChatsRequest(BaseModel):
-    token: str = ""
 
 
 def _status() -> dict:
@@ -92,21 +86,6 @@ async def login(body: LoginRequest, request: Request):
     return {"token": create_token(store.cfg.token_version)}
 
 
-@api.get("/auth/me")
-async def auth_me():
-    return {"ok": True}
-
-
-@api.post("/auth/password")
-async def change_password(body: PasswordChange):
-    if not verify_password(body.current, store.cfg.password_hash):
-        raise HTTPException(401, "La clave actual no es correcta")
-    version = store.cfg.token_version + 1
-    await store.update({"password_hash": hash_password(body.new), "token_version": version})
-    await engine.log("INFO", "Clave de acceso cambiada · sesiones anteriores cerradas")
-    return {"token": create_token(version)}
-
-
 @api.get("/config")
 async def get_config():
     return store.public()
@@ -122,35 +101,6 @@ async def put_config(body: ConfigUpdate):
         await store.update(patch)
         await engine.log("INFO", f"Ajustes actualizados: {', '.join(patch)}")
     return store.public()
-
-
-@api.post("/telegram/chats")
-async def telegram_chats(body: ChatsRequest):
-    token = body.token.strip() if body.token and not body.token.startswith("••") else store.cfg.telegram_bot_token
-    if not token:
-        raise HTTPException(400, "Introduce el token del bot primero")
-    try:
-        return {"bot": await notify.get_me(token), "chats": await notify.get_chats(token)}
-    except Exception as e:
-        raise HTTPException(424, str(e)[:200])
-
-
-@api.post("/telegram/test")
-async def telegram_test():
-    acc = await engine.account_summary()
-    try:
-        await notify.send(f"✅ <b>Bybit AI Trader</b> conectado.\nEquidad ${acc['equity']:,.2f} · {acc['open_positions']} posiciones abiertas · bot {'ACTIVO' if engine.running else 'DETENIDO'}")
-    except Exception as e:
-        raise HTTPException(424, str(e)[:200])
-    return {"ok": True}
-
-
-@api.post("/ai/test")
-async def ai_test():
-    try:
-        return {"ok": True, "reply": await ai_ping(), **ai_current()}
-    except Exception as e:
-        raise HTTPException(424, f"Error IA: {str(e)[:200]}")
 
 
 def _bybit_client(body: BybitTestRequest = None):
@@ -251,6 +201,12 @@ async def ai_auto_review_now():
 async def meta():
     return {"symbols": AVAILABLE_SYMBOLS, "timeframes": TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": STRATEGY_INFO,
             "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO, "profiles": PROFILES}
+
+
+@api.get("/overview")
+async def overview():
+    acc = await engine.account_summary()
+    return {"running": engine.running, "mode": engine.mode_label, "equity": acc["equity"], "total_return_pct": acc["total_return_pct"], "open_positions": acc["open_positions"]}
 
 
 @api.post("/profile")
@@ -531,6 +487,7 @@ app.include_router(api)
 app.include_router(cron_routes.router)
 app.include_router(weekly_routes.router)
 app.include_router(walk_forward_routes.router)
+app.include_router(fx_routes.router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -548,10 +505,17 @@ async def startup():
     await engine.init()
     await news.init()
     await migrations.run(engine, db)
+    fx_store.listeners.append(fx_engine.apply_config)
+    fx_store.listeners.append(fx_news.configure)
+    await fx_store.load()
+    await fx_engine.init()
+    await fx_news.init()
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    await fx_news.aclose()
+    await fx_engine.shutdown()
     await news.aclose()
     await engine.shutdown()
     client.close()

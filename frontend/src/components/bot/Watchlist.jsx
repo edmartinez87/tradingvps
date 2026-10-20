@@ -27,7 +27,10 @@ function FundingChip({ w }) {
   );
 }
 
+const splitSymbol = (s) => (s.endsWith("USDT") ? [s.slice(0, -4), "USDT"] : [s.slice(0, 3), s.slice(3)]);
+
 function Row({ w, active, onSelect }) {
+  const [base, quote] = splitSymbol(w.symbol);
   const prev = useRef(w.price);
   const [flash, setFlash] = useState("");
   useEffect(() => {
@@ -50,7 +53,7 @@ function Row({ w, active, onSelect }) {
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-display text-sm font-semibold text-slate-100">
-          {w.symbol.replace("USDT", "")}<span className="text-slate-500">/USDT</span>
+          {base}<span className="text-slate-500">/{quote}</span>
         </span>
         <span data-testid={`watchlist-price-${w.symbol}`} className="num text-sm text-slate-100">{fmtPrice(w.price)}</span>
       </div>

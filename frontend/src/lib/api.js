@@ -1,7 +1,10 @@
 import axios from "axios";
 
-export const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+export const BACKEND = process.env.REACT_APP_BACKEND_URL;
+export const API = `${BACKEND}/api`;
 export const http = axios.create({ baseURL: API, timeout: 90000 });
+// One shared client: the active bot (crypto → /api, HotForex → /api/fx) switches the base URL so every panel is reusable.
+export const setApiBase = (bot) => { http.defaults.baseURL = bot === "fx" ? `${BACKEND}/api/fx` : API; };
 
 const TOKEN_KEY = "bot_token";
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
@@ -52,11 +55,12 @@ export const STRATEGY_LABELS = {
   breakout_turtle: "Ruptura Turtle",
   supertrend_momentum: "Supertrend + momentum",
   ema_pullback: "Pullback EMA21",
+  news_event: "Noticia macro",
 };
 export const STRATEGY_KEYS = ["trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback"];
 export const MODE_LABELS = { strict: "Estrictos", relaxed: "Relajados", minimal: "Mínimos" };
 export const activeStrategies = (s) => (s.strategy === "all" ? STRATEGY_KEYS.filter((k) => !(s.disabled_strategies || []).includes(k)) : [s.strategy]);
-export const REASON_LABELS = { TP: "Take Profit", SL: "Stop Loss", TRAILING: "Trailing", MANUAL: "Manual" };
+export const REASON_LABELS = { TP: "Take Profit", SL: "Stop Loss", TRAILING: "Trailing", MANUAL: "Manual", TIEMPO: "Tiempo máx.", FIN_SEMANA: "Fin de semana" };
 export const errMsg = (e) => {
   const d = e?.response?.data?.detail;
   if (Array.isArray(d)) return `Valor inválido en: ${d.map((x) => x.loc?.slice(-1)[0]).join(", ")}`;

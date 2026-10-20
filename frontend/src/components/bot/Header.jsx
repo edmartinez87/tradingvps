@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
-import { Zap, Play, Square, RefreshCw, RotateCcw, Database, Timer, Settings2, LogOut } from "lucide-react";
+import { Zap, Play, Square, RefreshCw, RotateCcw, Database, Timer, Settings2, LogOut, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+
+const CRYPTO_BRAND = {
+  title: <>Bybit <span className="text-amber-400">AI</span> Trader</>,
+  subtitle: "Futuros perpetuos USDT · Claude Sonnet",
+  icon: Zap,
+  liveLabel: (status) => `Modo REAL · Bybit ${status.env}`,
+  dataLabel: (status) => (status.provider === "bitget" ? "Datos: Bitget (espejo)" : "Datos: Bybit"),
+  dataTooltip: (status) => (status.provider === "bitget"
+    ? "Bybit bloquea el acceso desde la región del servidor (EE.UU.). El bot usa precios de futuros perpetuos USDT de Bitget, que replican a Bybit con diferencias mínimas. Desde una región permitida conecta Bybit automáticamente."
+    : "Conectado directamente a la API pública v5 de Bybit."),
+  resetHint: "Se borrarán posiciones, historial, señales y curva de equidad. El balance vuelve al capital inicial configurado (por defecto $500 USDT).",
+};
 
 const StatusPill = ({ status }) => {
   const { running, scanning } = status;
@@ -22,31 +34,31 @@ const StatusPill = ({ status }) => {
   );
 };
 
-export default function Header({ status, onToggle, onScan, onReset, busy, onSettings, onLogout, view }) {
+export default function Header({ status, onToggle, onScan, onReset, busy, onSettings, onLogout, view, onSwitchBot, brand = CRYPTO_BRAND }) {
   const [count, setCount] = useState(status.next_scan_in);
   useEffect(() => setCount(status.next_scan_in), [status.next_scan_in]);
   useEffect(() => {
     const id = setInterval(() => setCount((c) => (c > 0 ? c - 1 : c)), 1000);
     return () => clearInterval(id);
   }, []);
-  const mirror = status.provider === "bitget";
+  const Icon = brand.icon;
 
   return (
     <header data-testid="app-header" className="sticky top-0 z-30 border-b border-[#1E293B] bg-[#07090E]/85 backdrop-blur-xl">
       <div className="flex flex-wrap items-center gap-3 px-4 py-3 md:px-6">
         <div className="mr-auto flex items-center gap-3">
-          <div className="logo-mark"><Zap className="h-5 w-5" strokeWidth={2.6} /></div>
+          <div className="logo-mark"><Icon className="h-5 w-5" strokeWidth={2.6} /></div>
           <div>
             <h1 className="font-display text-lg font-extrabold uppercase leading-none tracking-tight md:text-xl">
-              Bybit <span className="text-amber-400">AI</span> Trader
+              {brand.title}
             </h1>
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">Futuros perpetuos USDT · Claude Sonnet</p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">{brand.subtitle}</p>
           </div>
         </div>
 
         {status.mode === "REAL" ? (
           <span data-testid="live-mode-badge" className="inline-flex items-center gap-1.5 rounded-sm border border-rose-500/50 bg-rose-500/15 px-2.5 py-1 font-mono text-[11px] font-bold uppercase tracking-wider text-rose-300">
-            <span className="pulse-dot bg-rose-400" /> Modo REAL · Bybit {status.env}
+            <span className="pulse-dot bg-rose-400" /> {brand.liveLabel(status)}
           </span>
         ) : (
           <span data-testid="paper-mode-badge" className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-amber-400">
@@ -58,14 +70,10 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
             <TooltipTrigger asChild>
               <span data-testid="data-source-badge" className="inline-flex cursor-help items-center gap-1.5 rounded-sm border border-[#1E293B] bg-[#0D111A] px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-slate-300">
                 <Database className="h-3 w-3 text-sky-400" />
-                {mirror ? "Datos: Bitget (espejo)" : "Datos: Bybit"}
+                {brand.dataLabel(status)}
               </span>
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-xs">
-              {mirror
-                ? "Bybit bloquea el acceso desde la región del servidor (EE.UU.). El bot usa precios de futuros perpetuos USDT de Bitget, que replican a Bybit con diferencias mínimas. Desde una región permitida conecta Bybit automáticamente."
-                : "Conectado directamente a la API pública v5 de Bybit."}
-            </TooltipContent>
+            <TooltipContent className="max-w-xs text-xs">{brand.dataTooltip(status)}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
         <span data-testid="next-scan-timer" className="inline-flex items-center gap-1.5 font-mono text-[11px] text-slate-400">
@@ -86,9 +94,7 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
             <AlertDialogContent data-testid="reset-account-dialog" className="border-[#1E293B] bg-[#0D111A]">
               <AlertDialogHeader>
                 <AlertDialogTitle className="font-display">¿Reiniciar la cuenta paper?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Se borrarán posiciones, historial, señales y curva de equidad. El balance vuelve al capital inicial configurado (por defecto $500 USDT).
-                </AlertDialogDescription>
+                <AlertDialogDescription>{brand.resetHint}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel data-testid="reset-cancel-button">Cancelar</AlertDialogCancel>
@@ -112,6 +118,12 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
             className={`h-8 border-[#1E293B] font-mono text-[11px] uppercase tracking-wider hover:bg-[#111827] ${view === "settings" ? "bg-[#111827] text-amber-300" : "bg-transparent"}`}>
             <Settings2 className="mr-1.5 h-3.5 w-3.5" /> {view === "settings" ? "Volver al panel" : "Ajustes"}
           </Button>
+          {onSwitchBot && (
+            <Button data-testid="switch-bot-button" variant="outline" size="sm" onClick={onSwitchBot} title="Volver a la selección de bot"
+              className="h-8 border-sky-500/40 bg-transparent font-mono text-[11px] uppercase tracking-wider text-sky-300 hover:bg-sky-500/10">
+              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" /> Cambiar bot
+            </Button>
+          )}
           <Button data-testid="logout-button" variant="ghost" size="sm" onClick={onLogout} className="h-8 px-2 font-mono text-[11px] uppercase tracking-wider text-slate-400 hover:bg-[#111827] hover:text-rose-300" title="Cerrar sesión">
             <LogOut className="h-3.5 w-3.5" />
           </Button>

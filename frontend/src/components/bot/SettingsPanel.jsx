@@ -37,7 +37,7 @@ const Sel = ({ label, value, onChange, options, render, testId }) => (
   </div>
 );
 
-export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile }) {
+export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, extraToggles = [] }) {
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -45,6 +45,8 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); };
   const toggleSym = (s) => set("symbols", form.symbols.includes(s) ? form.symbols.filter((x) => x !== s) : [...form.symbols, s]);
   const active = activeStrategies(form);
+  const nums = NUMS.map((n) => (n.k === "leverage" ? { ...n, max: leverageMax } : n));
+  const toggles = [...TOGGLES, ...extraToggles];
   const toggleStrat = (k) => {
     const next = active.includes(k) ? active.filter((x) => x !== k) : [...active, k];
     if (!next.length) return;
@@ -55,7 +57,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
   const save = async () => {
     setSaving(true);
     const body = { ...form };
-    NUMS.forEach(({ k, min, max }) => { body[k] = Math.min(max, Math.max(min, Number(body[k]) || min)); });
+    nums.forEach(({ k, min, max }) => { body[k] = Math.min(max, Math.max(min, Number(body[k]) || min)); });
     delete body.bot_running;
     const ok = await onSave(body);
     setSaving(false);
@@ -70,8 +72,10 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
           <Save className="mr-1 h-3 w-3" /> {saving ? "Guardando" : "Guardar"}
         </Button>
       }>
-      <RiskProfileBar profiles={meta?.profiles} active={profileActive} selected={settings.risk_profile}
-        onApply={async (level) => { const ok = await onProfile(level); if (ok) setDirty(false); return ok; }} />
+      {meta?.profiles && (
+        <RiskProfileBar profiles={meta.profiles} active={profileActive} selected={settings.risk_profile}
+          onApply={async (level) => { const ok = await onProfile(level); if (ok) setDirty(false); return ok; }} />
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Sel label="Temporalidad" value={form.timeframe} onChange={(v) => set("timeframe", v)} options={meta?.timeframes || []} testId="settings-timeframe-select" />
         <Sel label="Criterios de entrada" value={form.signal_mode} onChange={(v) => set("signal_mode", v)} options={meta?.signal_modes || []}
@@ -103,7 +107,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {NUMS.map((n) => (
+        {nums.map((n) => (
           <div key={n.k}>
             <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">{n.label}</p>
             <Input data-testid={`settings-${n.k.replace(/_/g, "-")}-input`} type="number" step={n.step} min={n.min} max={n.max} value={form[n.k]}
@@ -112,7 +116,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
         ))}
       </div>
       <div className="space-y-2.5">
-        {TOGGLES.map((t) => (
+        {toggles.map((t) => (
           <label key={t.k} className="flex cursor-pointer items-center justify-between gap-3 rounded-sm border border-[#1E293B] px-3 py-2 transition-colors hover:border-[#334155]">
             <span>
               <span className="block text-[13px] text-slate-200">{t.label}</span>

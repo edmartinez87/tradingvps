@@ -32,8 +32,8 @@ export default function Login({ onLogin }) {
         <div className="mb-8 flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-500 text-[#07090E]"><Zap className="h-5 w-5" strokeWidth={2.5} /></span>
           <div>
-            <h1 className="font-display text-lg font-bold uppercase tracking-[0.12em] text-slate-50">Bybit <span className="text-amber-400">AI</span> Trader</h1>
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">Panel de control protegido</p>
+            <h1 className="font-display text-lg font-bold uppercase tracking-[0.12em] text-slate-50"><span className="text-amber-400">AI</span> Trading</h1>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">Bybit · HotForex · Panel protegido</p>
           </div>
         </div>
         <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-slate-500" htmlFor="login-password">Clave de acceso</label>

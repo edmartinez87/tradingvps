@@ -20,6 +20,15 @@ news = NewsAgent(db, engine)
 engine.news = news
 require_auth = make_require_auth(lambda: store.cfg.token_version)
 
+from fx.engine import FxEngine  # noqa: E402
+from fx.config import FxConfigStore  # noqa: E402
+from fx.news import FxNewsAgent  # noqa: E402
+
+fx_engine = FxEngine(db)
+fx_store = FxConfigStore(db)
+fx_news = FxNewsAgent(fx_engine.db, fx_engine)
+fx_engine.news = fx_news
+
 
 def protected_router() -> APIRouter:
     return APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
