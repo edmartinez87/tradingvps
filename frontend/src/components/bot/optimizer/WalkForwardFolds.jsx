@@ -20,7 +20,7 @@ export default function WalkForwardFolds({ folds }) {
             <tr key={f.fold} data-testid={`wf-fold-${f.fold}`} className="border-b border-[#1E293B]/60">
               <TD className="font-display text-[13px] font-semibold text-slate-100">#{f.fold}</TD>
               <TD className="text-slate-400">{fmtDateTime(f.split)} → {fmtDateTime(f.oos_end)}</TD>
-              <TD className="text-slate-300">{f.params ? `SL ${f.params.sl_atr}× · TP ${f.params.tp_atr}× · ATR ${f.params.atr_period}` : <span className="text-slate-500">sin óptimo (usa defecto)</span>}</TD>
+              <TD className="text-slate-300">{f.params ? `SL ${f.params.sl_atr}× · TP ${f.params.tp_atr}× · ATR ${f.params.atr_period}` : <span className="text-slate-500">sin óptimo (usa defecto)</span>}<span className="ml-1 text-[10px] text-slate-500">· {f.is_candles} velas</span></TD>
               <TD right className={cls(f.is?.expectancy_r)}>{sign(f.is?.expectancy_r, 3)}</TD>
               <TD right>{f.is?.trades ?? "—"}</TD>
               <TD right className={`font-semibold ${cls(f.oos.expectancy_r)}`}>{sign(f.oos.expectancy_r, 3)}</TD>

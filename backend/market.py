@@ -136,7 +136,7 @@ class MarketData:
             if rows is None:
                 try:
                     rows = await self._bitget("/api/v2/mix/market/history-candles", {"symbol": symbol, "granularity": bitget_tf, "limit": min(200, total - len(data)),
-                                                                                       "productType": "USDT-FUTURES", "endTime": end})
+                                                                                       "productType": "USDT-FUTURES", "endTime": oldest})
                 except Exception as e:
                     logger.warning(f"historial {symbol} {tf}: {e} → usando {len(data)} velas")
                     break

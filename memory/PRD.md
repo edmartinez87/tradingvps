@@ -71,12 +71,20 @@
 - migrations.py: "2026-10-20-activo" baja el perfil 3→2 una sola vez al arrancar (pedido por el usuario tras ver 0/6 en Agresivo); registrada en db.migrations.
 - Tested iteration_9: backend 16/16 (gate, parse_feed, relevant, /news, config, ciclo sombra, inject → sombra RECHAZADA, reset), frontend completo OK.
 
+## Implemented (2026-06, iteration 10 · pulido noticias/sombra + walk-forward)
+- shadow.open_shadow(risk_factor): las sombras se dimensionan con el mismo factor de noticias que la operación real (doc guarda risk_factor); engine pasa el factor en ambas llamadas.
+- news.py: alertas conservan la hora first-seen entre refrescos (ventana 24h real); `_active_critical()` (TTL 24h, `at` con fallback) usado por gate() y summary().critical; `_risk()` valida pairs[*].risk; news_history se recorta a 30 días en cada refresh.
+- Walk-forward (optimizer.walk_forward): market.fetch_history(symbol, tf, 2000) pagina hacia atrás (Bybit `end` inclusivo → oldest-1; Bitget history-candles `endTime` exclusivo → oldest, 200/página; caché 600s). Tramos: is_len=max(600,min(1000,n//2)), OOS 250 velas; por tramo se optimiza in-sample (grid 54 combos, robust SQN; `_prepare`/`_search` compartidos con optimize()) y se simula a ciegas OOS encadenando balance; backtest.simulate acepta start/end y cierra la posición abierta al final de la ventana (reason FIN) para que R y equity coincidan. Resultado: oos/baseline_oos (R-stats + retorno encadenado + DD de curva), is_expectancy_r, wfe = OOS/IS, verdict ROBUSTO (exp>0, PF≥1.1, wfe≥0.5) / DUDOSO / SOBREAJUSTADO / NO_RENTABLE / INSUFICIENTE (<10 ops OOS), params_unique/params_stable, oos_curve/baseline_curve (≤245 pts). Endpoint POST /api/optimize/walk-forward {symbol} (to_thread). "Optimizar todo con IA" añade walk_forward compacto por par al contexto de Claude (review._safe_walk_forward) y la regla del asesor exige ROBUSTO/DUDOSO para aplicar symbol_params.
+- UI Optimizador: botón "Validar walk-forward" → tarjeta WalkForward.jsx (veredicto, 6 KPIs, gráfico OOS optimizado vs línea base, tabla de tramos WalkForwardFolds.jsx), hint en OptimizerCompare (optimizer-wf-hint), columna "Walk-forward" en OptimizerSummary.
+- Tested iteration_10: backend 51/51 (19 nuevos en tests/test_iter10_walk_forward.py + regresión iter7/iter9), frontend OK. Fix del tester: off-by-one en paginación Bitget. Ajustes posteriores: ROBUSTO exige wfe real (no None), cierre FIN al final de ventana, texto "hasta N velas" + velas IS por tramo, margen del gráfico.
+- Resultado real (1h, perfil 0): BTC/XRP SOBREAJUSTADO, ETH ROBUSTO→DUDOSO según ventana, SOL/LINK/AVAX DUDOSO.
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
 ## Backlog
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
 - P1: Telegram: configurar token/chat en el VPS y validar alertas end-to-end
-- P2: Walk-forward validation of optimizer params (in-sample/out-of-sample), AI backtest sampling
-- P2: Funding-rate & news sentiment context for AI
-- P2: Backup nocturno de Mongo en el VPS
+- P2: Backup nocturno de Mongo en el VPS (script + cron en /app/deploy)
+- P2: Walk-forward automático periódico (cron) con aviso Telegram si un par aplicado pasa a SOBREAJUSTADO
+- P2: Funding-rate context for AI

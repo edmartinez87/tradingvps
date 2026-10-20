@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 10: tested the walk-forward optimizer (API + unit), fetch_history paging, regressions on optimize/backtest/plan, shadow risk_factor sizing, and the news changes (first-seen time, 24h critical TTL, _risk check, 30d history cap). Ran the iter9 + iter7 regression suites, including the 2 slow tests. Ran Playwright on the Optimizer tab (walk-forward card, symbol switching and the in-memory cache, wf hint, multi-pair summary column) and on the News and Performance tabs. Ran 'Optimizar todo con IA' once to confirm walk_forward is in result.optimizer. Found and fixed 1 real bug: Bitget history paging dropped 1 candle per page (5 gaps in 2000 candles). Final result: 51/51 pytest passed; frontend checks all passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "market.fetch_history (Bitget)", "issue": "FIXED by testing agent. history-candles with endTime=oldest-1 skipped the candle right before 'oldest' on every page (Bitget endTime is exclusive), leaving 5 one-hour gaps in 2000 candles. Changed to endTime=oldest (the existing filter ts<oldest already removes overlap). Re-checked: 2000 contiguous candles, no duplicates."},
+      {"endpoint": "optimizer._verdict", "issue": "Logic concern: when is_expectancy_r<=0 (in-sample not profitable) wfe is None, and the ROBUSTO rule accepts wfe None. If OOS then happens to be profitable, the pair gets ROBUSTO even though the optimization had no in-sample edge. Seen live: AVAXUSDT ROBUSTO with wfe=None, and Claude then applied AVAX symbol_params. Suggest DUDOSO (or a dedicated verdict) when is_exp<=0 and OOS>0."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Optimizer > WalkForward card", "issues": ["Description says 'se optimiza con 1000 velas pasadas' but fold 1 has is_candles=790 (is_start is clamped to the 210-candle warm-up). Show the real per-fold is_candles or say 'hasta 1000'.", "The last X-axis tick of wf-chart ('10-20') is slightly clipped at the right edge."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter10_walk_forward.py", "/app/backend/tests/manual_iter10_optimize_all_wf.py", "/app/test_reports/pytest/pytest_iter10.xml"],
+  "action_items": [
+    "Review the _verdict rule: ROBUSTO when wfe is None (IS expectancy<=0) is questionable",
+    "Optional: fix the WalkForward description (actual IS candle count per fold) and the clipped last chart tick"
+  ],
+  "critical_code_review_comments": [
+    "market.fetch_history: Bitget endTime is exclusive, so the off-by-one dropped candles (fixed). The Bybit 'end' param is inclusive, so oldest-1 is correct there.",
+    "walk_forward chains balance via simulate().final_equity, which includes unrealized PnL of a position still open at oos_end. That position is then dropped (not carried into the next fold), so its R is never counted in oos R stats. This is a small inconsistency between return_pct/curve and the R-based stats.",
+    "news._active_critical uses a['at'] directly. Older alert docs without 'at' would raise KeyError in gate()/summary(); use a.get('at') with a fallback.",
+    "In the iter7 regression suite, the module teardown forces profile level 0 and symbol_params {}. Fine here because the pod was already at profile 0 (despite the note saying 2), but it would silently reset a different persisted profile."
+  ],
+  "updated_files": ["/app/backend/market.py", "/app/backend/tests/test_iter10_walk_forward.py", "/app/backend/tests/manual_iter10_optimize_all_wf.py"],
+  "success_rate": {"backend": "100% (51/51 pytest after fix: 19 iter10 + 17 iter9 + 15 iter7)", "frontend": "100%"},
+  "seed_data_creation": "None in the production DB. Unit tests use a separate DB '<DB_NAME>_iter10_tests' (shadow_positions/news/news_history) and clean up after themselves. The global AI job applied AVAXUSDT symbol_params; this was reverted (symbol_params={}). Pod settings were already profile 0 (Conservador) before testing (confirmed from the logs) and are still 0.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_iter10_walk_forward.py -n 0 -v. Walk-forward BTCUSDT=SOBREAJUSTADO, ETH=ROBUSTO, SOL/LINK=DUDOSO, XRP=SOBREAJUSTADO, AVAX=ROBUSTO (wfe None); all have 4 folds with 2000 candles. The iter7 suite runs optimize-all (AI, ~40s) and resets profile to 0 on teardown. manual_iter10_optimize_all_wf.py runs optimize-all and restores the settings it changed.",
+  "rca of the issue": "Gaps in history: market.fetch_history passed endTime=oldest_ts-1 to Bitget /history-candles. Bitget returns candles whose open is < endTime minus one interval (effectively exclusive), so the candle at oldest-1h was skipped on every page. Repro: before the fix, fetch_history('ETHUSDT','1h',2000) had 2h jumps at indexes 199/399/599/799/999. Fix: endTime=oldest. Verified: 0 gaps."
+}

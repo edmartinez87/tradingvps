@@ -40,7 +40,7 @@ export default function WalkForward({ res }) {
         <div className="min-w-[240px] flex-1">
           <p className="font-display text-[15px] font-bold text-sky-200">Validación walk-forward · {res.symbol}</p>
           <p className="mt-1 text-[12px] leading-relaxed text-slate-400">
-            {folds} tramo{folds !== 1 ? "s" : ""}: en cada uno se optimiza con {res.is_len} velas pasadas (in-sample) y se opera a ciegas las {res.oos_len} siguientes (out-of-sample).
+            {folds} tramo{folds !== 1 ? "s" : ""}: en cada uno se optimiza con hasta {res.is_len} velas pasadas (in-sample) y se opera a ciegas las {res.oos_len} siguientes (out-of-sample).
             Fuera de muestra: {fmtDateTime(res.oos_start)} → {fmtDateTime(res.period_end)} · {res.candles} velas {res.timeframe}.
           </p>
         </div>
@@ -60,7 +60,7 @@ export default function WalkForward({ res }) {
       {curve.length > 1 && (
         <div className="h-44" data-testid="wf-chart">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={curve} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <LineChart data={curve} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
               <XAxis dataKey="time" tick={{ fill: "#64748B", fontSize: 10, fontFamily: "IBM Plex Mono" }} axisLine={false} tickLine={false} tickFormatter={(t) => t.slice(5, 10)} minTickGap={40} />
               <YAxis tick={{ fill: "#64748B", fontSize: 10, fontFamily: "IBM Plex Mono" }} width={60} axisLine={false} tickLine={false} tickFormatter={(v) => fmtUsd(v, 0)} domain={["auto", "auto"]} />
               <ReferenceLine y={curve[0].opt} stroke="#334155" strokeDasharray="4 4" />

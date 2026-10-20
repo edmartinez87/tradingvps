@@ -15,7 +15,7 @@ WF_CANDLES = 2000
 WF_MIN_OOS_TRADES = 10
 VERDICTS = {
     "ROBUSTO": "Los parámetros optimizados mantienen la ventaja fuera de muestra: la optimización es fiable en este par.",
-    "DUDOSO": "Fuera de muestra sigue ganando pero bastante menos que in-sample: aplica el óptimo con cautela y vuelve a validar.",
+    "DUDOSO": "Fuera de muestra gana, pero in-sample no tenía ventaja clara o la ventaja se degrada mucho: aplica el óptimo con cautela y vuelve a validar.",
     "SOBREAJUSTADO": "In-sample gana pero fuera de muestra pierde: el óptimo está sobreajustado al pasado. No apliques symbol_params en este par.",
     "NO_RENTABLE": "Ni in-sample ni fuera de muestra son rentables: el problema es el par/estrategia, no los parámetros. Considera desactivarlo.",
     "INSUFICIENTE": "Muy pocas operaciones fuera de muestra para concluir nada: espera más historial o usa un marco temporal menor.",
@@ -96,7 +96,7 @@ def _thin(curve: list, limit: int = 240) -> list:
 def _verdict(oos: dict, base: dict, is_exp: float, wfe) -> str:
     if oos["trades"] < WF_MIN_OOS_TRADES:
         return "INSUFICIENTE"
-    if oos["expectancy_r"] > 0 and oos["profit_factor"] >= 1.1 and (wfe is None or wfe >= 0.5):
+    if oos["expectancy_r"] > 0 and oos["profit_factor"] >= 1.1 and wfe is not None and wfe >= 0.5:
         return "ROBUSTO"
     if oos["expectancy_r"] > 0:
         return "DUDOSO"

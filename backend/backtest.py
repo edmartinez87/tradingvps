@@ -40,20 +40,25 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
     trades, curve, pos, rejected = [], [], None, 0
     n = len(df)
     end = end or n
+
+    def close(price, reason, i):
+        nonlocal balance, pos
+        if reason == "SL" and pos["be"]:
+            reason = "TRAILING"
+        fee = price * pos["qty"] * FEE_RATE
+        gross = pnl(pos["side"], pos["entry"], price, pos["qty"])
+        net = gross - pos["fee"] - fee
+        balance += gross - fee
+        trades.append({"side": pos["side"], "strategy": pos["strategy"], "entry": pos["entry"], "exit": float(price),
+                       "pnl": round(float(net), 2), "r": round(float(net / pos["risk_amt"]), 3), "reason": reason,
+                       "opened_at": pos["opened_at"], "closed_at": _iso(ts[i])})
+        pos = None
+
     for i in range(start, end):
         if pos:
             price, reason = check_exit(pos["side"], pos["sl"], pos["tp"], highs[i], lows[i])
             if price is not None:
-                if reason == "SL" and pos["be"]:
-                    reason = "TRAILING"
-                fee = price * pos["qty"] * FEE_RATE
-                gross = pnl(pos["side"], pos["entry"], price, pos["qty"])
-                net = gross - pos["fee"] - fee
-                balance += gross - fee
-                trades.append({"side": pos["side"], "strategy": pos["strategy"], "entry": pos["entry"], "exit": float(price),
-                               "pnl": round(float(net), 2), "r": round(float(net / pos["risk_amt"]), 3), "reason": reason,
-                               "opened_at": pos["opened_at"], "closed_at": _iso(ts[i])})
-                pos = None
+                close(price, reason, i)
             elif trailing:
                 pos["sl"], pos["be"] = update_trailing(pos["side"], pos["entry"], pos["sl"], pos["init_sl"], pos["atr"], closes[i])
         if not pos and i in signals:
@@ -69,6 +74,8 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
                            "be": False, "opened_at": _iso(ts[i])}
                 else:
                     rejected += 1
+        if pos and i == end - 1 and end < n:
+            close(closes[i], "FIN", i)
         equity = balance + (pnl(pos["side"], pos["entry"], closes[i], pos["qty"]) if pos else 0)
         peak = max(peak, equity)
         max_dd = max(max_dd, (peak - equity) / peak * 100 if peak else 0)

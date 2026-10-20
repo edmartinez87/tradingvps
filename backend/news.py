@@ -244,7 +244,8 @@ class NewsAgent:
         return None
 
     def _active_critical(self) -> list:
-        return [a for a in (self.latest or {}).get("alerts", []) if a["severity"] == "CRITICA" and _age_min(a["at"]) <= ALERT_TTL_MIN]
+        latest = self.latest or {}
+        return [a for a in latest.get("alerts", []) if a["severity"] == "CRITICA" and _age_min(a.get("at") or latest["updated_at"]) <= ALERT_TTL_MIN]
 
     def gate(self, symbol: str):
         """Returns (block_reason | None, size_factor)."""
