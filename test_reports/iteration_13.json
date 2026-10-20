@@ -1,0 +1,26 @@
+{
+  "summary": "Iteración 13 (Funding Rate Filter). Backend: nuevo tests/test_iter13_funding.py con 21 tests, todos pasan (unit gate/level/assess/prompt_line, AI _build_prompt + SYSTEM, config API defaults/422/update/restore, watchlist funding_level coherente con umbrales, shadow.KINDS + /api/performance.shadow.by_kind con FUNDING sintético, e2e en engine propio con tickers mockeados: (a) 0.0015 long → señal FUNDING, nota exacta 'Bloqueada por funding: funding extremo en contra (+0.1500%/8h · largos pagan)', sombra kind FUNDING qty 3.6, log RISK, sin posición; (b) 0.0007 long → posición qty 1.8 (=50% de la sombra) y log ORDER '... tamaño reducido al 50% por funding alto en contra'; (c) 0.0015 short → posición normal sin reducción). Regresión iter9 + iter12: 32 pasan (2 lentos deseleccionados). Frontend: login → Ajustes → sección Filtro de funding con switches ON y valores 0.1/0.05/0.5; guardar 0.2/0.08 → toast 'Filtro de funding guardado' y servidor refleja; reduce 0.5 → toast de error 422 con el mensaje de umbral y servidor sin cambios; restaurado 0.1/0.05. Watchlist: 6 chips watchlist-funding-{SYM} 'F +0.010%' en gris (text-slate-500) con title 'Funding normal · largos pagan'. Rendimiento y Evaluación IA renderizan sin errores de consola. Noticias y Telegram guardan OK. Limpieza verificada: posiciones solo BTC/ETH/ADA, 0 señales/sombras QA, config funding en valores por defecto.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Watchlist funding chip", "issue": "Con un funding positivo diminuto (AVAX ≈ +0.0000x) el chip muestra 'F +0.000%' y el title dice 'largos pagan'; es cosmético, pero se lee raro. Lo mismo pasa con un funding exactamente 0, que se muestra 'F 0.000%' sin signo (correcto).", "selector": "[data-testid=watchlist-funding-AVAXUSDT]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter13_funding.py", "/app/test_reports/pytest/iter13.xml"],
+  "action_items": [
+    "Opcional (LOW): en Watchlist, mostrar más decimales o 'neutro' cuando |funding| < 0.0005% para que '+0.000%' no aparezca junto a 'largos pagan'."
+  ],
+  "critical_code_review_comments": [
+    "funding.py da por hecho que el intervalo es de 8h (INTERVAL_H=8) en los umbrales, en la anualización y en el prompt. Algunos pares de Bybit/Bitget liquidan cada 4h o 1h, así que en esos pares el % anualizado y la comparación con el umbral salen por debajo de la realidad. Convendría leer fundingInterval del ticker si está disponible.",
+    "config.patch_from solo valida reduce ≤ block cuando el patch incluye alguno de los dos campos. Es correcto, pero si el valor guardado en BD ya es inconsistente no se detecta (riesgo bajo).",
+    "La sombra de una señal bloqueada por funding usa risk_factor=min(noticias, f_factor) (1.0 en EXTREMO), así que se simula a tamaño completo. Es coherente con la intención de 'qué habría pasado'."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter13_funding.py"],
+  "success_rate": {"backend": "100% (21/21 nuevos + 32/32 regresión)", "frontend": "100%"},
+  "seed_data_creation": "Ninguno persistente. El e2e creó y borró la señal/sombra/posición de SOLUSDT y la posición de XRPUSDT (reasons 'QA funding iter13'; se reembolsó la comisión de entrada al balance paper). El shadow_trade sintético QAUSDT FUNDING también se borró.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Ejecutar con: cd /app/backend && pytest tests/test_iter13_funding.py -n 0. El e2e (TestEngineE2E) instancia su propio TradingEngine, elige los 2 primeros símbolos libres (sin posición) de settings.symbols, mockea tickers[sym]['funding_rate'] y lo limpia todo. El funding real ahora es ~+0.01% (NORMAL). Las posiciones paper BTC/ETH/ADA son del bot y no se deben tocar."
+}

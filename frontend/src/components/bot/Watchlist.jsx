@@ -45,9 +45,9 @@ function Row({ w, active, onSelect }) {
           )}
           {w.rsi != null && <span className="num text-[10px] text-slate-500">RSI {w.rsi}</span>}
           {w.funding_rate != null && (
-            <span data-testid={`watchlist-funding-${w.symbol}`} title={`Funding ${w.funding_level === "NORMAL" ? "normal" : w.funding_level} · ${w.funding_rate > 0 ? "largos pagan" : w.funding_rate < 0 ? "cortos pagan" : "neutro"}`}
+            <span data-testid={`watchlist-funding-${w.symbol}`} title={`Funding ${w.funding_level === "NORMAL" ? "normal" : w.funding_level} · ${Math.abs(w.funding_rate) < 0.000005 ? "neutro" : w.funding_rate > 0 ? "largos pagan" : "cortos pagan"}`}
               className={`num rounded-sm px-1 text-[10px] ${w.funding_level === "EXTREMO" ? "bg-rose-500/15 text-rose-300" : w.funding_level === "ALTO" ? "bg-amber-500/15 text-amber-300" : "text-slate-500"}`}>
-              F {w.funding_rate > 0 ? "+" : ""}{(w.funding_rate * 100).toFixed(3)}%
+              {Math.abs(w.funding_rate) < 0.000005 ? "F ≈0%" : `F ${w.funding_rate > 0 ? "+" : ""}${(w.funding_rate * 100).toFixed(3)}%`}
             </span>
           )}
           {w.signal && (

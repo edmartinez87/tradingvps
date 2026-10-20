@@ -90,6 +90,11 @@
 - weekly.py: build_weekly (7 días: trades → total/acierto/PF/comisiones, mejores (pnl>0) / peores (pnl<0) pares, estrategias, señales por decisión IA, sombras → valor del filtro y de la IA, equidad hace 7 días desde db.equity, check-in del plan, noticias) → format_weekly (HTML español) → send_weekly: envía primero y solo si se envió guarda db.weekly {…, sent_at} + log PLAN "Resumen semanal enviado"; si no, log INFO "generado pero no enviado". Endpoints GET /api/weekly-summary (vista previa + last_sent_at = sent_at), POST /api/weekly-summary/send (424 sin Telegram), POST /api/cron/weekly-summary (ack inmediato; `_cron_run_id` común → 400 si el body no es objeto). Cron `weekly-summary` domingos 20:00 UTC (crons.yml + deploy/cron-weekly-summary.sh + install.sh + README). Aviso Telegram kind "daily" (etiqueta "Resumen diario y semanal"). UI Ajustes → Telegram: tarjeta "Resumen semanal" con Vista previa (texto sin HTML) y Enviar ahora.
 - Tested iteration_12: backend 18/18 nuevos (tests/test_iter12_autoremove_weekly.py) + regresión 35/35; frontend 100 %. Tras el informe: send_weekly atómico (no marca enviado si Telegram falla), relectura de settings antes de quitar, 400 en body no-dict, chmod +x del script; tests ajustados (34/34).
 
+## Implemented (2026-06, iteration 13 · filtro de funding)
+- funding.py: level(rate,cfg) NORMAL/ALTO/EXTREMO según |funding|% por 8h vs umbrales; assess() (rate_pct, anualizado, pays largos/cortos, against = long con funding>0 o short con funding<0); gate() → bloqueo si EXTREMO en contra, factor de tamaño si ALTO en contra (a favor nunca penaliza); prompt_line() explica el funding a Claude (nivel, quién paga, EN CONTRA/A FAVOR). Config: funding_enabled, funding_block_pct 0.10, funding_reduce_pct 0.05 (≤ block, 422 si no), funding_reduce, funding_size_factor 0.5. engine: self.cfg (apply_config), gate tras el de noticias → señal ai_decision FUNDING + nota + log RISK + sombra kind FUNDING; risk_factor = min(noticias, funding) y el log ORDER explica el motivo ("por funding alto en contra" / "riesgo de noticias" / ambos). SYSTEM de Claude con reglas de funding; prompt con la línea interpretada. shadow.KINDS + FUNDING; watchlist funding_level.
+- UI: Ajustes → "Filtro de funding" (FundingSection.jsx); chip de funding en el watchlist (gris/ámbar/rojo, ≈0% neutro); badge FUNDING cian en señales IA; etiquetas en Rendimiento/Sombra.
+- Tested iteration_13: backend 21/21 (tests/test_iter13_funding.py: unit, config, prompt, watchlist, e2e con engine propio y tickers mockeados: EXTREMO→FUNDING+sombra, ALTO→50 % tamaño, a favor→normal) + regresión 32/32; frontend 100 %. Supuesto: intervalo de funding 8h (algunos pares liquidan cada 4h/1h; no se lee fundingInterval).
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
@@ -97,5 +102,5 @@
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
 - P1: Telegram: configurar token/chat en el VPS y validar alertas end-to-end
 - P2: Backup nocturno de Mongo en el VPS (script + cron en /app/deploy)
-- P2: Funding-rate context for AI
+- P3: Leer fundingInterval por par (4h/1h) para normalizar umbrales y anualización del filtro de funding
 - P3: server.py ~700 líneas → separar routers (cron, weekly, walk-forward)
