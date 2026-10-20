@@ -7,6 +7,7 @@ from plan import backtest_stats
 from ai_advisor import advise
 from optimizer import optimize
 from profiles import ai_policy, PROFILES
+from shadow import recent_rejections
 import notify
 
 logger = logging.getLogger("review")
@@ -37,7 +38,14 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
     pol = ai_policy(settings.risk_profile)
     ctx = {"settings_actuales": settings.model_dump(exclude={"bot_running"}), "cuenta": acc,
            "perfil_riesgo": {"nivel": pol["level"], "nombre": pol["name"], "topes_ia": pol["caps"]},
-           "rendimiento_real": await performance(db), "chequeo_plan": await engine.checkin(settings, acc)}
+           "rendimiento_real": await performance(db), "chequeo_plan": await engine.checkin(settings, acc),
+           "motivos_rechazo_recientes_ia": await recent_rejections(db)}
+    ctx["rendimiento_real"]["shadow"]["_explicacion"] = ("Operaciones sombra: qué habría pasado si se hubieran ejecutado las señales rechazadas por la IA "
+                                                         "(RECHAZADA, BAJA_CONFIANZA), bloqueadas por riesgo (BLOQUEADA) o por noticias (NOTICIAS). "
+                                                         "filter_value > 0 = el filtro evitó pérdidas netas; < 0 = el filtro dejó escapar ganancias. "
+                                                         "by_confidence sirve para calibrar ai_min_confidence con evidencia.")
+    if engine.news and engine.news.latest:
+        ctx["noticias"] = {"mercado": engine.news.latest["market"], "alertas": engine.news.latest.get("alerts", [])[:5]}
     if with_backtest:
         bt = await plan_stats(engine, settings, acc["initial_balance"])
         ctx["backtest"] = {k: bt[k] for k in ("per_symbol", "by_strategy", "monte_carlo", "trades_per_month", "days")}

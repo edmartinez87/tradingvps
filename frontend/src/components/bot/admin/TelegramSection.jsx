@@ -14,6 +14,7 @@ const ALERTS = [
   ["daily", "Resumen diario (00:00 UTC)"],
   ["plan", "Avisos del plan de crecimiento"],
   ["review", "Resultado de la revisión IA automática"],
+  ["news", "Alertas de noticias graves y eventos macro"],
 ];
 
 export default function TelegramSection({ config, onSave }) {

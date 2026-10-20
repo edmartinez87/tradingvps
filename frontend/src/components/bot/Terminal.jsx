@@ -11,6 +11,7 @@ const LEVEL_CLS = {
   ORDER: "text-emerald-400",
   RISK: "text-orange-400",
   PLAN: "text-teal-300",
+  NEWS: "text-fuchsia-300",
   ERROR: "text-rose-400",
 };
 

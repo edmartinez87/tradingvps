@@ -40,10 +40,28 @@ SYSTEM = (
     "Eres un gestor de riesgo cuantitativo senior especializado en futuros perpetuos USDT de criptomonedas. "
     "Evalúas señales generadas por un sistema algorítmico y decides si se ejecutan. Prioriza preservar capital: "
     "rechaza señales con indicadores contradictorios, entradas tardías (RSI extremo a favor), contra la tendencia mayor, "
-    "con volatilidad anormal o funding rate extremo en contra. Aprueba solo setups con confluencia clara. "
+    "con volatilidad anormal o funding rate extremo en contra. Si se incluye contexto de noticias, úsalo como factor de riesgo: "
+    "una noticia grave sobre el par o un evento macro inminente justifican rechazar o bajar la confianza; un sentimiento favorable no basta por sí solo para aprobar. "
+    "Aprueba solo setups con confluencia clara. "
     "Responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional, con este formato: "
     '{"decision":"APROBAR" o "RECHAZAR","confidence":entero 0-100,"risk":"BAJO"|"MEDIO"|"ALTO","reasoning":"máximo 3 frases en español"}'
 )
+
+
+def _news_lines(n) -> str:
+    if not n:
+        return ""
+    m = n["mercado"]
+    out = [f"Noticias (hace {n['actualizado_hace_min']} min): sentimiento mercado {m['sentiment']:+d} · riesgo {m['risk']} · {m['summary']}"]
+    if n.get("par"):
+        out.append(f"Noticias del par: sentimiento {n['par']['sentiment']:+d} · riesgo {n['par']['risk']} · {n['par']['note']}")
+    if n.get("alertas"):
+        out.append("Alertas: " + " | ".join(n["alertas"]))
+    if n.get("eventos_proximos"):
+        out.append("Eventos macro próximos: " + " | ".join(n["eventos_proximos"]))
+    if n.get("titulares_del_par"):
+        out.append("Titulares del par: " + " | ".join(n["titulares_del_par"]))
+    return "\n".join(out) + "\n"
 
 
 def _build_prompt(symbol, timeframe, sig, ctx) -> str:
@@ -56,6 +74,7 @@ def _build_prompt(symbol, timeframe, sig, ctx) -> str:
         f"Cambio 24h: {ctx.get('change_24h', 0):.2f}% | Funding rate: {ctx.get('funding_rate', 0):.5f}\n"
         f"Últimos cierres (% cambio por vela, más reciente al final): {ctx.get('recent_changes')}\n"
         f"Cuenta: {ctx.get('open_positions')} posiciones abiertas, PnL diario {ctx.get('daily_pnl_pct', 0):.2f}%\n"
+        + _news_lines(ctx.get("news")) +
         "¿Ejecutar esta operación?"
     )
 

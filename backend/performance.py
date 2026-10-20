@@ -1,3 +1,6 @@
+from shadow import shadow_stats
+
+
 def _row(r: dict) -> dict:
     n, gl = r["n"], abs(r["gl"])
     return {
@@ -26,4 +29,5 @@ async def performance(db) -> dict:
         "by_side": await _group(db, "side"), "by_reason": await _group(db, "reason"),
         "signals": {"total": sum(decisions.values()), "executed": await db.signals.count_documents({"executed": True}),
                     "by_decision": decisions},
+        "shadow": await shadow_stats(db),
     }

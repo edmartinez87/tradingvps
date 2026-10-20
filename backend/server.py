@@ -37,6 +37,8 @@ import notify  # noqa: E402
 from review import plan_stats, build_context, apply_ai_changes, run_auto_review, start_global_optimization, job_state  # noqa: E402
 from profiles import PROFILES, detect_profile, profile_patch, ai_policy  # noqa: E402
 from strategies import MODE_INFO  # noqa: E402
+from news import NewsAgent  # noqa: E402
+import migrations  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
 engine = TradingEngine(db)
 store = ConfigStore(db)
+news = NewsAgent(db, engine)
+engine.news = news
 require_auth = make_require_auth(lambda: store.cfg.token_version)
 
 app = FastAPI(title="Bybit AI Trading Bot")
@@ -338,7 +342,7 @@ async def dashboard():
         "status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(),
         "positions": positions, "trades": trades, "signals": signals, "logs": logs,
         "watchlist": watchlist, "equity": await _equity_curve(), "checkin": await engine.checkin(settings),
-        "profile_active": detect_profile(settings), "optimize_job": job_state()["status"],
+        "profile_active": detect_profile(settings), "optimize_job": job_state()["status"], "news": news.summary(),
     }
 
 
@@ -479,6 +483,21 @@ async def get_performance():
     return await performance(db)
 
 
+@api.get("/news")
+async def get_news():
+    return {"latest": news.latest, "summary": news.summary()}
+
+
+@api.post("/news/refresh")
+async def refresh_news():
+    try:
+        await news.refresh()
+    except Exception as e:
+        logger.exception("news refresh")
+        raise HTTPException(424, f"No se pudo actualizar las noticias: {str(e)[:160]}")
+    return {"latest": news.latest, "summary": news.summary()}
+
+
 @api.post("/plan")
 async def growth_plan(req: PlanRequest):
     settings = await engine.get_settings()
@@ -573,11 +592,15 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     store.listeners.append(engine.apply_config)
+    store.listeners.append(news.configure)
     await store.load()
     await engine.init()
+    await news.init()
+    await migrations.run(engine, db)
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    await news.aclose()
     await engine.shutdown()
     client.close()
