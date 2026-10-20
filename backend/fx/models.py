@@ -25,7 +25,7 @@ class FxSettings(BaseModel):
     disabled_strategies: List[str] = ["supertrend_momentum"]
     close_before_weekend: bool = True
     min_lot_max_risk: float = 4.0
-    risk_profile: int = 0
+    risk_profile: int = 2
     bot_running: bool = False
 
     @field_validator("signal_mode")
@@ -104,3 +104,15 @@ class HfmTestRequest(BaseModel):
     mt_server: Optional[str] = None
     mt_platform: Optional[str] = None
     metaapi_region: Optional[str] = None
+
+
+class FxBacktestRequest(BaseModel):
+    symbol: str
+    strategy: str = "all"
+    timeframe: str = "1h"
+    risk_per_trade: float = Field(default=1.0, ge=0.1, le=5)
+    leverage: int = Field(default=100, ge=1, le=500)
+
+
+class FxProfileRequest(BaseModel):
+    level: int = Field(ge=0, le=4)

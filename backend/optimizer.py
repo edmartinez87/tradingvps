@@ -1,8 +1,11 @@
 import math
+from types import SimpleNamespace
 import numpy as np
 from indicators import build_df
 from backtest import scan_signals, simulate, _iso
 
+# Market "kit": how to build the indicator frame and simulate trades. Crypto by default; fx/optimizer.py plugs in lots/spread/pips.
+CORE = SimpleNamespace(build_df=build_df, scan_signals=scan_signals, simulate=simulate)
 SL_GRID = [1.0, 1.5, 2.0, 2.5, 3.0]
 TP_GRID = [2.0, 3.0, 4.0, 5.0, 6.0]
 ATR_GRID = [10, 14, 20]
@@ -35,20 +38,20 @@ def _metrics(res: dict) -> dict:
     return m
 
 
-def _prepare(klines: list, strategy: str, mode: str, disabled):
-    dfs = {ap: build_df(klines, ap) for ap in ATR_GRID}
-    sigs = {ap: scan_signals(dfs[ap], strategy, None, mode, disabled) for ap in ATR_GRID}
+def _prepare(klines: list, strategy: str, mode: str, disabled, kit=CORE):
+    dfs = {ap: kit.build_df(klines, ap) for ap in ATR_GRID}
+    sigs = {ap: kit.scan_signals(dfs[ap], strategy, None, mode, disabled) for ap in ATR_GRID}
     return dfs, sigs
 
 
-def _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol, start=210, end=None):
+def _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol, start=210, end=None, kit=CORE):
     rows = []
     for ap in ATR_GRID:
         for sl in SL_GRID:
             for tp in TP_GRID:
                 if tp < sl * MIN_RR:
                     continue
-                res = simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, initial, symbol, sl, tp, start, end)
+                res = kit.simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, initial, symbol, sl, tp, start, end)
                 rows.append({"atr_period": ap, "sl_atr": sl, "tp_atr": tp, **_metrics(res)})
     idx = {(r["atr_period"], r["sl_atr"], r["tp_atr"]): r for r in rows}
     for r in rows:
@@ -65,10 +68,10 @@ def _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol, start=210,
 
 
 def optimize(klines: list, strategy: str, risk_pct: float, leverage: int, trailing: bool, initial: float, symbol: str,
-             mode: str = "strict", disabled=()) -> dict:
-    dfs, sigs = _prepare(klines, strategy, mode, disabled)
-    rows, best = _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol)
-    base_res = simulate(dfs[14], sigs[14], risk_pct, leverage, trailing, initial, symbol)
+             mode: str = "strict", disabled=(), kit=CORE) -> dict:
+    dfs, sigs = _prepare(klines, strategy, mode, disabled, kit)
+    rows, best = _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol, kit=kit)
+    base_res = kit.simulate(dfs[14], sigs[14], risk_pct, leverage, trailing, initial, symbol)
     return {
         "symbol": symbol, "strategy": strategy, "candles": len(klines),
         "period_start": base_res["period_start"], "period_end": base_res["period_end"],
@@ -110,18 +113,18 @@ def _verdict(oos: dict, base: dict, is_exp: float, wfe) -> str:
     return "SOBREAJUSTADO" if is_exp > 0 else "NO_RENTABLE"
 
 
-def _applied_check(dfs, sigs, klines, strategy, mode, disabled, params, splits, risk_pct, leverage, trailing, initial, symbol, base_stats):
+def _applied_check(dfs, sigs, klines, strategy, mode, disabled, params, splits, risk_pct, leverage, trailing, initial, symbol, base_stats, kit=CORE):
     """OOS performance of the SL/TP actually applied to the bot, over the same OOS windows."""
     ap = int(params.get("atr_period") or 14)
     sl, tp = params.get("sl_atr"), params.get("tp_atr")
     if ap not in dfs:
-        dfs[ap] = build_df(klines, ap)
-        sigs[ap] = scan_signals(dfs[ap], strategy, None, mode, disabled)
+        dfs[ap] = kit.build_df(klines, ap)
+        sigs[ap] = kit.scan_signals(dfs[ap], strategy, None, mode, disabled)
     n = len(klines)
-    is_res = simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, initial, symbol, sl, tp, 210, splits[0])
+    is_res = kit.simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, initial, symbol, sl, tp, 210, splits[0])
     bal, R, curve = initial, [], []
     for split in splits:
-        r = simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, bal, symbol, sl, tp, split, min(n, split + WF_OOS))
+        r = kit.simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, bal, symbol, sl, tp, split, min(n, split + WF_OOS))
         bal, R, curve = r["final_equity"], R + r["r_multiples"], curve + r["equity_curve"]
     stats = {**_r_stats(R), "return_pct": round((bal - initial) / initial * 100, 2), "max_drawdown": _max_dd(curve)}
     is_exp = is_res["expectancy_r"]
@@ -133,21 +136,21 @@ def _applied_check(dfs, sigs, klines, strategy, mode, disabled, params, splits, 
 
 
 def walk_forward(klines: list, strategy: str, risk_pct: float, leverage: int, trailing: bool, initial: float, symbol: str,
-                 mode: str = "strict", disabled=(), params: dict = None) -> dict:
+                 mode: str = "strict", disabled=(), params: dict = None, kit=CORE) -> dict:
     n = len(klines)
     is_len = max(WF_IS_MIN, min(1000, n // 2))
     splits = list(range(is_len, n - WF_OOS + 1, WF_OOS))
-    dfs, sigs = _prepare(klines, strategy, mode, disabled)
+    dfs, sigs = _prepare(klines, strategy, mode, disabled, kit)
     ts = dfs[14]["ts"].values
     iso = lambda i: _iso(ts[i])  # noqa: E731
     folds, curve, base_curve, R, base_R, is_R = [], [], [], [], [], []
     bal, base_bal = initial, initial
     for k, split in enumerate(splits):
         is_start, oos_end = max(210, split - is_len), min(n, split + WF_OOS)
-        _, best = _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol, is_start, split)
+        _, best = _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol, is_start, split, kit)
         ap, sl, tp = (best["atr_period"], best["sl_atr"], best["tp_atr"]) if best else (14, None, None)
-        oos = simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, bal, symbol, sl, tp, split, oos_end)
-        base = simulate(dfs[14], sigs[14], risk_pct, leverage, trailing, base_bal, symbol, None, None, split, oos_end)
+        oos = kit.simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, bal, symbol, sl, tp, split, oos_end)
+        base = kit.simulate(dfs[14], sigs[14], risk_pct, leverage, trailing, base_bal, symbol, None, None, split, oos_end)
         bal, base_bal = oos["final_equity"], base["final_equity"]
         curve += oos["equity_curve"]
         base_curve += base["equity_curve"]
@@ -164,7 +167,7 @@ def walk_forward(klines: list, strategy: str, risk_pct: float, leverage: int, tr
     wfe = round(oos_stats["expectancy_r"] / is_exp, 2) if is_exp > 0 else None
     verdict = _verdict(oos_stats, base_stats, is_exp, wfe) if splits else "INSUFICIENTE"
     combos = {(f["params"]["sl_atr"], f["params"]["tp_atr"], f["params"]["atr_period"]) for f in folds if f["params"]}
-    applied = _applied_check(dfs, sigs, klines, strategy, mode, disabled, params, splits, risk_pct, leverage, trailing, initial, symbol, base_stats) if params and splits else None
+    applied = _applied_check(dfs, sigs, klines, strategy, mode, disabled, params, splits, risk_pct, leverage, trailing, initial, symbol, base_stats, kit) if params and splits else None
     return {
         "symbol": symbol, "strategy": strategy, "candles": n, "is_len": is_len, "oos_len": WF_OOS, "folds": folds,
         "period_start": iso(210) if n > 210 else None, "period_end": iso(n - 1), "oos_start": iso(splits[0]) if splits else None,

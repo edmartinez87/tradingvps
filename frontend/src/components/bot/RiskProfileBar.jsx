@@ -85,7 +85,7 @@ export default function RiskProfileBar({ profiles = [], active, selected = 0, on
         <Chip label="Pares" value={s.symbols.length} testId="risk-profile-chip-symbols" />
         <Chip label="Velas" value={s.timeframe} testId="risk-profile-chip-tf" />
         <Chip label="Criterios" value={MODE_LABELS[s.signal_mode]} testId="risk-profile-chip-mode" />
-        <Chip label="Filtro 4h" value={s.htf_filter ? "Sí" : "No"} testId="risk-profile-chip-htf" />
+        <Chip label="Filtro TF sup." value={s.htf_filter ? "Sí" : "No"} testId="risk-profile-chip-htf" />
         <Chip label="IA" value={s.ai_enabled ? `≥${s.ai_min_confidence}%` : "Apagada"} testId="risk-profile-chip-ai" />
         <Chip label="Riesgo/op" value={`${s.risk_per_trade}%`} testId="risk-profile-chip-risk" />
         <Chip label="Máx. pos." value={s.max_positions} testId="risk-profile-chip-pos" />

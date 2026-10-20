@@ -26,7 +26,23 @@ const Metric = ({ label, value, tone, testId }) => (
   </div>
 );
 
-export default function Backtest({ meta, settings }) {
+const DEFAULT_INTRO = (settings) => `Evalúa la estrategia sobre las últimas 1.000 velas reales (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes mínimos de Bybit y el mismo plan de riesgo: ${settings.risk_per_trade}% por operación, ${settings.leverage}x, comisiones 0.055% y trailing stop.`;
+
+const SessionStats = ({ stats }) => (
+  <div data-testid="backtest-sessions" className="rounded-sm border border-[#1E293B]">
+    <p className="border-b border-[#1E293B] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">Por sesión de apertura</p>
+    {Object.entries(stats).map(([name, s]) => (
+      <div key={name} data-testid={`backtest-session-${name}`} className="flex items-center justify-between gap-3 border-b border-[#1E293B]/60 px-3 py-1.5 font-mono text-[11px] last:border-0">
+        <span className="text-slate-200">{name}</span>
+        <span className="text-slate-500">{s.trades} ops · {s.trades ? Math.round((s.wins / s.trades) * 100) : 0}%</span>
+        <span className={pnlClass(s.pips)}>{s.pips > 0 ? "+" : ""}{s.pips} pips</span>
+        <span className={pnlClass(s.pnl)}>{fmtSignedUsd(s.pnl)}</span>
+      </div>
+    ))}
+  </div>
+);
+
+export default function Backtest({ meta, settings, intro = DEFAULT_INTRO }) {
   const [form, setForm] = useState({ symbol: settings.symbols[0], strategy: settings.strategy, timeframe: settings.timeframe });
   const [res, setRes] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -46,9 +62,7 @@ export default function Backtest({ meta, settings }) {
 
   return (
     <div data-testid="backtest-panel" className="space-y-4 p-4">
-      <p className="text-[12px] leading-relaxed text-slate-400">
-        Evalúa la estrategia sobre las últimas 1.000 velas reales (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes mínimos de Bybit y el mismo plan de riesgo: {settings.risk_per_trade}% por operación, {settings.leverage}x, comisiones 0.055% y trailing stop.
-      </p>
+      <p className="text-[12px] leading-relaxed text-slate-400">{intro(settings)}</p>
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Par" value={form.symbol} onChange={set("symbol")} options={meta?.symbols || []} testId="backtest-symbol-select" />
         <Field label="Estrategia" value={form.strategy} onChange={set("strategy")} options={meta?.strategies || []} testId="backtest-strategy-select" render={(o) => STRATEGY_LABELS[o]} />
@@ -72,7 +86,17 @@ export default function Backtest({ meta, settings }) {
             <Metric label="Equidad final" value={fmtUsd(res.final_equity)} testId="backtest-final" />
             <Metric label="Ganancia media" value={fmtSignedUsd(res.avg_win)} tone={res.avg_win} testId="backtest-avg-win" />
             <Metric label="Pérdida media" value={fmtSignedUsd(res.avg_loss)} tone={res.avg_loss} testId="backtest-avg-loss" />
+            {res.total_pips != null && <Metric label="Pips netos" value={`${res.total_pips > 0 ? "+" : ""}${res.total_pips}`} tone={res.total_pips} testId="backtest-pips" />}
+            {res.total_pips != null && <Metric label="Pips / operación" value={`${res.avg_pips > 0 ? "+" : ""}${res.avg_pips}`} tone={res.avg_pips} testId="backtest-avg-pips" />}
+            {res.weekend_closed != null && <Metric label="Cierres fin de semana" value={res.weekend_closed} testId="backtest-weekend" />}
+            {res.spread_pips != null && <Metric label="Spread aplicado" value={`${res.spread_pips} pips`} testId="backtest-spread" />}
           </div>
+          {res.rejected_lot > 0 && (
+            <p data-testid="backtest-rejected" className="font-mono text-[11px] text-amber-300">
+              {res.rejected_lot} señal{res.rejected_lot !== 1 ? "es" : ""} sin operar por tamaño menor al lote mínimo · sube el capital, el tope de riesgo con lote mínimo o usa una temporalidad menor
+            </p>
+          )}
+          {res.session_stats && Object.keys(res.session_stats).length > 0 && <SessionStats stats={res.session_stats} />}
           <div className="h-40" data-testid="backtest-equity-chart">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={res.equity_curve} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -97,6 +121,7 @@ export default function Backtest({ meta, settings }) {
                 <SideBadge side={t.side} />
                 <span className="hidden text-slate-400 sm:inline">{STRATEGY_LABELS[t.strategy]}</span>
                 <span className="text-slate-300">{fmtPrice(t.entry)} → {fmtPrice(t.exit)}</span>
+                {t.pips != null && <span className={`hidden sm:inline ${pnlClass(t.pips)}`}>{t.pips > 0 ? "+" : ""}{t.pips} pips</span>}
                 <span className="text-slate-500">{REASON_LABELS[t.reason]}</span>
                 <span className={pnlClass(t.pnl)}>{fmtSignedUsd(t.pnl)}</span>
               </div>

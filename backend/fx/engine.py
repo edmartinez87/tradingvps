@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 from models import Position, Trade, Signal, LogEntry, now_iso
-from indicators import build_df, trend_label, htf_trend, snapshot
+from indicators import trend_label, htf_trend, snapshot
 from strategies import evaluate, STRATEGY_INFO
 import notify
 from fx.models import FxSettings
@@ -14,6 +14,7 @@ from fx.market import FxMarket, HTF, market_open, market_status, closing_soon
 from fx.symbols import SPECS, fmt_price, pips
 from fx import risk
 from fx.ai import evaluate_signal
+from fx.backtest import build_fx_df
 
 logger = logging.getLogger("fx.engine")
 INITIAL_BALANCE = 500.0
@@ -316,10 +317,7 @@ class FxEngine:
 
     @staticmethod
     def _df(klines: list, atr_period: int = 14):
-        df = build_df(klines, atr_period)
-        if df["volume"].fillna(0).sum() == 0:
-            df["vol_ratio"] = 1.5
-        return df
+        return build_fx_df(klines, atr_period)
 
     async def scan_once(self, settings: FxSettings):
         if not market_open():

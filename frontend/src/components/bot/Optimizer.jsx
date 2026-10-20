@@ -11,7 +11,7 @@ import OptimizerSummary from "./optimizer/OptimizerSummary";
 import WalkForward from "./optimizer/WalkForward";
 import WalkForwardAuto from "./optimizer/WalkForwardAuto";
 
-export default function Optimizer({ settings, onSave, refresh }) {
+export default function Optimizer({ settings, onSave, refresh, aiAll = true, weekly = true, intro }) {
   const [symbol, setSymbol] = useState(settings.symbols[0]);
   const [results, setResults] = useState({});
   const [wf, setWf] = useState({});
@@ -83,6 +83,7 @@ export default function Optimizer({ settings, onSave, refresh }) {
     }
   };
   useEffect(() => {
+    if (!weekly) return undefined;
     http.get("/walk-forward/check").then(({ data }) => { setCheck(data.latest); setCheckJob(data.job); setAutoRemove(data.auto_remove); if (data.job.status === "running") checkTimer.current = setTimeout(pollCheck, 2500); }).catch(() => {});
     return () => clearTimeout(checkTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,6 +110,7 @@ export default function Optimizer({ settings, onSave, refresh }) {
     }
   };
   useEffect(() => {
+    if (!aiAll) return undefined;
     http.get("/ai/optimize-all").then(({ data }) => { if (data.status === "running") { setJob(data); timer.current = setTimeout(poll, 2500); } else if (data.status === "done") setJob(data); }).catch(() => {});
     return () => clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,6 +144,7 @@ export default function Optimizer({ settings, onSave, refresh }) {
   const appliedCount = settings.symbols.filter((s) => settings.symbol_params[s]).length;
   return (
     <div data-testid="optimizer-panel" className="space-y-4 p-4">
+      {aiAll && (
       <div data-testid="optimize-all-card" className="rounded-md border border-purple-500/30 bg-purple-500/[0.06] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-[240px] flex-1">
@@ -165,9 +168,10 @@ export default function Optimizer({ settings, onSave, refresh }) {
         )}
         {job?.status === "error" && <p data-testid="optimize-all-error" className="mt-3 font-mono text-[11px] text-rose-300">Error: {job.error}</p>}
       </div>
+      )}
 
       <p className="text-[12px] leading-relaxed text-slate-400">
-        Optimización manual por par: prueba 54 combinaciones de stop (1.0–3.0×ATR), objetivo (2.0–6.0×ATR, R:R ≥ 1.5) y periodo ATR (10/14/20) sobre las últimas 1.000 velas {settings.timeframe}.
+        {intro || <>Optimización manual por par: </>}prueba 54 combinaciones de stop (1.0–3.0×ATR), objetivo (2.0–6.0×ATR, R:R ≥ 1.5) y periodo ATR (10/14/20) sobre las últimas 1.000 velas {settings.timeframe}.
         Elige la combinación más <span className="text-slate-200">robusta</span>: SQN de Van Tharp promediado con sus vecinas, para evitar el sobreajuste.
       </p>
       <div className="flex flex-wrap items-end gap-3">
@@ -198,8 +202,10 @@ export default function Optimizer({ settings, onSave, refresh }) {
         En la tabla multi-par, la columna <span className="text-slate-300">Decisión</span> cruza el óptimo robusto con ese veredicto: verde aplicar, ámbar con cautela, rojo no aplicar.
       </p>
 
+      {weekly && (
       <WalkForwardAuto check={check} running={checkJob?.status === "running"} step={checkJob?.step} onRun={runCheck} appliedCount={appliedCount}
         autoRemove={autoRemove} onAutoRemove={setAutoRemove} />
+      )}
 
       {wf[symbol] && <WalkForward res={wf[symbol]} />}
 

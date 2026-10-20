@@ -1,11 +1,12 @@
 """/api/fx/* — HotForex AI Trading bot (forex & metals, paper trading, MetaApi/HFM account link)."""
 import time
+import asyncio
 import logging
 from datetime import datetime
 from fastapi import HTTPException, Request
 from bson import ObjectId
 
-from models import Position, Trade, Signal, LogEntry, ResetRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
+from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
 from strategies import MODE_INFO
 from indicators import build_df
 from performance import performance
@@ -14,12 +15,15 @@ from ai_advisor import current as ai_current
 import notify
 from deps import store, fx_engine as engine, fx_store, fx_news as news, protected_router
 from routers.shared_routes import add_shared_routes
-from fx.models import FxSettingsUpdate, HfmTestRequest, FX_TIMEFRAMES
+from fx.models import FxSettingsUpdate, HfmTestRequest, FxBacktestRequest, FxProfileRequest, FX_TIMEFRAMES
 from fx.config import FxConfigUpdate
 from fx.symbols import SPECS, AVAILABLE, CURRENCIES, CURRENCY_NAMES, pips
 from fx.market import TF_SECONDS, market_status
 from fx.engine import FX_STRATEGY_INFO
 from fx.metaapi import MetaApi, MetaApiError
+from fx.profiles import PROFILES, detect_profile, profile_patch
+from fx.backtest import run_backtest
+from fx.optimizer import optimize, walk_forward, WF_CANDLES
 
 logger = logging.getLogger(__name__)
 router = protected_router()
@@ -45,7 +49,61 @@ async def _equity_curve(limit: int = 1440) -> list:
 async def meta():
     return {"symbols": AVAILABLE, "symbol_info": {s: {k: v for k, v in SPECS[s].items() if k in ("name", "group", "digits", "pip")} for s in AVAILABLE},
             "timeframes": FX_TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": FX_STRATEGY_INFO, "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO,
-            "profiles": None, "currencies": CURRENCIES, "currency_names": CURRENCY_NAMES}
+            "profiles": PROFILES, "currencies": CURRENCIES, "currency_names": CURRENCY_NAMES}
+
+
+@router.post("/profile")
+async def set_profile(req: FxProfileRequest):
+    settings = await engine.get_settings()
+    p = PROFILES[req.level]
+    before = PROFILES[settings.risk_profile]["name"] if detect_profile(settings) is not None else "Personalizado"
+    s = await engine.update_settings(profile_patch(req.level))
+    st = p["settings"]
+    await engine.log("INFO", f"Perfil de riesgo: {before} → {p['name']} · {len(st['symbols'])} pares · {st['timeframe']} · riesgo {st['risk_per_trade']}% · 1:{st['leverage']}")
+    await engine.tg(
+        f"🎚 <b>Perfil de riesgo cambiado</b>: {before} → <b>{p['name']}</b>\n"
+        f"• {len(st['symbols'])} pares · velas {st['timeframe']} · criterios {MODE_INFO[st['signal_mode']]['name'].lower()}\n"
+        f"• Riesgo {st['risk_per_trade']}%/op · máx {st['max_positions']} posiciones · 1:{st['leverage']} · límite diario {st['daily_loss_limit']}%\n"
+        f"• Filtro TF superior: {'sí' if st['htf_filter'] else 'no'} · IA: {'sí (≥' + str(st['ai_min_confidence']) + '%)' if st['ai_enabled'] else 'NO'}"
+        + (f"\n⚠️ {p['warning']}" if p["warning"] else ""), "review")
+    return {"settings": s.model_dump(), "profile_active": detect_profile(s)}
+
+
+async def _initial_balance() -> float:
+    acc = await engine.db.account.find_one({"_id": "main"}, {"initial_balance": 1})
+    return acc["initial_balance"]
+
+
+@router.post("/backtest")
+async def backtest(req: FxBacktestRequest):
+    if req.symbol not in AVAILABLE or req.timeframe not in FX_TIMEFRAMES or req.strategy not in STRATEGY_KEYS:
+        raise HTTPException(400, "Parámetros inválidos")
+    s = await engine.get_settings()
+    klines = await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60)
+    result = await asyncio.to_thread(run_backtest, klines, req.strategy, req.risk_per_trade, req.leverage, s.trailing_enabled, await _initial_balance(),
+                                     req.symbol, s.signal_mode, s.disabled_strategies, dict(engine.market.tickers), s.min_lot_max_risk, s.close_before_weekend)
+    result.pop("r_multiples", None)
+    return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, "spread_pips": round(pips(req.symbol, SPECS[req.symbol]["spread"]), 1), **result}
+
+
+@router.post("/optimize")
+async def optimize_symbol(req: OptimizeRequest):
+    if req.symbol not in AVAILABLE:
+        raise HTTPException(400, "Símbolo inválido")
+    s = await engine.get_settings()
+    klines = await engine.market.fetch_klines(req.symbol, s.timeframe, 1000, cache_sec=300)
+    res = await asyncio.to_thread(optimize, klines, s, await _initial_balance(), req.symbol, dict(engine.market.tickers))
+    return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
+
+
+@router.post("/optimize/walk-forward")
+async def optimize_walk_forward(req: OptimizeRequest):
+    if req.symbol not in AVAILABLE:
+        raise HTTPException(400, "Símbolo inválido")
+    s = await engine.get_settings()
+    klines = await engine.market.fetch_klines(req.symbol, s.timeframe, WF_CANDLES, cache_sec=600)
+    res = await asyncio.to_thread(walk_forward, klines, s, await _initial_balance(), req.symbol, dict(engine.market.tickers))
+    return {**res, "timeframe": s.timeframe, "applied_params": s.symbol_params.get(req.symbol)}
 
 
 @router.get("/dashboard")
@@ -63,7 +121,7 @@ async def dashboard():
                           "high": t.get("high"), "low": t.get("low"), "spread_pips": round(pips(sym, SPECS[sym]["spread"]), 1), "digits": SPECS[sym]["digits"],
                           **engine.analysis.get(sym, {})})
     return {"status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(), "positions": positions, "trades": trades,
-            "signals": signals, "logs": logs, "watchlist": watchlist, "equity": await _equity_curve(), "profile_active": None, "news": news.summary(),
+            "signals": signals, "logs": logs, "watchlist": watchlist, "equity": await _equity_curve(), "profile_active": detect_profile(settings), "news": news.summary(),
             "hfm": {"configured": fx_store.public()["hfm_configured"], "state": fx_store.cfg.hfm_state, "verified_at": fx_store.cfg.hfm_verified_at}}
 
 

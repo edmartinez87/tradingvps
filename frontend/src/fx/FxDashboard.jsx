@@ -13,6 +13,8 @@ import BotPanel from "@/components/bot/BotPanel";
 import PositionsTable from "@/components/bot/PositionsTable";
 import TradeHistory from "@/components/bot/TradeHistory";
 import Performance from "@/components/bot/Performance";
+import Backtest from "@/components/bot/Backtest";
+import Optimizer from "@/components/bot/Optimizer";
 import AiSignals from "@/components/bot/AiSignals";
 import SettingsPanel from "@/components/bot/SettingsPanel";
 import Terminal from "@/components/bot/Terminal";
@@ -35,6 +37,8 @@ export const FX_BRAND = {
 const EXTRA_TOGGLES = [{ k: "close_before_weekend", label: "Cerrar antes del fin de semana", hint: "Cierra todo 30 min antes del cierre del viernes (evita gaps del domingo)" }];
 const EXTRA_NUMS = [{ k: "min_lot_max_risk", label: "Riesgo máx. lote mínimo (%)", step: 0.5, min: 0, max: 10,
   hint: "Si el tamaño ideal queda por debajo de 0.01 lotes (típico en oro/plata con poco capital), se abre el lote mínimo siempre que su riesgo no supere este % de la equidad. 0 = nunca." }];
+const BT_INTRO = (s) => `Evalúa la estrategia sobre las últimas 1.000 velas de Yahoo Finance (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes de 0.01 y el mismo plan de riesgo: ${s.risk_per_trade}% por operación, 1:${s.leverage}, spread HFM como único coste, trailing stop${s.close_before_weekend ? " y cierre antes del fin de semana" : ""}. Cada operación se atribuye a la sesión (Sídney, Tokio, Londres, Nueva York) en la que se abrió.`;
+const OPT_INTRO = "Optimización por par con lotes, spread y cierre de fin de semana como en el bot: ";
 
 export default function FxDashboard({ onLogout }) {
   setApiBase("fx");
@@ -103,7 +107,7 @@ export default function FxDashboard({ onLogout }) {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <Watchlist items={data.watchlist} selected={symbol} onSelect={setSymbol} />
           <PriceChart symbol={symbol} defaultTf={data.settings.timeframe} kind={meta?.symbol_info?.[symbol]?.name || "Forex"} tfs={FX_TFS} />
-          <BotPanel settings={data.settings} meta={meta} account={data.account} equity={data.equity} profileActive={null} />
+          <BotPanel settings={data.settings} meta={meta} account={data.account} equity={data.equity} profileActive={data.profile_active} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
           <Panel testId="fx-operations-panel" className="lg:col-span-8" delay={220}>
@@ -113,7 +117,9 @@ export default function FxDashboard({ onLogout }) {
                 <TabsList className="h-auto gap-1 bg-transparent p-0">
                   <TabsTrigger data-testid="fx-tab-positions" value="positions" className={TAB_CLS}>Posiciones ({data.positions.length})</TabsTrigger>
                   <TabsTrigger data-testid="fx-tab-history" value="history" className={TAB_CLS}>Historial</TabsTrigger>
+                  <TabsTrigger data-testid="fx-tab-backtest" value="backtest" className={TAB_CLS}>Backtest</TabsTrigger>
                   <TabsTrigger data-testid="fx-tab-performance" value="performance" className={TAB_CLS}>Rendimiento</TabsTrigger>
+                  <TabsTrigger data-testid="fx-tab-optimizer" value="optimizer" className={TAB_CLS}>Optimizador</TabsTrigger>
                   <TabsTrigger data-testid="fx-tab-news" value="news" className={`${TAB_CLS} relative`}>
                     Noticias y agenda
                     {newsAlert && <span data-testid="fx-tab-news-alert" className="pulse-dot absolute -right-1 -top-1 bg-rose-400" />}
@@ -125,8 +131,13 @@ export default function FxDashboard({ onLogout }) {
                   onCloseAll={() => act(() => http.post("/positions/close-all"), "Cierre de emergencia ejecutado")} />
               </TabsContent>
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
+              <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} intro={BT_INTRO} /></TabsContent>
               <TabsContent value="performance" className="mt-0">
                 <Performance tradeCount={data.account.total_trades} settings={data.settings} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
+              </TabsContent>
+              <TabsContent value="optimizer" className="mt-0">
+                <Optimizer settings={data.settings} refresh={refresh} aiAll={false} weekly={false} intro={OPT_INTRO}
+                  onSave={(body) => act(() => http.put("/settings", body), "Parámetros del bot actualizados")} />
               </TabsContent>
               <TabsContent value="news" className="mt-0"><FxNewsPanel summary={data.news} symbols={data.settings.symbols} currencyNames={meta?.currency_names} /></TabsContent>
             </Tabs>
@@ -134,8 +145,9 @@ export default function FxDashboard({ onLogout }) {
           <AiSignals signals={data.signals} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <SettingsPanel settings={data.settings} meta={meta} profileActive={null} leverageMax={500} maxPositions={12} extraToggles={EXTRA_TOGGLES} extraNums={EXTRA_NUMS}
-            onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")} onProfile={async () => false} />
+          <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active} leverageMax={500} maxPositions={12} extraToggles={EXTRA_TOGGLES} extraNums={EXTRA_NUMS}
+            onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")}
+            onProfile={(level) => act(() => http.post("/profile", { level }), `Perfil de riesgo aplicado: ${meta?.profiles?.[level]?.name || level}`)} />
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />
         </div>
         <p className="pb-4 pt-2 font-mono text-[10px] uppercase tracking-wider text-slate-600">
