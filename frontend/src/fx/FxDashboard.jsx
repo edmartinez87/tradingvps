@@ -29,7 +29,7 @@ export const FX_BRAND = {
   title: <>HotForex <span className="text-sky-400">AI</span> Trading</>,
   subtitle: "Forex · Metales · Claude Sonnet",
   icon: Landmark,
-  liveLabel: (status) => `Modo REAL · HFM ${status.env}`,
+  liveLabel: (status) => `Modo REAL · HFM ${/demo/i.test(status.env || "") ? "Demo" : "Live"}`,
   dataLabel: (status) => (status.mode === "REAL" ? "Señales: Yahoo · Ejecución: HFM" : "Datos: Yahoo Finance"),
   dataTooltip: (status) => (status.mode === "REAL"
     ? "Las señales se calculan con velas de Yahoo Finance; las órdenes, el PnL y la equidad vienen de tu cuenta HFM vía MetaApi."

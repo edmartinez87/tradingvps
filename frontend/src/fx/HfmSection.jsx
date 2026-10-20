@@ -82,7 +82,12 @@ export default function HfmSection({ config, onSave, onRefresh }) {
     setSymbols(data);
     toast[data.missing.length ? "warning" : "success"](data.missing.length ? `${data.missing.length} par(es) sin cotización en HFM` : "Todos los pares cotizan en HFM");
   });
-  const clear = async () => { setBusy("clear"); await onSave({ clear_hfm: true }, "Datos de HFM eliminados"); setBusy(""); setResult(null); setSymbols(null); };
+  const clear = async () => {
+    setBusy("clear");
+    const ok = await onSave({ clear_hfm: true }, "Datos de HFM eliminados");
+    setBusy(""); setResult(null); setSymbols(null);
+    if (ok) setForm({ metaapi_token: "", mt_login: "", mt_password: "", mt_server: "", mt_platform: "mt5", metaapi_region: "new-york", mt_symbol_suffix: "", metaapi_base_url: "" });
+  };
   const acc = result?.account;
   const linked = !!config.metaapi_account_id;
   const canRedeploy = linked && (REDEPLOY_STATES.includes(config.hfm_state) || REDEPLOY_STATES.includes(config.hfm_connection) || acc?.state === "DEPLOY_FAILED");

@@ -126,7 +126,8 @@ class FxConfigStore:
                 continue
             patch[k] = v.strip() if isinstance(v, str) else v
         if body.clear_hfm:
-            patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", hfm_state="", hfm_connection="", hfm_broker="",
+            patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", metaapi_base_url="", mt_symbol_suffix="",
+                         hfm_state="", hfm_connection="", hfm_broker="",
                          hfm_trade_allowed=None, hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None)
         if "mt_platform" in patch and patch["mt_platform"] not in PLATFORMS:
             raise ValueError("Plataforma inválida (mt4 o mt5)")

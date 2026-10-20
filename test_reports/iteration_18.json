@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend-only E2E test of the HotForex HFM section and Live mode against the local MetaApi mock (:8012), at 1920x1080. Passed: login, bot selector, FX Ajustes layout (HFM card + Modo de operación with 7 checks, PAPER badge, go-live disabled), 422 error toast for an invalid base url, save (PUT 200, success toast, link enabled, token shown masked as '••••••••oken', password 'guardada'), link (DEPLOYED/CONNECTED, then the badge reads VERIFICADA after test), test (equity 1000, trading permitido, CONNECTED), symbols (12 pairs, all ok), all required checks green and 'paper' amber RECOMENDADO, go-live dialog (confirm locked until REAL, cancel makes no call, input cleared on reopen, reset switch on), POST /api/fx/mode {mode:'live',confirm:'REAL',reset_stats:true}, badge 'REAL · HFMarketsGlobal-Demo', header 'Modo REAL · HFM HFMarketsGlobal-Demo', dashboard KPIs balance/equity $1,000, Quitar disabled with title 'Vuelve a modo paper antes de quitar la cuenta', back to paper (badge PAPER, balance $500), clear (keys/linked/verified red, go-live/test/link/symbols disabled), FX dashboard tabs after 'Volver al panel', switch-bot to /bybit, crypto Ajustes shows 'Bybit · cuenta real' + its own PAPER Modo de operación and no HFM section. No page errors. One step not run: the Redesplegar button never appears in the happy path because it only renders for failure/disconnected states, and the mock has no helper to force one.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/fx/config {clear_hfm:true}", "issue": "clear_hfm resets token/login/password/server/account but NOT metaapi_base_url (stayed 'http://127.0.0.1:8012'). A user who tested against a mock, removed the account and then entered a real token would silently hit the custom endpoint. fx/config.py line ~129: add metaapi_base_url='' (and maybe mt_symbol_suffix) to the clear patch. The tester reset it via API for a clean final state."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "HfmSection redeploy", "issue": "The review request expected hfm-redeploy-button to be visible once linked, but canRedeploy only renders it for DEPLOY_FAILED/REDEPLOY_FAILED/UNDEPLOYED/DISCONNECTED* states. On the happy path (DEPLOYED/CONNECTED) it never appears, so the redeploy UI flow could not be tested. Either the request's expectation is wrong or the code needs changing; the main agent should decide. A mock helper to force DISCONNECTED would make it testable.", "selector": "[data-testid='hfm-redeploy-button']", "priority": "LOW"},
+      {"component": "HfmSection after Quitar", "issue": "After clearing, the local form still shows login 12345678, server HFMarketsGlobal-Demo and the base url, even though the backend wiped them. This looks like saved data. Clicking Guardar again would re-save login/server without a token. Reset the form state in clear().", "selector": "[data-testid='hfm-login-input']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "FX header in live mode (1920px)", "issues": ["The long 'MODO REAL · HFM HFMARKETSGLOBAL-DEMO' badge plus 'SEÑALES: YAHOO · EJECUCIÓN: HFM' push the action buttons (Escanear/Reiniciar/Iniciar/Ajustes/Cambiar bot) to a second row. Consider a shorter badge or truncating the server name."]},
+      {"screen": "HFM form", "issue_note": "minor", "issues": ["The login placeholder '12345678' uses the 'num' class and looks almost as bright as a real value; it can be mistaken for a pre-filled login."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Clear metaapi_base_url (and optionally mt_symbol_suffix) when clear_hfm=true in fx/config.py",
+    "Reset the HfmSection form state (login/server/base url) after Quitar",
+    "Decide whether hfm-redeploy-button should always show once linked or only in failure states; optionally add a mock helper (e.g. POST /mock/connection?status=DISCONNECTED) to test it",
+    "Optional: stop the FX header wrapping to two rows in live mode at 1920px"
+  ],
+  "critical_code_review_comments": [
+    "fx/config.py clear_hfm patch leaves metaapi_base_url behind (custom endpoint survives account removal)",
+    "HfmSection.clear() does not reset the form; local state drifts from the backend",
+    "LiveModeSection polls GET /mode every 5s and the effect re-subscribes whenever config changes; acceptable, but the interval restarts on each refresh"
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "~96% (all requested flows passed; redeploy UI not reachable on the happy path)"},
+  "seed_data_creation": "None persisted. Final state: FX paper mode, HFM cleared (hfm_configured=false, base url reset to ''), FX bot stopped, MetaApi mock reset. The crypto bot was not touched; it was already running and in PAPER.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Mock at 127.0.0.1:8012 (token mocktoken). Flow: Ajustes → fill hfm-* → advanced → base url → save → link → test → symbols → livemode-go-live-button → type REAL → confirm → livemode-paper-button → hfm-clear-button. The hfm-state-badge shows DEPLOYED after link and VERIFICADA after test. Lowercase 'real' also unlocks confirm (trim().toUpperCase()), which is by design."
+}

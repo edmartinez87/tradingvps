@@ -57,7 +57,7 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
         </div>
 
         {status.mode === "REAL" ? (
-          <span data-testid="live-mode-badge" className="inline-flex items-center gap-1.5 rounded-sm border border-rose-500/50 bg-rose-500/15 px-2.5 py-1 font-mono text-[11px] font-bold uppercase tracking-wider text-rose-300">
+          <span data-testid="live-mode-badge" title={status.env} className="inline-flex items-center gap-1.5 rounded-sm border border-rose-500/50 bg-rose-500/15 px-2.5 py-1 font-mono text-[11px] font-bold uppercase tracking-wider text-rose-300">
             <span className="pulse-dot bg-rose-400" /> {brand.liveLabel(status)}
           </span>
         ) : (
