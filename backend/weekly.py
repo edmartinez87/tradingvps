@@ -101,7 +101,10 @@ def format_weekly(w: dict) -> str:
 async def send_weekly(engine, db, force: bool = False) -> dict:
     w = await build_weekly(engine, db)
     text = format_weekly(w)
-    await db.weekly.update_one({"_id": "latest"}, {"$set": {**w, "text": text}}, upsert=True)
-    await engine.log("PLAN", f"Resumen semanal: {w['week_pnl']:+.2f} USDT ({w['week_return_pct']:+.2f}%) · {w['week']['trades']} ops · filtro {w['shadow']['filter_value']:+.2f} USDT")
-    sent = await notify.send(text) if force else await notify.notify(text, "daily")
-    return {**w, "text": text, "sent": bool(sent)}
+    sent = bool(await notify.send(text) if force else await notify.notify(text, "daily"))
+    if sent:
+        await db.weekly.update_one({"_id": "latest"}, {"$set": {**w, "text": text, "sent_at": now_iso()}}, upsert=True)
+        await engine.log("PLAN", f"Resumen semanal enviado: {w['week_pnl']:+.2f} USDT ({w['week_return_pct']:+.2f}%) · {w['week']['trades']} ops · filtro {w['shadow']['filter_value']:+.2f} USDT")
+    else:
+        await engine.log("INFO", "Resumen semanal generado pero no enviado (Telegram desactivado o aviso 'daily' apagado)")
+    return {**w, "text": text, "sent": sent}

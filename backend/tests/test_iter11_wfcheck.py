@@ -45,6 +45,10 @@ def wait_done(client, timeout=90):
 
 # ---------- API: cron + manual check (sequential, shared state) ----------
 class TestWalkForwardCheckAPI:
+    def test_00_disable_auto_remove(self, client):
+        # iter12: keep iter11 behaviour (no auto-removal) for this class
+        assert client.put(f"{BASE_URL}/api/config", json={"wf_auto_remove": False}, timeout=20).status_code == 200
+
     def test_01_cron_no_auth(self):
         r = requests.post(f"{BASE_URL}/api/cron/walk-forward", json={"run_id": "x"}, timeout=20)
         assert r.status_code == 401
@@ -110,6 +114,9 @@ class TestWalkForwardCheckAPI:
             assert m["verdict"] == r["process_verdict"], f"{s}: manual {m['verdict']} vs check {r['process_verdict']}"
             assert m["applied"]["verdict"] == r["verdict"], f"{s}: applied {m['applied']['verdict']} vs check {r['verdict']}"
 
+    def test_06_restore_auto_remove(self, client):
+        assert client.put(f"{BASE_URL}/api/config", json={"wf_auto_remove": True}, timeout=20).json()["wf_auto_remove"] is True
+
 
 # ---------- Unit: wfcheck.run_check telegram message ----------
 class _Coll:
@@ -159,7 +166,8 @@ class TestWfcheckUnit:
         it = iter(verdicts)
         monkeypatch.setattr(wfcheck, "walk_forward", lambda *a, **k: _wf(next(it)))
         engine, db, logs = _fake(params)
-        doc = asyncio.run(wfcheck.run_check(engine, db, "auto"))
+        store = SimpleNamespace(cfg=SimpleNamespace(wf_auto_remove=False))
+        doc = asyncio.run(wfcheck.run_check(engine, db, store, "auto"))
         return sent, logs, doc
 
     def test_bad_message(self, monkeypatch):
@@ -221,7 +229,7 @@ class TestArtifacts:
     def test_crons_yml(self):
         d = yaml.safe_load(open("/app/.emergent/crons.yml"))
         names = {c["name"]: c for c in d["crons"]}
-        assert set(names) == {"ai-review-daily", "walk-forward-weekly"}
+        assert {"ai-review-daily", "walk-forward-weekly"} <= set(names)
         assert all(len(n) <= 21 for n in names)
         w = names["walk-forward-weekly"]
         assert w["cron"] == "0 7 * * 1" and w["endpoint"] == "{{BASE_URL}}/api/cron/walk-forward" and w["method"] == "POST"

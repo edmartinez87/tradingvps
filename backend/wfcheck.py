@@ -51,12 +51,14 @@ async def run_check(engine, db, store, source: str = "auto") -> dict:
     bad = [s for s, r in results.items() if r["verdict"] in BAD]
     removed = {}
     if bad and store.cfg.wf_auto_remove:
-        removed = {s: settings.symbol_params[s] for s in bad}
-        await engine.update_settings({"symbol_params": {k: v for k, v in settings.symbol_params.items() if k not in bad}})
-        for s in bad:
-            results[s]["removed"] = True
-        await engine.log("PLAN", "Walk-forward: SL/TP optimizados quitados por sobreajuste → valores por defecto en "
-                                 + ", ".join(f"{s.replace('USDT', '')} ({_p(removed[s])})" for s in bad))
+        current = (await engine.get_settings()).symbol_params
+        removed = {s: settings.symbol_params[s] for s in bad if current.get(s) == settings.symbol_params[s]}
+        if removed:
+            await engine.update_settings({"symbol_params": {k: v for k, v in current.items() if k not in removed}})
+            for s in removed:
+                results[s]["removed"] = True
+            await engine.log("PLAN", "Walk-forward: SL/TP optimizados quitados por sobreajuste → valores por defecto en "
+                                     + ", ".join(f"{s.replace('USDT', '')} ({_p(removed[s])})" for s in removed))
     doc = {"ran_at": now_iso(), "source": source, "timeframe": settings.timeframe, "checked": symbols, "results": results,
            "removed": removed, "auto_remove": bool(store.cfg.wf_auto_remove)}
     await db.wf_checks.update_one({"_id": "latest"}, {"$set": doc}, upsert=True)
@@ -65,19 +67,21 @@ async def run_check(engine, db, store, source: str = "auto") -> dict:
         return doc
     await engine.log("PLAN", f"Walk-forward {'semanal' if source == 'auto' else 'manual'} · {len(symbols)} pares con SL/TP aplicados · "
                              + ", ".join(f"{s.replace('USDT', '')} {results[s]['verdict']}" for s in symbols))
-    plural = len(bad) > 1
     if removed:
-        head = f"✂️ <b>Walk-forward: SL/TP quitados en {len(bad)} par{'es' if plural else ''}</b>"
+        n = len(removed)
+        head = f"✂️ <b>Walk-forward: SL/TP quitados en {n} par{'es' if n > 1 else ''}</b>"
     elif bad:
-        head = f"⚠️ <b>Walk-forward: {len(bad)} par{'es' if plural else ''} sobreajustado{'s' if plural else ''}</b>"
+        n = len(bad)
+        head = f"⚠️ <b>Walk-forward: {n} par{'es' if n > 1 else ''} sobreajustado{'s' if n > 1 else ''}</b>"
     else:
         head = "🧪 <b>Walk-forward semanal · todo en orden</b>"
     msg = head + f"\nRevalidación de {len(symbols)} pares con SL/TP optimizados · {settings.timeframe}\n\n" + "\n".join(_line(s, results[s]) for s in symbols)
+    pending = [s for s in bad if s not in removed]
     if removed:
         msg += "\n\n<b>Cambios aplicados</b>\n" + "\n".join(f"– {s.replace('USDT', '')}: {_p(p)} → valores por defecto de la estrategia" for s, p in removed.items())
         msg += "\nPuedes volver a optimizar el par cuando acumule más historial."
-    elif bad:
-        msg += ("\n\n<b>Recomendación</b>: los parámetros optimizados de " + ", ".join(s.replace("USDT", "") for s in bad)
+    if pending:
+        msg += ("\n\n<b>Recomendación</b>: los parámetros optimizados de " + ", ".join(s.replace("USDT", "") for s in pending)
                 + " ya no se sostienen fuera de muestra. Quítalos en Optimizador → «Volver a valores por defecto» o activa el borrado automático.")
     await notify.notify(msg, "review")
     return doc

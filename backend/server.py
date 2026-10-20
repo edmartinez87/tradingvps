@@ -328,6 +328,8 @@ async def _cron_run_id(request: Request) -> str:
         body = await request.json()
     except Exception:
         raise HTTPException(400, "Cuerpo inválido")
+    if body is not None and not isinstance(body, dict):
+        raise HTTPException(400, "Cuerpo inválido")
     return request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
 
 
@@ -605,8 +607,8 @@ async def walk_forward_check_run():
 @api.get("/weekly-summary")
 async def weekly_summary_preview():
     w = await weekly.build_weekly(engine, db)
-    last = await db.weekly.find_one({"_id": "latest"}, {"_id": 0, "to": 1})
-    return {**w, "text": weekly.format_weekly(w), "last_sent_at": (last or {}).get("to")}
+    last = await db.weekly.find_one({"_id": "latest"}, {"_id": 0, "sent_at": 1})
+    return {**w, "text": weekly.format_weekly(w), "last_sent_at": (last or {}).get("sent_at")}
 
 
 @api.post("/weekly-summary/send")

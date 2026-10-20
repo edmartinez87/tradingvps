@@ -1,0 +1,40 @@
+{
+  "summary": "Iteración 12: probé el borrado automático walk-forward (API real + tests unitarios), el resumen semanal (vista previa, envío, cron), los artefactos de crons/deploy y la UI (Optimizador, Ajustes→Telegram, regresión de pestañas). Con datos reales, BTCUSDT {3,6,10} salió SOBREAJUSTADO y se quitó (removed=true, latest.removed={BTCUSDT}, symbol_params solo deja ETH, log PLAN 'quitados por sobreajuste'). ETHUSDT salió DUDOSO y se mantuvo. Con auto_remove off no se quitó nada (removed {}, auto_remove false, BTC se queda). Los números del resumen semanal coinciden con trades y sombras sintéticos (week, best/worst, by_strategy, shadow filter_value +2 y ai_value +5, línea del texto 'Valor del filtro'). send devuelve 424. El cron responde 401/400/200, es idempotente (duplicate) y escribe el log PLAN y db.weekly. iter12: 18/18. Regresión iter11+iter10: 35/35 tras actualizar iter11 a la firma nueva. UI: todo lo pedido OK y sin errores de consola.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/weekly-summary/send (weekly.send_weekly)", "issue": "Guarda db.weekly latest y escribe el log PLAN 'Resumen semanal: …' ANTES de enviar. Si Telegram falla (424), queda un log de envío que no ocurrió y last_sent_at (=latest.to) se actualiza. Lo comprobé: la UI muestra 'Último envío: 20/10 03:21' aunque Telegram nunca estuvo configurado. Lo mismo pasa con el cron cuando notify.notify no hace nada (no-op): last_sent_at se fija aunque sent=false."},
+      {"endpoint": "wfcheck.run_check", "issue": "update_settings usa una copia de symbol_params leída al EMPEZAR la revalidación (~4s/par). Si el usuario aplica un SL/TP nuevo mientras corre, se pisa. Mejor releer los ajustes justo antes de quitar los pares."},
+      {"endpoint": "POST /api/cron/* (_cron_run_id)", "issue": "Un body JSON válido que no sea objeto (p. ej. [] o \"x\") hace que (body or {}).get falle con AttributeError → 500. Debería dar 400."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Ajustes → Telegram → Resumen semanal", "issue": "'Último envío' aparece aunque no se haya enviado nada (consecuencia del bug de backend en send_weekly)", "affected_selectors": ["[data-testid='weekly-summary-card']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter12_autoremove_weekly.py", "/app/backend/tests/test_iter11_wfcheck.py", "/app/test_reports/pytest/iter12.xml", "/app/test_reports/pytest/iter12_regression.xml"],
+  "action_items": [
+    "weekly.send_weekly: enviar primero y guardar db.weekly/last_sent_at y el log 'Resumen semanal' solo si sent=True. Si no, guardar como preview o con un campo sent/sent_at, y basar last_sent_at en ese sent_at",
+    "wfcheck.run_check: releer engine.get_settings() justo antes de update_settings y quitar solo los pares malos cuyos parámetros no hayan cambiado",
+    "_cron_run_id: devolver 400 si el body no es un dict",
+    "deploy/cron-weekly-summary.sh se creó sin bit de ejecución (corregido con chmod +x en este pod). Comprobar que queda así en git"
+  ],
+  "critical_code_review_comments": [
+    "send_weekly no es atómico: el estado persistido y el log dicen 'enviado' aunque Telegram falle",
+    "Condición de carrera en el borrado automático: se escriben symbol_params leídos antes de la revalidación",
+    "server.py tiene unas 700 líneas: conviene separar los routers de cron, weekly y walk-forward"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter12_autoremove_weekly.py (nuevo)",
+    "/app/backend/tests/test_iter11_wfcheck.py (run_check(engine, db, store, source) con store stub wf_auto_remove=False, wf_auto_remove off/on en TestWalkForwardCheckAPI, crons.yml subset)",
+    "/app/deploy/cron-weekly-summary.sh (chmod +x)"
+  ],
+  "success_rate": {"backend": "100% (53/53 tras corregir el permiso del script; 3 problemas menores de lógica sin cubrir por tests)", "frontend": "100%"},
+  "seed_data_creation": "Trades sintéticos (qa=TEST_iter12, 4 recientes + 1 de hace 10 días) y 2 shadow_trades. Se insertan y borran en el fixture. Estado final: symbol_params={}, wf_auto_remove=true, db.wf_checks y db.weekly vacíos, 0 documentos sintéticos.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Ejecutar con pytest -n 0. En el test de weekly, los trades sintéticos necesitan todos los campos del modelo Trade (entry_price, exit_price, qty, leverage, margin, pnl_pct, opened_at); si faltan, /api/dashboard da 500. Con datos 1h de Bitget, BTC {3,6,10} sale SOBREAJUSTADO y ETH {2.5,5,14} sale DUDOSO. TestWalkForwardCheckAPI de iter11 apaga wf_auto_remove y lo restaura al final."
+}

@@ -85,6 +85,11 @@
 - UI Optimizador: tarjeta "Revalidación semanal automática" (WalkForwardAuto.jsx: Revalidar ahora con polling, tabla par/params/veredicto aplicados/WFE/OOS/base/re-optimización, "antes X" si cambió, vacío si no hay pares aplicados); botón "Validar todos (N)" (spinner por lote); tarjeta WalkForward muestra bloque ámbar "SL/TP aplicados al bot" + tercera línea en el gráfico; OptimizerSummary: columna "Walk-forward" (badge + "aplicados: X", o botón Validar por fila) y columna "Decisión" (semáforo `decide()`: aplicado → Mantener/Vigilar/Quitar parámetros según veredicto de los SL/TP aplicados; no aplicado → Aplicar (ROBUSTO y mejor que base) / Con cautela / No aplicar (SOBREAJUSTADO, NO_RENTABLE, exp≤0 o DUDOSO sin mejora) / Falta walk-forward / Sin datos OOS).
 - Tested iteration_11: backend 14/14 (tests/test_iter11_wfcheck.py) + regresión iter10 19/19, frontend 100 %. Tras el informe: la revalidación ahora evalúa los SL/TP aplicados (no solo el proceso), spinner del lote corregido, tests actualizados (33/33).
 
+## Implemented (2026-06, iteration 12 · auto-quitar SL/TP sobreajustados + resumen semanal Telegram)
+- config.wf_auto_remove (def. true; PUT /api/config). wfcheck.run_check(engine, db, store, source): si está activo y un par sale SOBREAJUSTADO/NO_RENTABLE, relee settings y quita sus symbol_params solo si no cambiaron durante la revalidación (sin carrera) → results[sym].removed, doc.removed/auto_remove, log PLAN "quitados por sobreajuste", Telegram "✂️ SL/TP quitados en N par(es)" + "Cambios aplicados"; si está apagado → "⚠️" + Recomendación. GET/POST /api/walk-forward/check devuelven auto_remove. UI: switch "Quitar sobreajustados" en la tarjeta semanal, aviso + chip "quitados", toast con los pares quitados y refresh de settings.
+- weekly.py: build_weekly (7 días: trades → total/acierto/PF/comisiones, mejores (pnl>0) / peores (pnl<0) pares, estrategias, señales por decisión IA, sombras → valor del filtro y de la IA, equidad hace 7 días desde db.equity, check-in del plan, noticias) → format_weekly (HTML español) → send_weekly: envía primero y solo si se envió guarda db.weekly {…, sent_at} + log PLAN "Resumen semanal enviado"; si no, log INFO "generado pero no enviado". Endpoints GET /api/weekly-summary (vista previa + last_sent_at = sent_at), POST /api/weekly-summary/send (424 sin Telegram), POST /api/cron/weekly-summary (ack inmediato; `_cron_run_id` común → 400 si el body no es objeto). Cron `weekly-summary` domingos 20:00 UTC (crons.yml + deploy/cron-weekly-summary.sh + install.sh + README). Aviso Telegram kind "daily" (etiqueta "Resumen diario y semanal"). UI Ajustes → Telegram: tarjeta "Resumen semanal" con Vista previa (texto sin HTML) y Enviar ahora.
+- Tested iteration_12: backend 18/18 nuevos (tests/test_iter12_autoremove_weekly.py) + regresión 35/35; frontend 100 %. Tras el informe: send_weekly atómico (no marca enviado si Telegram falla), relectura de settings antes de quitar, 400 en body no-dict, chmod +x del script; tests ajustados (34/34).
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
@@ -92,5 +97,5 @@
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
 - P1: Telegram: configurar token/chat en el VPS y validar alertas end-to-end
 - P2: Backup nocturno de Mongo en el VPS (script + cron en /app/deploy)
-- P2: Quitar automáticamente los symbol_params cuando la revalidación semanal los marca SOBREAJUSTADO (hoy solo avisa)
 - P2: Funding-rate context for AI
+- P3: server.py ~700 líneas → separar routers (cron, weekly, walk-forward)
