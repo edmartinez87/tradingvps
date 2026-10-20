@@ -72,7 +72,7 @@ export default function WalkForward({ res }) {
         <Cell label="Profit factor OOS" value={oos.profit_factor ?? "—"} hint={`línea base ${base.profit_factor ?? "—"}`} cls={good(oos.profit_factor, 1)} testId="wf-oos-pf" />
         <Cell label="Retorno OOS" value={`${sign(oos.return_pct, 2)}%`} hint={`línea base ${sign(base.return_pct, 2)}%`} cls={good(oos.return_pct, base.return_pct)} testId="wf-oos-return" />
         <Cell label="Operaciones OOS" value={`${oos.trades} · ${oos.win_rate}%`} hint={`línea base ${base.trades} · ${base.win_rate}%`} testId="wf-oos-trades" />
-        <Cell label="Parámetros" value={res.params_stable ? "Estables" : "Inestables"} hint={`${res.params_unique} combinación${res.params_unique !== 1 ? "es" : ""} en ${folds} tramos`} cls={res.params_stable ? "text-emerald-400" : "text-amber-400"} testId="wf-params" />
+        <Cell label="Parámetros" value={res.params_stable ? "Estables" : "Inestables"} hint={`${res.params_unique} ${res.params_unique === 1 ? "combinación" : "combinaciones"} en ${folds} tramos`} cls={res.params_stable ? "text-emerald-400" : "text-amber-400"} testId="wf-params" />
       </div>
 
       {curve.length > 1 && (

@@ -12,7 +12,7 @@ const Stat = ({ label, value, testId }) => (
 
 const PROFILE_TONE = ["text-emerald-300", "text-lime-300", "text-amber-300", "text-orange-300", "text-rose-300"];
 
-export default function BotPanel({ settings: s, meta, account, equity, profileActive }) {
+export default function BotPanel({ settings: s, meta, account, equity, profileActive, fmtLeverage = (v) => `${v}x` }) {
   const info = meta?.strategy_info || {};
   const active = activeStrategies(s);
   const profile = profileActive != null ? meta?.profiles?.[profileActive] : null;
@@ -41,7 +41,7 @@ export default function BotPanel({ settings: s, meta, account, equity, profileAc
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Riesgo / op." value={`${s.risk_per_trade}%`} testId="plan-risk" />
         <Stat label="Máx. posiciones" value={s.max_positions} testId="plan-max-positions" />
-        <Stat label="Apalancamiento" value={`${s.leverage}x`} testId="plan-leverage" />
+        <Stat label="Apalancamiento" value={fmtLeverage(s.leverage)} testId="plan-leverage" />
         <Stat label="Límite diario" value={`-${s.daily_loss_limit}%`} testId="plan-daily-limit" />
       </div>
 

@@ -1,7 +1,8 @@
 import { useState } from "react";
 
-const color = (v, min, max) => {
+const color = (v, min, max, trades) => {
   if (v == null) return "transparent";
+  if (!trades) return "rgba(100,116,139,0.12)";
   const t = max > min ? (v - min) / (max - min) : 0.5;
   return v >= 0 ? `rgba(16,185,129,${0.12 + 0.55 * t})` : `rgba(239,68,68,${0.15 + 0.5 * (1 - t)})`;
 };
@@ -38,10 +39,10 @@ export default function OptimizerHeatmap({ res }) {
                   const c = at(sl, tp);
                   const best = res.best && c && c.sl_atr === res.best.sl_atr && c.tp_atr === res.best.tp_atr && atr === res.best.atr_period;
                   return (
-                    <td key={tp} data-testid={`optimizer-cell-${sl}-${tp}`} title={c ? `Retorno ${c.return_pct}% · PF ${c.profit_factor} · DD ${c.max_drawdown}% · SQN ${c.sqn}` : "R:R < 1.5 (descartado)"}
-                      className={`rounded-sm px-1 py-1.5 font-mono text-[10px] ${best ? "ring-2 ring-amber-400" : ""} ${c ? "text-slate-100" : "text-slate-700"}`}
-                      style={{ background: color(c?.robust, min, max) }}>
-                      {c ? <><span className="block font-semibold">{c.robust}</span><span className="text-[9px] text-slate-300/80">{c.trades} ops</span></> : "—"}
+                    <td key={tp} data-testid={`optimizer-cell-${sl}-${tp}`} title={c ? (c.trades ? `Retorno ${c.return_pct}% · PF ${c.profit_factor} · DD ${c.max_drawdown}% · SQN ${c.sqn}` : "Sin operaciones (tamaño bajo el lote mínimo o sin señales)") : "R:R < 1.5 (descartado)"}
+                      className={`rounded-sm px-1 py-1.5 font-mono text-[10px] ${best ? "ring-2 ring-amber-400" : ""} ${c && c.trades ? "text-slate-100" : "text-slate-600"}`}
+                      style={{ background: color(c?.robust, min, max, c?.trades) }}>
+                      {c ? <><span className="block font-semibold">{c.trades ? c.robust : "—"}</span><span className="text-[9px] text-slate-300/80">{c.trades} ops</span></> : "—"}
                     </td>
                   );
                 })}

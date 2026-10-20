@@ -60,6 +60,7 @@ def _search(dfs, sigs, risk_pct, leverage, trailing, initial, symbol, start=210,
                  for a in (i - 1, i, i + 1) for b in (j - 1, j, j + 1)
                  if 0 <= a < len(SL_GRID) and 0 <= b < len(TP_GRID)]
         neigh = [x for x in neigh if x]
+        neigh = [x for x in neigh if x["trades"] > 0] or neigh  # a neighbour that never traded says nothing about robustness
         r["robust"] = round(sum(x["sqn"] for x in neigh) / len(neigh), 3)
         r["neighbors"] = len(neigh)
     valid = [r for r in rows if r["trades"] >= MIN_TRADES] or [r for r in rows if r["trades"] >= 5]

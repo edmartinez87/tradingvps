@@ -49,9 +49,10 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
         net = gross - pos["fee"] - fee
         balance += gross - fee
         move = (price - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - price)
+        net_pips = pips(symbol, move - spread)  # spread paid half at entry, half at exit
         trades.append({"side": pos["side"], "strategy": pos["strategy"], "entry": pos["entry"], "exit": float(price), "lots": pos["lots"],
                        "pnl": round(float(net), 2), "r": round(float(net / pos["risk_amt"]), 3) if pos["risk_amt"] else 0.0,
-                       "pips": round(pips(symbol, move), 1), "reason": reason, "session": pos["session"],
+                       "pips": round(net_pips, 1), "reason": reason, "session": pos["session"],
                        "opened_at": pos["opened_at"], "closed_at": _iso(ts[i])})
         pos = None
 

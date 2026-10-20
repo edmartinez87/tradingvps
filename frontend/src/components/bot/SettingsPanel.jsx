@@ -38,7 +38,7 @@ const Sel = ({ label, value, onChange, options, render, testId }) => (
   </div>
 );
 
-export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [] }) {
+export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [], fmtLeverage }) {
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -83,7 +83,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
         </Button>
       }>
       {meta?.profiles && (
-        <RiskProfileBar profiles={meta.profiles} active={profileActive} selected={settings.risk_profile}
+        <RiskProfileBar profiles={meta.profiles} active={profileActive} selected={settings.risk_profile} fmtLeverage={fmtLeverage}
           onApply={async (level) => { const ok = await onProfile(level); if (ok) setDirty(false); return ok; }} />
       )}
       <div className="grid grid-cols-2 gap-3">

@@ -107,7 +107,7 @@ export default function Backtest({ meta, settings, intro = DEFAULT_INTRO }) {
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="time" hide />
-                <YAxis domain={["dataMin - 20", "dataMax + 20"]} tick={{ fill: "#64748B", fontSize: 10, fontFamily: "IBM Plex Mono" }} width={60} axisLine={false} tickLine={false} />
+                <YAxis domain={["dataMin - 20", "dataMax + 20"]} tickFormatter={(v) => fmtUsd(v, 0)} tick={{ fill: "#64748B", fontSize: 10, fontFamily: "IBM Plex Mono" }} width={60} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ background: "#0D111A", border: "1px solid #1E293B", fontFamily: "IBM Plex Mono", fontSize: 11 }}
                   labelFormatter={(l) => fmtDateTime(l)} formatter={(v) => [fmtUsd(v), "Equidad"]} />
                 <Area type="monotone" dataKey="equity" stroke={res.return_pct >= 0 ? "#10B981" : "#EF4444"} strokeWidth={1.5} fill="url(#btFill)" isAnimationActive={false} />

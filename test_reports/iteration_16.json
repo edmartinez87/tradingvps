@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 16 frontend-only E2E (Playwright, 1920x1080) of the new HotForex features: the 5-level FX risk profile slider, the FX Backtest tab (pips, spread, weekend, sessions), and the FX Optimizer (per pair, all 12 pairs, apply/remove, walk-forward). Also ran a crypto regression on /bybit. All requested flows PASS. No HTTP >=400, no calls to /api/fx/walk-forward/check or /api/fx/ai/optimize-all, and Yahoo returned no 429s during the run. The FX bot is left STOPPED with balance $500, profile_active=2 (Activo), risk 1%, 12 pairs and symbol_params={}. The crypto bot state was not touched. Only cosmetic or minor issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Backtest equity chart (shared crypto+FX)", "issue": "The YAxis has no tickFormatter, so it shows float artifacts such as '523.6600000000001', which get clipped at the top-left as '300000001'. The ticks are also odd values (458.13/483.13...) because of domain 'dataMin - 20'.", "selector": "[data-testid='backtest-equity-chart']", "priority": "LOW"},
+      {"component": "OptimizerHeatmap (FX, notably XAUUSD)", "issue": "Cells with 0 trades show a positive robust score in green (e.g. '0.146 · 0 ops'). robust = mean SQN of neighbours, so combos with wide SL get rejected by the min lot, have no trades, and still look attractive. Suggest showing '—' or a neutral colour when trades==0.", "selector": "[data-testid^='optimizer-cell-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "FX Backtest metrics", "issues": ["The 'Pips netos' label (backtest-pips) and the per-trade pips are GROSS price move (backend/fx/backtest.py line 51/54 uses the raw move; the spread is only deducted in USD). This gives rows like '+3 pips · $0.00' and '+1.2 pips · $0.00'. Either subtract the spread in pips or rename the label to 'Pips brutos'."]},
+      {"screen": "FX walk-forward card", "issues": ["Typo: '4 combinaciónes en 4 tramos' should be 'combinaciones' (shared WalkForward 'Parámetros' KPI pluralisation)."]},
+      {"screen": "FX risk profile chips / Plan de trading", "issues": ["Leverage shows as '100x'/'200x'. The forex convention used elsewhere in the FX UI is '1:100' (the backtest intro and the selector card use 1:100). This is cosmetic only."]},
+      {"screen": "FX Optimizer XAUUSD", "issues": ["The robust optimum (SL1/TP5/ATR10, -27.35%, DD 51%) is much worse than the baseline (-1.77%, 7 ops), because the baseline mostly gets rejected by the min lot. The UI correctly flags it as 'NO APLICAR' / 'Aplicar igualmente (no rentable)'. This is informational, not a bug."]}
+    ]
+  },
+  "passed_tests": [
+    "FX plan-profile-name shows 'Activo' initially (no Personalizado badge)",
+    "FX profile step-0: name '0. Conservador', chips 6 pares / 0.5% / máx 2 / Filtro TF sup. Sí. Apply gives toast 'Perfil de riesgo aplicado: Conservador'. The form updates to risk 0.5, maxpos 2, 'Pares a operar (6)', and plan says Conservador",
+    "FX step-3: the dialog shows the warning; Cancelar reverts to Conservador; confirm applies Agresivo (15m, 200x, 6 pos, 1.5%, HTF No) and plan line reads 'Agresivo · 15m'",
+    "Manually changing risk to 1.3 and saving gives toast 'Configuración guardada', shows the risk-profile-custom-badge, and plan reads 'Personalizado'",
+    "Restored to step-2 (Activo): risk 1, maxpos 5, lev 100, 12 pairs, no badge",
+    "FX Backtest intro mentions Yahoo Finance, lotes de 0.01, spread HFM and sesiones. Timeframes are exactly 5m/15m/1h/4h",
+    "FX Backtest EURUSD 1h: 57 ops, pips -266.4, avg -4.7, weekend 6, spread 1.2 pips, 6 session rows, chart present, trade rows with pips",
+    "FX Backtest XAUUSD 1h: 7 ops, spread 3 pips, backtest-rejected '84 señales sin operar por tamaño menor al lote mínimo', 5 session rows",
+    "FX Optimizer: no optimize-all-card and no wf-auto-card (weekly card testid is wf-auto-card, not walk-forward-auto). No calls to the walk-forward/check or ai/optimize-all endpoints",
+    "FX Optimizar par XAUUSD: optimizer-results, compare and robust score 0.035, plus heatmap. Apply gives toast 'Parámetros del bot actualizados' and the applied badge; remove clears the badge",
+    "FX Validar walk-forward XAUUSD: verdict NO RENTABLE, 6 KPIs, chart, 4-tramo table",
+    "FX Optimizar todos (12): about 18 s, toast 'Optimización completada para 12 pares', optimizer-summary with 12 rows and a Decisión column",
+    "Crypto regression: profile slider step-4 shows '4. Máximo' and chips. Reverted locally without applying (apply disabled). Backtest BTCUSDT shows results with no pips, sessions or spread blocks. Optimizer shows optimize-all-card and wf-auto-card. Optimizar par BTCUSDT and Validar walk-forward (SOBREAJUSTADO) work"
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "Add tickFormatter (e.g. v => Math.round(v)) to the YAxis in Backtest.jsx equity chart",
+    "OptimizerHeatmap: neutral colour or '—' for cells with trades==0",
+    "Clarify 'Pips netos' (net of spread vs gross) in fx/backtest.py and the Backtest label",
+    "Fix the 'combinaciónes' typo in WalkForward.jsx",
+    "Optional: show leverage as '1:N' in the FX risk profile chips"
+  ],
+  "critical_code_review_comments": [
+    "backend/optimizer.py _search: robust uses neighbour-mean SQN including 0-trade combos (sqn 0), which inflates or deflates scores in FX where min-lot rejects many combos. Consider excluding neighbours with trades < MIN_TRADES.",
+    "Optimizer.jsx still declares the polling and check state for the weekly and aiAll features even when they are disabled. This is harmless because the effects are guarded, but the component is now 224 lines with two optional features and could be split."
+  ],
+  "updated_files": ["/app/test_reports/iteration_16.json"],
+  "success_rate": {"backend": "skipped (frontend only)", "frontend": "100% of requested flows (5 minor cosmetic issues)"},
+  "seed_data_creation": "None. The FX profile was changed temporarily and restored to level 2 (Activo). FX symbol_params were applied and removed for XAUUSD. Crypto: nothing applied.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login: password from /app/memory/test_credentials.md, then bot-selector with cards [data-testid=bot-card-crypto] and [data-testid=bot-card-fx]. The FX tabs are fx-tab-*. The crypto tabs are tab-backtest and tab-optimizer. The weekly revalidation card testid is wf-auto-card. Final FX state: stopped, $500, profile_active 2, symbol_params {}. Yahoo gave no 429s in this run. Optimizar todos FX takes about 18 s."
+}
