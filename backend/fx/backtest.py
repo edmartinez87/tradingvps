@@ -25,9 +25,13 @@ def session_name(ts_ms: int) -> str:
     return "/".join(names) if names else "Fuera de sesión"
 
 
+def session_ok(ts_ms: int, allowed) -> bool:
+    return not allowed or any(s["open"] and s["id"] in allowed for s in fx_sessions(datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)))
+
+
 def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, initial: float, symbol: str,
              sl_atr: float = None, tp_atr: float = None, start: int = 210, end: int = None, *,
-             tickers: dict = None, min_lot_max_risk: float = 4.0, weekend_flat: bool = True) -> dict:
+             tickers: dict = None, min_lot_max_risk: float = 4.0, weekend_flat: bool = True, sessions_allowed=()) -> dict:
     tickers = tickers or {}
     spread = SPECS[symbol]["spread"]
     highs, lows, closes, ts = df["high"].values, df["low"].values, df["close"].values, df["ts"].values
@@ -35,7 +39,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
     end = end or n
     step_ms = float(np.median(np.diff(ts[:200]))) if n > 2 else 0
     balance, peak, max_dd = initial, initial, 0.0
-    trades, curve, pos, rejected, weekend_closed = [], [], None, 0, 0
+    trades, curve, pos, rejected, weekend_closed, skipped_session = [], [], None, 0, 0, 0
 
     def before_weekend(i):
         return weekend_flat and i + 1 < n and ts[i + 1] - ts[i] > WEEKEND_GAP * step_ms
@@ -70,7 +74,9 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
         if not pos and not weekend and i in signals:
             sig = signals[i]
             sl, tp = _levels(sig, sl_atr, tp_atr)
-            if sl is not None:
+            if not session_ok(int(ts[i]), sessions_allowed):
+                skipped_session += 1
+            elif sl is not None:
                 lots, _, _ = risk.position_size(balance, balance, risk_pct, sig["price"], sl, leverage, symbol, tickers, min_lot_max_risk)
                 if lots > 0:
                     fee = risk.spread_cost(symbol, lots, tickers)
@@ -115,6 +121,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
         "total_trades": len(trades),
         "rejected_lot": rejected,
         "weekend_closed": weekend_closed,
+        "skipped_session": skipped_session,
         "win_rate": round(len(wins) / len(trades) * 100, 1) if trades else 0,
         "profit_factor": round(gross_win / gross_loss, 2) if gross_loss else (round(gross_win, 2) if gross_win else 0),
         "max_drawdown": round(max_dd, 2),
@@ -136,7 +143,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
 
 
 def run_backtest(klines: list, strategy: str, risk_pct: float, leverage: int, trailing: bool, initial: float, symbol: str,
-                 mode: str, disabled, tickers: dict, min_lot_max_risk: float, weekend_flat: bool) -> dict:
+                 mode: str, disabled, tickers: dict, min_lot_max_risk: float, weekend_flat: bool, sessions_allowed=()) -> dict:
     df = build_fx_df(klines)
     return simulate(df, scan_signals(df, strategy, None, mode, disabled), risk_pct, leverage, trailing, initial, symbol,
-                    tickers=tickers, min_lot_max_risk=min_lot_max_risk, weekend_flat=weekend_flat)
+                    tickers=tickers, min_lot_max_risk=min_lot_max_risk, weekend_flat=weekend_flat, sessions_allowed=sessions_allowed)

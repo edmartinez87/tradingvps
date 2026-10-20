@@ -11,7 +11,8 @@ import notify
 import wfcheck
 import weekly
 from review import run_auto_review
-from deps import engine, db, store
+from deps import engine, db, store, fx_engine, fx_store
+from fx.wfcheck import KIT as FX_WF_KIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cron")
@@ -84,10 +85,12 @@ async def cron_ai_review(request: Request):
 
 @router.post("/walk-forward")
 async def cron_walk_forward(request: Request):
+    """Weekly revalidation of applied SL/TP for both bots (crypto on Bybit/Bitget data, HotForex on Yahoo data)."""
     if await _accept(request):
         return {"accepted": True, "duplicate": True}
     started = await wfcheck.start_check(engine, db, store, "auto")
-    return {"accepted": True, "scheduled": started}
+    started_fx = await wfcheck.start_check(fx_engine, fx_engine.db, fx_store, "auto", FX_WF_KIT)
+    return {"accepted": True, "scheduled": started, "scheduled_fx": started_fx}
 
 
 @router.post("/weekly-summary")

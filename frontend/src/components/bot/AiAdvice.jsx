@@ -2,17 +2,19 @@ import { useState } from "react";
 import { Sparkles, Loader2, Undo2, CheckCircle2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { http, errMsg, STRATEGY_LABELS } from "@/lib/api";
+import { http, errMsg, STRATEGY_LABELS, SESSION_NAMES } from "@/lib/api";
 
 const LABELS = {
   symbols: "Pares", strategy: "Estrategia", disabled_strategies: "Estrategias apagadas", risk_per_trade: "Riesgo/op (%)", max_positions: "Máx. posiciones",
   leverage: "Apalancamiento", ai_min_confidence: "Confianza mínima IA", trailing_enabled: "Trailing", htf_filter: "Filtro TF superior", symbol_params: "Parámetros SL/TP",
+  sessions_allowed: "Sesiones permitidas",
 };
 const fmtVal = (k, v) => {
   if (v == null) return "—";
   if (typeof v === "boolean") return v ? "Sí" : "No";
   if (k === "strategy") return STRATEGY_LABELS[v] || v;
   if (k === "disabled_strategies") return v.map((s) => STRATEGY_LABELS[s] || s).join(", ") || "ninguna";
+  if (k === "sessions_allowed") return v.map((s) => SESSION_NAMES[s] || s).join(", ") || "todas";
   if (Array.isArray(v)) return v.map((s) => s.replace("USDT", "")).join(", ") || "ninguno";
   if (typeof v === "object") return Object.entries(v).map(([s, p]) => `${s.replace("USDT", "")}: SL ${p.sl_atr}× TP ${p.tp_atr}× ATR ${p.atr_period}`).join(" · ") || "ninguno";
   return String(v);

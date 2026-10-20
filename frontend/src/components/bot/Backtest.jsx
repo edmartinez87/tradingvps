@@ -5,7 +5,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { SideBadge } from "./Panel";
-import { http, errMsg, fmtUsd, fmtSignedUsd, fmtPrice, fmtDateTime, pnlClass, STRATEGY_LABELS, REASON_LABELS } from "@/lib/api";
+import { http, errMsg, fmtUsd, fmtSignedUsd, fmtPrice, fmtDateTime, pnlClass, STRATEGY_LABELS, REASON_LABELS, SESSION_NAMES } from "@/lib/api";
 
 const Field = ({ label, value, onChange, options, testId, render = (o) => o }) => (
   <div className="min-w-[140px] flex-1">
@@ -94,6 +94,11 @@ export default function Backtest({ meta, settings, intro = DEFAULT_INTRO }) {
           {res.rejected_lot > 0 && (
             <p data-testid="backtest-rejected" className="font-mono text-[11px] text-amber-300">
               {res.rejected_lot} señal{res.rejected_lot !== 1 ? "es" : ""} sin operar por tamaño menor al lote mínimo · sube el capital, el tope de riesgo con lote mínimo o usa una temporalidad menor
+            </p>
+          )}
+          {res.skipped_session > 0 && (
+            <p data-testid="backtest-skipped-session" className="font-mono text-[11px] text-sky-300">
+              {res.skipped_session} señal{res.skipped_session !== 1 ? "es" : ""} descartada{res.skipped_session !== 1 ? "s" : ""} fuera de las sesiones permitidas ({(res.sessions_allowed || []).map((s) => SESSION_NAMES[s] || s).join(", ")})
             </p>
           )}
           {res.session_stats && Object.keys(res.session_stats).length > 0 && <SessionStats stats={res.session_stats} />}

@@ -101,12 +101,21 @@ async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> 
 
 DEFAULT_POLICY = {"caps": {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}, "min_trades": 30, "min_item_trades": 20, "level": 0, "name": "Conservador"}
 STRATEGY_KEYS_TXT = "trend_ema, mean_reversion, breakout_turtle, supertrend_momentum, ema_pullback"
+CRYPTO_MARKET = {"desc": "un bot cuantitativo de futuros perpetuos USDT en modo paper trading", "lev": lambda v: f"{v}x", "extra_rule": "", "extra_keys": ""}
+FX_MARKET = {
+    "desc": "un bot cuantitativo de forex y metales (cuenta HFM, lotes de 0.01, spread como único coste, horario forex con sesiones Sídney/Tokio/Londres/Nueva York) en modo paper trading",
+    "lev": lambda v: f"1:{v}",
+    "extra_rule": ("(6) sessions_allowed es la lista de sesiones en las que el bot puede ABRIR posiciones (ids válidos: sydney, tokyo, london, newyork; "
+                   "lista vacía = todas). Solo restringe sesiones con evidencia: session_stats del backtest con ≥ 15 operaciones por sesión descartada "
+                   "o rendimiento_real; Londres y Nueva York concentran la liquidez y suelen ser las mejores. "),
+    "extra_keys": ", sessions_allowed (lista de ids)",
+}
 
 
-def advisor_system(policy: dict) -> str:
-    caps = policy["caps"]
+def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
+    caps, lev = policy["caps"], market["lev"]
     return (
-        "Eres el director de inversiones de un bot cuantitativo de futuros perpetuos USDT en modo paper trading. "
+        f"Eres el director de inversiones de {market['desc']}. "
         "Recibes métricas reales y de backtest y debes DECIDIR cambios concretos de configuración para mejorar la expectativa "
         f"y proteger el capital. El usuario eligió el perfil de riesgo '{policy['name']}' (nivel {policy['level']} de 4): respeta ese nivel de actividad, "
         "no lo vuelvas más conservador ni más agresivo de lo que el usuario pidió; tu trabajo es podar lo que pierde y reforzar lo que gana dentro de ese perfil. "
@@ -116,20 +125,21 @@ def advisor_system(policy: dict) -> str:
         "justifican aplicar symbol_params (SL/TP/ATR) cuando el óptimo robusto supera claramente a la línea base con ≥ 20 operaciones Y la validación "
         "walk_forward del par (si existe) es ROBUSTO o DUDOSO; si es SOBREAJUSTADO o NO_RENTABLE no apliques symbol_params en ese par. "
         "symbol_params es el diccionario COMPLETO que debe quedar activo (omite un par para devolverlo a los valores por defecto). "
-        f"(3) Nunca subas el riesgo por operación por encima de {caps['risk_per_trade']}% ni el apalancamiento por encima de {caps['leverage']}x ni el máximo de "
+        f"(3) Nunca subas el riesgo por operación por encima de {caps['risk_per_trade']}% ni el apalancamiento por encima de {lev(caps['leverage'])} ni el máximo de "
         f"posiciones por encima de {caps['max_positions']}; mantén al menos 2 pares activos y al menos 1 estrategia activa. "
         f"(4) Para apagar una estrategia usa disabled_strategies (lista completa de claves apagadas; claves válidas: {STRATEGY_KEYS_TXT}) y deja strategy en 'all'. "
         "(5) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
+        + market["extra_rule"] +
         "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
         '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), disabled_strategies (lista), risk_per_trade, '
-        'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{sl_atr,tp_atr,atr_period})>},'
+        f'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{{sl_atr,tp_atr,atr_period}}){market["extra_keys"]}>}},'
         '"notes":["recomendaciones adicionales en español que no son cambios de configuración"]}'
     )
 
 
-async def advise(scope: str, context: dict, policy: dict = None) -> dict:
+async def advise(scope: str, context: dict, policy: dict = None, market: dict = CRYPTO_MARKET) -> dict:
     prompt = f"ÁMBITO: {scope}\nCONTEXTO (JSON):\n{json.dumps(context, ensure_ascii=False, default=str)}\n\nDecide los cambios de configuración."
-    text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY), "advisor"), prompt)
+    text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY, market), "advisor"), prompt)
     match = re.search(r"\{.*\}", text, re.S)
     if not match:
         raise ValueError(f"Respuesta IA no válida: {text[:200]}")

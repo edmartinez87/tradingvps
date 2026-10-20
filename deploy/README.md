@@ -17,7 +17,7 @@ programa los crons de revisión IA (08:00 UTC), walk-forward semanal (lunes 07:0
 | `docker compose restart backend` | reiniciar el bot |
 | `./update.sh` | traer la última versión y reconstruir |
 | `bash cron-ai-review.sh` | disparar la revisión IA manualmente |
-| `bash cron-walk-forward.sh` | revalidar ahora con walk-forward los pares con SL/TP optimizados |
+| `bash cron-walk-forward.sh` | revalidar ahora con walk-forward los pares con SL/TP optimizados (Bybit y HotForex) |
 | `bash cron-weekly-summary.sh` | enviar ahora el resumen semanal por Telegram |
 
 Archivos sensibles (no se suben a git): `deploy/.env`, `deploy/backend.env`.

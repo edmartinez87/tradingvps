@@ -18,17 +18,21 @@ from routers.shared_routes import add_shared_routes
 from fx.models import FxSettingsUpdate, HfmTestRequest, FxBacktestRequest, FxProfileRequest, FX_TIMEFRAMES
 from fx.config import FxConfigUpdate
 from fx.symbols import SPECS, AVAILABLE, CURRENCIES, CURRENCY_NAMES, pips
-from fx.market import TF_SECONDS, market_status
+from fx.market import TF_SECONDS, market_status, SESSIONS
 from fx.engine import FX_STRATEGY_INFO
 from fx.metaapi import MetaApi, MetaApiError
 from fx.profiles import PROFILES, detect_profile, profile_patch
 from fx.backtest import run_backtest
 from fx.optimizer import optimize, walk_forward, WF_CANDLES
+from fx import review as fx_review
+from fx.wfcheck import KIT as WF_KIT
+import wfcheck
 
 logger = logging.getLogger(__name__)
 router = protected_router()
 router.prefix = "/api/fx"
 add_shared_routes(router, engine, "HotForex AI Trading")
+SESSION_LIST = [{"id": s[0], "name": s[1]} for s in SESSIONS]
 
 
 def _status() -> dict:
@@ -49,7 +53,7 @@ async def _equity_curve(limit: int = 1440) -> list:
 async def meta():
     return {"symbols": AVAILABLE, "symbol_info": {s: {k: v for k, v in SPECS[s].items() if k in ("name", "group", "digits", "pip")} for s in AVAILABLE},
             "timeframes": FX_TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": FX_STRATEGY_INFO, "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO,
-            "profiles": PROFILES, "currencies": CURRENCIES, "currency_names": CURRENCY_NAMES}
+            "profiles": PROFILES, "currencies": CURRENCIES, "currency_names": CURRENCY_NAMES, "sessions": SESSION_LIST}
 
 
 @router.post("/profile")
@@ -81,9 +85,11 @@ async def backtest(req: FxBacktestRequest):
     s = await engine.get_settings()
     klines = await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60)
     result = await asyncio.to_thread(run_backtest, klines, req.strategy, req.risk_per_trade, req.leverage, s.trailing_enabled, await _initial_balance(),
-                                     req.symbol, s.signal_mode, s.disabled_strategies, dict(engine.market.tickers), s.min_lot_max_risk, s.close_before_weekend)
+                                     req.symbol, s.signal_mode, s.disabled_strategies, dict(engine.market.tickers), s.min_lot_max_risk, s.close_before_weekend,
+                                     tuple(s.sessions_allowed))
     result.pop("r_multiples", None)
-    return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, "spread_pips": round(pips(req.symbol, SPECS[req.symbol]["spread"]), 1), **result}
+    return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, "spread_pips": round(pips(req.symbol, SPECS[req.symbol]["spread"]), 1),
+            "sessions_allowed": s.sessions_allowed, **result}
 
 
 @router.post("/optimize")
@@ -106,6 +112,34 @@ async def optimize_walk_forward(req: OptimizeRequest):
     return {**res, "timeframe": s.timeframe, "applied_params": s.symbol_params.get(req.symbol)}
 
 
+def _check_payload():
+    return {"job": wfcheck.job_state(WF_KIT), "auto_remove": fx_store.cfg.wf_auto_remove}
+
+
+@router.get("/walk-forward/check")
+async def walk_forward_check_status():
+    return {**_check_payload(), "latest": await wfcheck.latest(engine.db)}
+
+
+@router.post("/walk-forward/check")
+async def walk_forward_check_run():
+    if not await wfcheck.start_check(engine, engine.db, fx_store, "manual", WF_KIT):
+        raise HTTPException(409, "Ya hay una revalidación en curso")
+    return {**_check_payload(), "latest": await wfcheck.latest(engine.db)}
+
+
+@router.post("/ai/optimize-all")
+async def ai_optimize_all():
+    if not await fx_review.start(engine, engine.db):
+        raise HTTPException(409, "Ya hay una optimización global en curso")
+    return fx_review.job_state()
+
+
+@router.get("/ai/optimize-all")
+async def ai_optimize_all_status():
+    return fx_review.job_state()
+
+
 @router.get("/dashboard")
 async def dashboard():
     settings = await engine.get_settings()
@@ -122,6 +156,7 @@ async def dashboard():
                           **engine.analysis.get(sym, {})})
     return {"status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(), "positions": positions, "trades": trades,
             "signals": signals, "logs": logs, "watchlist": watchlist, "equity": await _equity_curve(), "profile_active": detect_profile(settings), "news": news.summary(),
+            "optimize_job": {k: fx_review.job[k] for k in ("status", "step")},
             "hfm": {"configured": fx_store.public()["hfm_configured"], "state": fx_store.cfg.hfm_state, "verified_at": fx_store.cfg.hfm_verified_at}}
 
 
@@ -294,7 +329,7 @@ async def put_config(request: Request):
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(400, "Cuerpo inválido")
-    g = {k: v for k, v in body.items() if k in ConfigUpdate.model_fields}
+    g = {k: v for k, v in body.items() if k in ConfigUpdate.model_fields and k not in FxConfigUpdate.model_fields}
     f = {k: v for k, v in body.items() if k in FxConfigUpdate.model_fields}
     try:
         gp = store.patch_from(ConfigUpdate(**g)) if g else {}

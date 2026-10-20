@@ -61,6 +61,7 @@ export const STRATEGY_KEYS = ["trend_ema", "mean_reversion", "breakout_turtle", 
 export const MODE_LABELS = { strict: "Estrictos", relaxed: "Relajados", minimal: "Mínimos" };
 export const activeStrategies = (s) => (s.strategy === "all" ? STRATEGY_KEYS.filter((k) => !(s.disabled_strategies || []).includes(k)) : [s.strategy]);
 export const REASON_LABELS = { TP: "Take Profit", SL: "Stop Loss", TRAILING: "Trailing", MANUAL: "Manual", TIEMPO: "Tiempo máx.", FIN_SEMANA: "Fin de semana" };
+export const SESSION_NAMES = { sydney: "Sídney", tokyo: "Tokio", london: "Londres", newyork: "Nueva York" };
 export const errMsg = (e) => {
   const d = e?.response?.data?.detail;
   if (Array.isArray(d)) return `Valor inválido en: ${d.map((x) => x.loc?.slice(-1)[0]).join(", ")}`;

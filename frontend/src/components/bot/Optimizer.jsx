@@ -11,7 +11,9 @@ import OptimizerSummary from "./optimizer/OptimizerSummary";
 import WalkForward from "./optimizer/WalkForward";
 import WalkForwardAuto from "./optimizer/WalkForwardAuto";
 
-export default function Optimizer({ settings, onSave, refresh, aiAll = true, weekly = true, intro }) {
+const AI_ALL_INTRO = (n) => `Corre el optimizador en los ${n} pares activos y Claude cruza esos resultados con las operaciones reales por par y estrategia, el backtest y el plan. Apaga lo que pierde, aplica los SL/TP óptimos y ajusta los filtros, siempre dentro de los topes de tu perfil de riesgo. Los cambios se aplican directamente y te avisa por Telegram.`;
+
+export default function Optimizer({ settings, onSave, refresh, aiAll = true, weekly = true, intro, aiAllIntro = AI_ALL_INTRO }) {
   const [symbol, setSymbol] = useState(settings.symbols[0]);
   const [results, setResults] = useState({});
   const [wf, setWf] = useState({});
@@ -149,10 +151,7 @@ export default function Optimizer({ settings, onSave, refresh, aiAll = true, wee
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-[240px] flex-1">
             <p className="flex items-center gap-1.5 font-display text-[15px] font-bold text-purple-200"><Sparkles className="h-4 w-4" /> Optimizar todo con IA</p>
-            <p className="mt-1 text-[12px] leading-relaxed text-slate-400">
-              Corre el optimizador en los {settings.symbols.length} pares activos y Claude cruza esos resultados con las operaciones reales por par y estrategia, el backtest y el plan.
-              Apaga lo que pierde, aplica los SL/TP óptimos y ajusta los filtros, siempre dentro de los topes de tu perfil de riesgo. Los cambios se aplican directamente y te avisa por Telegram.
-            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-slate-400">{aiAllIntro(settings.symbols.length)}</p>
           </div>
           <Button data-testid="optimize-all-button" onClick={optimizeAll} disabled={running || !!loading}
             className="h-10 bg-purple-500 font-mono text-[11px] font-bold uppercase tracking-wider text-white hover:bg-purple-400 disabled:opacity-50">

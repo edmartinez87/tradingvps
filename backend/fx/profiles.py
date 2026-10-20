@@ -41,6 +41,17 @@ PROFILES = [
                   "ai_min_confidence": 40, "risk_per_trade": 2.0, "max_positions": 8, "leverage": 500, "daily_loss_limit": 12.0,
                   "disabled_strategies": []}},
 ]
+AI_CAPS_BASE = {"risk_per_trade": 1.5, "leverage": 100, "max_positions": 6}
+
+
+def ai_policy(level: int) -> dict:
+    p = PROFILES[max(0, min(level, 4))]["settings"]
+    return {
+        "caps": {k: max(AI_CAPS_BASE[k], p[k]) for k in AI_CAPS_BASE},
+        "min_trades": 30 if level <= 1 else 20,
+        "min_item_trades": 20 if level <= 1 else 15,
+        "level": level, "name": PROFILES[level]["name"],
+    }
 
 
 def _eq(a, b) -> bool:

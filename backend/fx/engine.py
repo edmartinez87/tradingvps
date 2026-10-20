@@ -10,7 +10,7 @@ from indicators import trend_label, htf_trend, snapshot
 from strategies import evaluate, STRATEGY_INFO
 import notify
 from fx.models import FxSettings
-from fx.market import FxMarket, HTF, market_open, market_status, closing_soon
+from fx.market import FxMarket, HTF, market_open, market_status, closing_soon, in_sessions, session_names
 from fx.symbols import SPECS, fmt_price, pips
 from fx import risk
 from fx.ai import evaluate_signal
@@ -18,7 +18,7 @@ from fx.backtest import build_fx_df
 
 logger = logging.getLogger("fx.engine")
 INITIAL_BALANCE = 500.0
-BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado"}
+BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado", "SESION": "sesión"}
 NEWS_STRATEGY = {"news_event": {"name": "Noticia macro", "rules": "Dato de alto impacto publicado con sorpresa clara frente a la previsión; Claude fija la dirección y la confianza, el precio debe confirmar en los primeros minutos. SL/TP por ATR 15m y cierre máximo por tiempo.", "basis": "Trading de noticias: el flujo posterior a sorpresas macro (tipos, NFP, IPC) tiende a persistir durante horas."}}
 FX_STRATEGY_INFO = {**STRATEGY_INFO, **NEWS_STRATEGY}
 
@@ -362,6 +362,8 @@ class FxEngine:
         open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
         if not market_open():
             return "mercado cerrado", "MERCADO", open_syms
+        if not in_sessions(settings.sessions_allowed):
+            return f"fuera de las sesiones permitidas ({session_names(settings.sessions_allowed)})", "SESION", open_syms
         if symbol in open_syms:
             return "ya existe una posición abierta en el par", "BLOQUEADA", open_syms
         if len(open_syms) >= settings.max_positions:

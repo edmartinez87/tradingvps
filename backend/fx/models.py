@@ -2,6 +2,7 @@ from typing import Optional, List, Dict
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from models import STRATEGY_KEYS, SIGNAL_MODES
 from fx.symbols import AVAILABLE, DEFAULT_SYMBOLS
+from fx.market import SESSION_IDS
 
 FX_TIMEFRAMES = ["5m", "15m", "1h", "4h"]
 
@@ -25,8 +26,14 @@ class FxSettings(BaseModel):
     disabled_strategies: List[str] = ["supertrend_momentum"]
     close_before_weekend: bool = True
     min_lot_max_risk: float = 4.0
+    sessions_allowed: List[str] = []
     risk_profile: int = 2
     bot_running: bool = False
+
+    @field_validator("sessions_allowed")
+    @classmethod
+    def _sessions(cls, v):
+        return [s for s in dict.fromkeys(v or []) if s in SESSION_IDS]
 
     @field_validator("signal_mode")
     @classmethod
@@ -95,6 +102,7 @@ class FxSettingsUpdate(BaseModel):
     disabled_strategies: Optional[List[str]] = None
     close_before_weekend: Optional[bool] = None
     min_lot_max_risk: Optional[float] = Field(default=None, ge=0, le=10)
+    sessions_allowed: Optional[List[str]] = None
 
 
 class HfmTestRequest(BaseModel):

@@ -8,6 +8,7 @@ from ai_advisor import advise
 from optimizer import optimize, walk_forward, WF_CANDLES
 from profiles import ai_policy, PROFILES
 from shadow import recent_rejections
+from fx.market import SESSION_NAMES
 import notify
 
 logger = logging.getLogger("review")
@@ -15,7 +16,7 @@ ALLOWED_AI_KEYS = {"symbols", "disabled_strategies", "risk_per_trade", "max_posi
                    "trailing_enabled", "htf_filter", "symbol_params"}
 LABELS = {"symbols": "Pares", "strategy": "Estrategia", "disabled_strategies": "Estrategias apagadas", "risk_per_trade": "Riesgo/op %",
           "max_positions": "Máx. posiciones", "leverage": "Apalancamiento", "ai_min_confidence": "Confianza mín. IA", "trailing_enabled": "Trailing",
-          "htf_filter": "Filtro TF superior", "symbol_params": "Parámetros SL/TP"}
+          "htf_filter": "Filtro TF superior", "symbol_params": "Parámetros SL/TP", "sessions_allowed": "Sesiones permitidas"}
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
                   "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21"}
 _plan_cache: dict = {}
@@ -57,13 +58,16 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
     return ctx
 
 
-async def apply_ai_changes(engine, res: dict, before: dict, settings):
-    patch = {k: v for k, v in res["changes"].items() if k in ALLOWED_AI_KEYS}
-    for k, cap in ai_policy(settings.risk_profile)["caps"].items():
+async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy: dict = None, available=AVAILABLE_SYMBOLS,
+                           model=SettingsUpdate, allowed=ALLOWED_AI_KEYS):
+    patch = {k: v for k, v in res["changes"].items() if k in allowed}
+    for k, cap in (policy or ai_policy(settings.risk_profile))["caps"].items():
         if k in patch:
             patch[k] = min(float(patch[k]), cap)
-    if "symbols" in patch and (not isinstance(patch["symbols"], list) or len([x for x in patch["symbols"] if x in AVAILABLE_SYMBOLS]) < 2):
+    if "symbols" in patch and (not isinstance(patch["symbols"], list) or len([x for x in patch["symbols"] if x in available]) < 2):
         patch.pop("symbols")
+    if "sessions_allowed" in patch and not isinstance(patch["sessions_allowed"], list):
+        patch.pop("sessions_allowed")
     if "disabled_strategies" in patch:
         dis = [x for x in (patch["disabled_strategies"] if isinstance(patch["disabled_strategies"], list) else []) if x in STRATEGY_KEYS and x != "all"]
         if len(dis) >= len(STRATEGY_KEYS) - 1:
@@ -74,7 +78,7 @@ async def apply_ai_changes(engine, res: dict, before: dict, settings):
     applied = {}
     if patch:
         try:
-            after = (await engine.update_settings(SettingsUpdate.model_validate(patch).model_dump())).model_dump(exclude={"bot_running"})
+            after = (await engine.update_settings(model.model_validate(patch).model_dump())).model_dump(exclude={"bot_running"})
             applied = {k: {"antes": before[k], "despues": after[k]} for k in patch if before.get(k) != after.get(k)}
         except Exception as e:
             res["notes"].append(f"Cambios propuestos no válidos y descartados: {str(e)[:120]}")
@@ -87,6 +91,8 @@ def _fmt(k, v) -> str:
     if isinstance(v, list):
         if k == "disabled_strategies":
             return ", ".join(STRATEGY_NAMES.get(s, s) for s in v) or "ninguna"
+        if k == "sessions_allowed":
+            return ", ".join(SESSION_NAMES.get(s, s) for s in v) or "todas"
         return ", ".join(s.replace("USDT", "") for s in v) or "ninguno"
     if isinstance(v, dict):
         return "; ".join(f"{s.replace('USDT', '')} SL {p.get('sl_atr')}× TP {p.get('tp_atr')}× ATR {p.get('atr_period')}" for s, p in v.items()) or "por defecto"
@@ -165,26 +171,28 @@ async def run_global_optimization(engine, db) -> dict:
     return {**res, "applied": applied, "previous": previous, "optimizer": results, "ran_at": now_iso()}
 
 
-async def start_global_optimization(engine, db) -> bool:
-    if job["status"] == "running":
+async def start_global_optimization(engine, db, runner=None, state: dict = None) -> bool:
+    state = job if state is None else state
+    runner = runner or run_global_optimization
+    if state["status"] == "running":
         return False
-    job.update(status="running", started_at=now_iso(), finished_at=None, result=None, error=None, step="Preparando")
+    state.update(status="running", started_at=now_iso(), finished_at=None, result=None, error=None, step="Preparando")
 
     async def _run():
         try:
-            job["result"] = await run_global_optimization(engine, db)
-            job["status"] = "done"
+            state["result"] = await runner(engine, db)
+            state["status"] = "done"
         except Exception as e:
             logger.exception("global optimization")
-            job.update(status="error", error=str(e)[:300])
+            state.update(status="error", error=str(e)[:300])
             await engine.log("ERROR", f"Optimización global IA falló: {str(e)[:160]}")
         finally:
-            job["finished_at"] = now_iso()
-            job["step"] = ""
+            state["finished_at"] = now_iso()
+            state["step"] = ""
 
     asyncio.create_task(_run())
     return True
 
 
-def job_state() -> dict:
-    return {k: v for k, v in job.items()}
+def job_state(state: dict = None) -> dict:
+    return dict(job if state is None else state)

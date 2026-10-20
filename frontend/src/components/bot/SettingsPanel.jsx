@@ -38,13 +38,14 @@ const Sel = ({ label, value, onChange, options, render, testId }) => (
   </div>
 );
 
-export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [], fmtLeverage }) {
+export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [], extraChips = [], fmtLeverage }) {
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   useEffect(() => { if (!dirty) setForm(settings); }, [settings, dirty]);
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); };
   const toggleSym = (s) => set("symbols", form.symbols.includes(s) ? form.symbols.filter((x) => x !== s) : [...form.symbols, s]);
+  const toggleIn = (k, id) => { const cur = form[k] || []; set(k, cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]); };
   const active = activeStrategies(form);
   const nums = [...NUMS.map((n) => (n.k === "leverage" ? { ...n, max: leverageMax } : n.k === "max_positions" ? { ...n, max: maxPositions } : n)), ...extraNums];
   const toggles = [...TOGGLES, ...extraToggles];
@@ -125,6 +126,20 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
           </div>
         ))}
       </div>
+      {extraChips.map((c) => {
+        const sel = form[c.k] || [];
+        return (
+          <div key={c.k} data-testid={`settings-${c.k.replace(/_/g, "-")}`}>
+            <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">{c.label} ({sel.length ? sel.length : c.emptyLabel})</p>
+            <div className="flex flex-wrap gap-1.5">
+              {c.options.map((o) => (
+                <button key={o.id} data-testid={`settings-${c.k.replace(/_/g, "-")}-${o.id}`} onClick={() => toggleIn(c.k, o.id)} className={`${CHIP} ${sel.includes(o.id) ? ON : OFF}`}>{o.name}</button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">{c.hint}</p>
+          </div>
+        );
+      })}
       <div className="space-y-2.5">
         {toggles.map((t) => (
           <label key={t.k} className="flex cursor-pointer items-center justify-between gap-3 rounded-sm border border-[#1E293B] px-3 py-2 transition-colors hover:border-[#334155]">

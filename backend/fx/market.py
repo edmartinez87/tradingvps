@@ -17,7 +17,9 @@ TF_MAP = {"1m": ("1m", "5d", 1), "5m": ("5m", "30d", 1), "15m": ("15m", "60d", 1
 TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 HTF = {"1m": "15m", "5m": "1h", "15m": "1h", "1h": "4h", "4h": "1d"}
 NY, LONDON, TOKYO, SYDNEY = ZoneInfo("America/New_York"), ZoneInfo("Europe/London"), ZoneInfo("Asia/Tokyo"), ZoneInfo("Australia/Sydney")
-SESSIONS = [("Sídney", SYDNEY, 7, 16), ("Tokio", TOKYO, 9, 18), ("Londres", LONDON, 8, 17), ("Nueva York", NY, 8, 17)]
+SESSIONS = [("sydney", "Sídney", SYDNEY, 7, 16), ("tokyo", "Tokio", TOKYO, 9, 18), ("london", "Londres", LONDON, 8, 17), ("newyork", "Nueva York", NY, 8, 17)]
+SESSION_IDS = [s[0] for s in SESSIONS]
+SESSION_NAMES = {s[0]: s[1] for s in SESSIONS}
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 
 
@@ -58,11 +60,24 @@ def closing_soon(minutes: int = 30, now: datetime = None) -> bool:
 def sessions(now: datetime = None) -> list:
     now = now or datetime.now(timezone.utc)
     out = []
-    for name, tz, o, c in SESSIONS:
+    for sid, name, tz, o, c in SESSIONS:
         loc = now.astimezone(tz)
         active = market_open(now) and loc.weekday() < 5 and o <= loc.hour < c
-        out.append({"name": name, "open": active, "local": loc.strftime("%H:%M")})
+        out.append({"id": sid, "name": name, "open": active, "local": loc.strftime("%H:%M")})
     return out
+
+
+def open_sessions(now: datetime = None) -> list:
+    return [s["id"] for s in sessions(now) if s["open"]]
+
+
+def in_sessions(allowed, now: datetime = None) -> bool:
+    """True when no session filter is set or at least one allowed session is open."""
+    return not allowed or any(s in allowed for s in open_sessions(now))
+
+
+def session_names(ids) -> str:
+    return ", ".join(SESSION_NAMES[s] for s in ids if s in SESSION_NAMES)
 
 
 def market_status(now: datetime = None) -> dict:

@@ -10,7 +10,8 @@ WF_CANDLES = core.WF_CANDLES
 
 
 def kit(settings: FxSettings, tickers: dict):
-    sim = partial(simulate, tickers=tickers, min_lot_max_risk=settings.min_lot_max_risk, weekend_flat=settings.close_before_weekend)
+    sim = partial(simulate, tickers=tickers, min_lot_max_risk=settings.min_lot_max_risk, weekend_flat=settings.close_before_weekend,
+                  sessions_allowed=tuple(settings.sessions_allowed))
     return SimpleNamespace(build_df=build_fx_df, scan_signals=scan_signals, simulate=sim)
 
 

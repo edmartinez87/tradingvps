@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from types import SimpleNamespace
 from models import now_iso
 from optimizer import walk_forward, WF_CANDLES
 import notify
@@ -10,8 +11,23 @@ ICON = {"ROBUSTO": "✅", "DUDOSO": "🟡", "SOBREAJUSTADO": "⚠️", "NO_RENTA
 job = {"status": "idle", "step": "", "started_at": None, "finished_at": None, "error": None}
 
 
-def job_state() -> dict:
-    return dict(job)
+async def _crypto_wf(engine, settings, initial: float, sym: str) -> dict:
+    klines = await engine.market.fetch_history(sym, settings.timeframe, WF_CANDLES)
+    return await asyncio.to_thread(walk_forward, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
+                                   settings.trailing_enabled, initial, sym, settings.signal_mode, settings.disabled_strategies,
+                                   settings.symbol_params[sym])
+
+
+async def _crypto_notify(engine, msg: str):
+    await notify.notify(msg, "review")
+
+
+# A kit binds the weekly revalidation to one bot: how to run the walk-forward, its job state and how to notify.
+CRYPTO = SimpleNamespace(wf=_crypto_wf, job=job, notify=_crypto_notify)
+
+
+def job_state(kit=CRYPTO) -> dict:
+    return dict(kit.job)
 
 
 def _p(p: dict) -> str:
@@ -35,18 +51,15 @@ def _line(sym: str, r: dict) -> str:
             f"{r['verdict']}{prev}{wfe} · OOS {o['expectancy_r']:+.2f}R en {o['trades']} ops (base {r['baseline_oos']['expectancy_r']:+.2f}R)")
 
 
-async def run_check(engine, db, store, source: str = "auto") -> dict:
+async def run_check(engine, db, store, source: str = "auto", kit=CRYPTO) -> dict:
     settings = await engine.get_settings()
     acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
     prev = (await db.wf_checks.find_one({"_id": "latest"}) or {}).get("results", {})
     symbols = [s for s in settings.symbols if s in settings.symbol_params]
     results = {}
     for sym in symbols:
-        job["step"] = f"Validando {sym}"
-        klines = await engine.market.fetch_history(sym, settings.timeframe, WF_CANDLES)
-        wf = await asyncio.to_thread(walk_forward, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
-                                     settings.trailing_enabled, acc["initial_balance"], sym, settings.signal_mode, settings.disabled_strategies,
-                                     settings.symbol_params[sym])
+        kit.job["step"] = f"Validando {sym}"
+        wf = await kit.wf(engine, settings, acc["initial_balance"], sym)
         results[sym] = _compact(wf, settings.symbol_params[sym], prev.get(sym, {}).get("verdict"))
     bad = [s for s, r in results.items() if r["verdict"] in BAD]
     removed = {}
@@ -83,25 +96,26 @@ async def run_check(engine, db, store, source: str = "auto") -> dict:
     if pending:
         msg += ("\n\n<b>Recomendación</b>: los parámetros optimizados de " + ", ".join(s.replace("USDT", "") for s in pending)
                 + " ya no se sostienen fuera de muestra. Quítalos en Optimizador → «Volver a valores por defecto» o activa el borrado automático.")
-    await notify.notify(msg, "review")
+    await kit.notify(engine, msg)
     return doc
 
 
-async def start_check(engine, db, store, source: str = "manual") -> bool:
+async def start_check(engine, db, store, source: str = "manual", kit=CRYPTO) -> bool:
+    job = kit.job
     if job["status"] == "running":
         return False
     job.update(status="running", started_at=now_iso(), finished_at=None, error=None, step="Preparando")
 
     async def _run():
         try:
-            await run_check(engine, db, store, source)
+            await run_check(engine, db, store, source, kit)
             job["status"] = "done"
         except Exception as e:
             logger.exception("walk-forward check")
             job.update(status="error", error=str(e)[:300])
             await engine.log("ERROR", f"Revalidación walk-forward falló: {str(e)[:160]}")
             if source == "auto":
-                await notify.notify(f"⚠️ <b>Revalidación walk-forward falló</b>\n{str(e)[:300]}", "review")
+                await kit.notify(engine, f"⚠️ <b>Revalidación walk-forward falló</b>\n{str(e)[:300]}")
         finally:
             job["finished_at"] = now_iso()
             job["step"] = ""

@@ -42,6 +42,7 @@ class FxConfig(BaseModel):
     news_trade_sl_atr: float = 1.5
     news_trade_tp_atr: float = 3.0
     news_trade_max_per_event: int = 2
+    wf_auto_remove: bool = True
 
 
 class FxConfigUpdate(BaseModel):
@@ -69,6 +70,7 @@ class FxConfigUpdate(BaseModel):
     news_trade_sl_atr: Optional[float] = Field(default=None, ge=0.5, le=5)
     news_trade_tp_atr: Optional[float] = Field(default=None, ge=1, le=10)
     news_trade_max_per_event: Optional[int] = Field(default=None, ge=1, le=4)
+    wf_auto_remove: Optional[bool] = None
     clear_hfm: bool = False
 
 
