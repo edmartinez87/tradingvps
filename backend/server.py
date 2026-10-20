@@ -26,7 +26,7 @@ from strategies import STRATEGY_INFO  # noqa: E402
 from backtest import run_backtest  # noqa: E402
 from performance import performance  # noqa: E402
 from plan import build_plan, SCENARIOS  # noqa: E402
-from optimizer import optimize  # noqa: E402
+from optimizer import optimize, walk_forward, WF_CANDLES  # noqa: E402
 from ai_advisor import advise, ping as ai_ping, current as ai_current  # noqa: E402
 from auth import (  # noqa: E402
     hash_password, verify_password, create_token, client_ip, check_locked, register_failure, clear_failures, make_require_auth,
@@ -522,6 +522,18 @@ async def optimize_symbol(req: OptimizeRequest):
     acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
     klines = await engine.market.fetch_klines(req.symbol, s.timeframe, 1000, cache_sec=300)
     res = optimize(klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"], req.symbol, s.signal_mode, s.disabled_strategies)
+    return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
+
+
+@api.post("/optimize/walk-forward")
+async def optimize_walk_forward(req: OptimizeRequest):
+    if req.symbol not in AVAILABLE_SYMBOLS:
+        raise HTTPException(400, "Símbolo inválido")
+    s = await engine.get_settings()
+    acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
+    klines = await engine.market.fetch_history(req.symbol, s.timeframe, WF_CANDLES)
+    res = await asyncio.to_thread(walk_forward, klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"],
+                                  req.symbol, s.signal_mode, s.disabled_strategies)
     return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
 
 

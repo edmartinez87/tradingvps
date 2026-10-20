@@ -20,11 +20,12 @@ const Params = ({ p, label, cls }) => (
   </div>
 );
 
-export default function OptimizerCompare({ res, onApply, onRemove }) {
+export default function OptimizerCompare({ res, wf, onApply, onRemove }) {
   const { best, baseline, applied } = res;
   if (!best) return <p data-testid="optimizer-no-best" className="text-[12px] text-slate-500">Ninguna combinación alcanzó el mínimo de operaciones para considerarse fiable.</p>;
   const isApplied = applied && applied.sl_atr === best.sl_atr && applied.tp_atr === best.tp_atr && applied.atr_period === best.atr_period;
   const better = best.sqn > baseline.sqn && best.profit_factor >= baseline.profit_factor;
+  const wfBad = wf && ["SOBREAJUSTADO", "NO_RENTABLE"].includes(wf.verdict);
   return (
     <div data-testid="optimizer-compare" className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
       <div className="overflow-hidden rounded-md border border-[#1E293B]">
@@ -47,6 +48,11 @@ export default function OptimizerCompare({ res, onApply, onRemove }) {
           <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">Puntuación robusta</p>
           <p data-testid="optimizer-robust-score" className="num mt-1 text-2xl font-semibold text-amber-400">{best.robust}</p>
           <p className="mt-1 text-[11px] leading-snug text-slate-500">SQN medio de {best.neighbors} combinaciones vecinas. {best.expectancy_r <= 0 ? "Ninguna combinación es rentable en este par con estos datos: considera desactivarlo." : better ? "Supera a la línea base en calidad y profit factor." : "No supera con claridad a la línea base: aplícalo con cautela."}</p>
+          {wf && (
+            <p data-testid="optimizer-wf-hint" className={`mt-2 text-[11px] leading-snug ${wfBad ? "text-rose-300" : wf.verdict === "ROBUSTO" ? "text-emerald-300" : "text-amber-300"}`}>
+              Walk-forward: {wfBad ? "los parámetros optimizados NO se sostienen fuera de muestra. No apliques." : wf.verdict === "ROBUSTO" ? "la optimización se sostiene fuera de muestra." : wf.verdict === "DUDOSO" ? "gana fuera de muestra pero degradado: aplica con cautela." : "sin operaciones suficientes para validar."}
+            </p>
+          )}
         </div>
         {isApplied ? (
           <div className="space-y-2">

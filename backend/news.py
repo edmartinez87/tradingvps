@@ -16,6 +16,9 @@ FEEDS = [("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss"), ("CoinT
          ("The Block", "https://www.theblock.co/rss.xml"), ("Decrypt", "https://decrypt.co/feed")]
 CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 ATOM = "{http://www.w3.org/2005/Atom}"
+RISKS = ("BAJO", "MEDIO", "ALTO")
+HISTORY_DAYS = 30
+ALERT_TTL_MIN = 24 * 60
 COIN_WORDS = {"BTCUSDT": ["bitcoin", "btc"], "ETHUSDT": ["ethereum", "ether ", " eth"], "SOLUSDT": ["solana", " sol "], "XRPUSDT": ["xrp", "ripple"],
               "AVAXUSDT": ["avalanche", "avax"], "LINKUSDT": ["chainlink", " link "], "BNBUSDT": ["bnb", "binance"], "DOGEUSDT": ["doge"],
               "ADAUSDT": ["cardano", " ada "], "NEARUSDT": ["near protocol", " near "], "SUIUSDT": [" sui "], "LTCUSDT": ["litecoin", " ltc"]}
@@ -76,6 +79,11 @@ def _parse_json(text: str):
 
 def _age_min(iso: str) -> int:
     return int((datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() / 60)
+
+
+def _risk(v) -> str:
+    r = str(v or "MEDIO").upper()
+    return r if r in RISKS else "MEDIO"
 
 
 def relevant(headline: dict, symbols: list) -> list:
@@ -188,9 +196,9 @@ class NewsAgent:
                            "key": hashlib.sha1(str(a["title"]).lower().encode()).hexdigest()[:12], "at": now_iso()})
         risk = str(market.get("risk", "MEDIO")).upper()
         return {
-            "market": {"sentiment": int(max(-100, min(100, int(market.get("sentiment", 0) or 0)))), "risk": risk if risk in ("BAJO", "MEDIO", "ALTO") else "MEDIO",
+            "market": {"sentiment": int(max(-100, min(100, int(market.get("sentiment", 0) or 0)))), "risk": _risk(risk),
                        "summary": str(market.get("summary", ""))[:600]},
-            "pairs": {k: {"sentiment": int(max(-100, min(100, int(v.get("sentiment", 0) or 0)))), "risk": str(v.get("risk", "MEDIO")).upper(), "note": str(v.get("note", ""))[:200]} for k, v in pairs.items()},
+            "pairs": {k: {"sentiment": int(max(-100, min(100, int(v.get("sentiment", 0) or 0)))), "risk": _risk(v.get("risk")), "note": str(v.get("note", ""))[:200]} for k, v in pairs.items()},
             "alerts": alerts,
         }
 
@@ -200,9 +208,13 @@ class NewsAgent:
         for h in headlines:
             h["symbols"] = relevant(h, settings.symbols)
         analysis = await self.analyze(headlines, events, settings.symbols)
+        first_seen = {a["key"]: a["at"] for a in (self.latest or {}).get("alerts", [])}
+        for a in analysis["alerts"]:
+            a["at"] = first_seen.get(a["key"], a["at"])
         doc = {**analysis, "events": events, "headlines": headlines[:40], "updated_at": now_iso(), "symbols": settings.symbols}
         await self.db.news.update_one({"_id": "latest"}, {"$set": doc}, upsert=True)
         await self.db.news_history.insert_one({"at": doc["updated_at"], "market": doc["market"], "alerts": [a["title"] for a in doc["alerts"]]})
+        await self.db.news_history.delete_many({"at": {"$lt": (datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)).isoformat()}})
         self.latest = doc
         await self._announce(doc)
         return doc
@@ -231,14 +243,17 @@ class NewsAgent:
                 return f"evento macro de alto impacto ({e['title']} · {t.strftime('%H:%M')} UTC)"
         return None
 
+    def _active_critical(self) -> list:
+        return [a for a in (self.latest or {}).get("alerts", []) if a["severity"] == "CRITICA" and _age_min(a["at"]) <= ALERT_TTL_MIN]
+
     def gate(self, symbol: str):
         """Returns (block_reason | None, size_factor)."""
         if not (self.cfg and self.cfg.news_enabled and self.latest):
             return None, 1.0
         block = self._event_block()
         if not block and self.cfg.news_block_critical:
-            for a in self.latest.get("alerts", []):
-                if a["severity"] == "CRITICA" and a["symbol"] in (symbol, "MARKET") and _age_min(a["at"]) <= 24 * 60:
+            for a in self._active_critical():
+                if a["symbol"] in (symbol, "MARKET"):
                     block = f"noticia crítica · {a['title']}"
                     break
         factor = 1.0
@@ -268,7 +283,7 @@ class NewsAgent:
         upcoming = [e for e in self.latest.get("events", []) if e["impact"] == "ALTO" and datetime.fromisoformat(e["time"]) > now]
         return {"enabled": bool(self.cfg and self.cfg.news_enabled), "ready": True, "risk": self.latest["market"]["risk"],
                 "sentiment": self.latest["market"]["sentiment"], "updated_at": self.latest["updated_at"], "blocked": self._event_block(),
-                "critical": [a["symbol"] for a in self.latest.get("alerts", []) if a["severity"] == "CRITICA"],
+                "critical": [a["symbol"] for a in self._active_critical()],
                 "next_event": upcoming[0] if upcoming else None, "alerts": len(self.latest.get("alerts", []))}
 
     async def aclose(self):

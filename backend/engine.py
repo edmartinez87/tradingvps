@@ -503,7 +503,7 @@ class TradingEngine:
                 price=sig["price"], sl=sig["sl"], tp=sig["tp"], score=sig["score"], reasons=sig["reasons"],
                 indicators=sig["indicators"], ai_decision=kind, note=f"Bloqueada por {'noticias' if kind == 'NOTICIAS' else 'riesgo'}: {block}", key=key,
             ).to_mongo())
-            await open_shadow(self, str(res.inserted_id), symbol, sig, settings, kind, acc["equity"])
+            await open_shadow(self, str(res.inserted_id), symbol, sig, settings, kind, acc["equity"], risk_factor=risk_factor)
             return
 
         signal = Signal(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,
@@ -544,4 +544,4 @@ class TradingEngine:
             if pos:
                 await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True}})
         elif shadow_kind:
-            await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc["equity"], signal.ai_confidence, signal.ai_risk)
+            await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc["equity"], signal.ai_confidence, signal.ai_risk, risk_factor)

@@ -5,7 +5,7 @@ from models import SettingsUpdate, AVAILABLE_SYMBOLS, STRATEGY_KEYS, now_iso
 from performance import performance
 from plan import backtest_stats
 from ai_advisor import advise
-from optimizer import optimize
+from optimizer import optimize, walk_forward, WF_CANDLES
 from profiles import ai_policy, PROFILES
 from shadow import recent_rejections
 import notify
@@ -116,6 +116,18 @@ async def run_auto_review(engine, db, store) -> dict:
     return {**res, "applied": applied, "previous": previous, "ran_at": store.cfg.auto_review_last_at}
 
 
+async def _safe_walk_forward(engine, settings, initial: float, sym: str):
+    """Compact walk-forward verdict for the AI context; never breaks the global job."""
+    try:
+        klines = await engine.market.fetch_history(sym, settings.timeframe, WF_CANDLES)
+        wf = await asyncio.to_thread(walk_forward, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
+                                     settings.trailing_enabled, initial, sym, settings.signal_mode, settings.disabled_strategies)
+        return {k: wf[k] for k in ("verdict", "verdict_text", "wfe", "oos", "baseline_oos", "is_expectancy_r", "beats_baseline", "params_stable", "params_unique")} | {"folds": len(wf["folds"])}
+    except Exception as e:
+        logger.warning(f"walk-forward {sym}: {e}")
+        return None
+
+
 async def run_global_optimization(engine, db) -> dict:
     settings = await engine.get_settings()
     acc = await engine.account_summary()
@@ -128,10 +140,12 @@ async def run_global_optimization(engine, db) -> dict:
         klines = await engine.market.fetch_klines(sym, settings.timeframe, 1000, cache_sec=300)
         res = await asyncio.to_thread(optimize, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
                                       settings.trailing_enabled, initial, sym, settings.signal_mode, settings.disabled_strategies)
-        results.append({**res, "timeframe": settings.timeframe, "applied": settings.symbol_params.get(sym)})
+        job["step"] = f"Validando {sym} (walk-forward)"
+        wf = await _safe_walk_forward(engine, settings, initial, sym)
+        results.append({**res, "timeframe": settings.timeframe, "applied": settings.symbol_params.get(sym), "walk_forward": wf})
     job["step"] = "Claude analizando todos los datos"
     ctx = await build_context(engine, db, settings, acc, True)
-    ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe", "applied")} for r in results]
+    ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe", "applied", "walk_forward")} for r in results]
     res = await advise("optimizacion_global_boton_usuario", ctx, ai_policy(settings.risk_profile))
     applied, previous = await apply_ai_changes(engine, res, before, settings)
     await engine.log("AI_EVAL", f"Optimización global: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))

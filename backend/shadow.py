@@ -9,18 +9,18 @@ BUCKETS = [(0, 39, "<40%"), (40, 59, "40-59%"), (60, 79, "60-79%"), (80, 100, "8
 
 
 async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, kind: str, equity: float,
-                      ai_confidence: int = 0, ai_risk: str = "-"):
+                      ai_confidence: int = 0, ai_risk: str = "-", risk_factor: float = 1.0):
     price = engine.market.tickers.get(symbol, {}).get("price") or sig["price"]
     long = sig["side"] == "long"
     entry = price * (1 + SLIPPAGE) if long else price * (1 - SLIPPAGE)
     sl, tp = entry - (sig["price"] - sig["sl"]), entry + (sig["tp"] - sig["price"])
-    qty, margin = position_size(equity, equity, settings.risk_per_trade, entry, sl, settings.leverage, symbol)
+    qty, margin = position_size(equity, equity, settings.risk_per_trade * risk_factor, entry, sl, settings.leverage, symbol)
     if qty <= 0:
         return None
     doc = {"signal_id": signal_id, "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "timeframe": settings.timeframe,
            "kind": kind, "ai_confidence": ai_confidence, "ai_risk": ai_risk, "entry_price": entry, "qty": qty, "leverage": settings.leverage,
            "margin": margin, "sl": sl, "tp": tp, "initial_sl": sl, "atr": sig["atr"], "fees": entry * qty * FEE_RATE, "breakeven": False,
-           "mark_price": price, "unrealized_pnl": 0.0, "opened_at": now_iso()}
+           "risk_factor": risk_factor, "mark_price": price, "unrealized_pnl": 0.0, "opened_at": now_iso()}
     await engine.db.shadow_positions.insert_one(doc)
     return doc
 

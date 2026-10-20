@@ -34,12 +34,13 @@ def _levels(sig, sl_atr, tp_atr):
 
 
 def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, initial: float,
-             symbol: str = None, sl_atr: float = None, tp_atr: float = None) -> dict:
+             symbol: str = None, sl_atr: float = None, tp_atr: float = None, start: int = 210, end: int = None) -> dict:
     highs, lows, closes, ts = df["high"].values, df["low"].values, df["close"].values, df["ts"].values
     balance, peak, max_dd = initial, initial, 0.0
     trades, curve, pos, rejected = [], [], None, 0
     n = len(df)
-    for i in range(210, n):
+    end = end or n
+    for i in range(start, end):
         if pos:
             price, reason = check_exit(pos["side"], pos["sl"], pos["tp"], highs[i], lows[i])
             if price is not None:
@@ -71,7 +72,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
         equity = balance + (pnl(pos["side"], pos["entry"], closes[i], pos["qty"]) if pos else 0)
         peak = max(peak, equity)
         max_dd = max(max_dd, (peak - equity) / peak * 100 if peak else 0)
-        if i % 5 == 0 or i == n - 1:
+        if i % 5 == 0 or i == end - 1:
             curve.append({"time": _iso(ts[i]), "equity": round(float(equity), 2)})
 
     wins = [t for t in trades if t["pnl"] > 0]
@@ -102,8 +103,8 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
         "avg_loss": round(-gross_loss / len(losses), 2) if losses else 0,
         "expectancy_r": round(float(R.mean()), 3) if len(R) else 0,
         "sqn": round(sqn, 2),
-        "period_start": _iso(ts[210]) if n > 210 else None,
-        "period_end": _iso(ts[-1]),
+        "period_start": _iso(ts[start]) if n > start else None,
+        "period_end": _iso(ts[end - 1]),
         "candles": n,
         "equity_curve": curve,
         "r_multiples": [t["r"] for t in trades],

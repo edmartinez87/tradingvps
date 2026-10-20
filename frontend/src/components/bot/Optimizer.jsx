@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Target, Sparkles } from "lucide-react";
+import { Loader2, Target, Sparkles, FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -8,10 +8,13 @@ import { AiResult } from "./AiAdvice";
 import OptimizerCompare from "./optimizer/OptimizerCompare";
 import OptimizerHeatmap from "./optimizer/OptimizerHeatmap";
 import OptimizerSummary from "./optimizer/OptimizerSummary";
+import WalkForward from "./optimizer/WalkForward";
 
 export default function Optimizer({ settings, onSave, refresh }) {
   const [symbol, setSymbol] = useState(settings.symbols[0]);
   const [results, setResults] = useState({});
+  const [wf, setWf] = useState({});
+  const [wfLoading, setWfLoading] = useState(false);
   const [loading, setLoading] = useState(null);
   const [job, setJob] = useState(null);
   const timer = useRef(null);
@@ -29,6 +32,16 @@ export default function Optimizer({ settings, onSave, refresh }) {
     }
     setLoading(null);
     if (all) toast.success(`Optimización completada para ${syms.length} pares`);
+  };
+  const validate = async () => {
+    setWfLoading(true);
+    try {
+      const { data } = await http.post("/optimize/walk-forward", { symbol });
+      setWf((w) => ({ ...w, [symbol]: data }));
+    } catch (e) {
+      toast.error(`${symbol}: ${errMsg(e)}`);
+    }
+    setWfLoading(false);
   };
 
   const absorb = (j) => {
@@ -76,7 +89,7 @@ export default function Optimizer({ settings, onSave, refresh }) {
     await onSave({ symbol_params: next });
   };
 
-  const withApplied = (r) => ({ ...r, applied: settings.symbol_params[r.symbol] || null });
+  const withApplied = (r) => ({ ...r, applied: settings.symbol_params[r.symbol] || null, wf_verdict: wf[r.symbol]?.verdict || r.walk_forward?.verdict || null });
   const res = results[symbol] ? withApplied(results[symbol]) : null;
   const list = Object.values(results).map(withApplied);
   const running = job?.status === "running";
@@ -126,14 +139,22 @@ export default function Optimizer({ settings, onSave, refresh }) {
         <Button data-testid="optimizer-run-all-button" onClick={() => run(true)} disabled={!!loading || running} variant="outline" className="h-9 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider text-slate-200 hover:bg-[#111827]">
           {loading ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> {loading}</> : `Optimizar todos (${settings.symbols.length})`}
         </Button>
+        <Button data-testid="optimizer-walk-forward-button" onClick={validate} disabled={wfLoading || running} variant="outline" className="h-9 border-sky-500/40 bg-transparent font-mono text-[11px] uppercase tracking-wider text-sky-200 hover:bg-sky-500/10">
+          {wfLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="mr-1.5 h-3.5 w-3.5" />} Validar walk-forward
+        </Button>
       </div>
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        <span className="text-sky-300">Walk-forward</span>: descarga 2.000 velas, optimiza en tramos pasados y comprueba a ciegas si esos parámetros siguen ganando en los tramos siguientes. Es la prueba de que el óptimo no está sobreajustado.
+      </p>
+
+      {wf[symbol] && <WalkForward res={wf[symbol]} />}
 
       {res && (
         <div data-testid="optimizer-results" className="space-y-4">
           <p className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
             {res.symbol} · {res.timeframe} · {res.combos} combinaciones · {fmtDateTime(res.period_start)} → {fmtDateTime(res.period_end)}
           </p>
-          <OptimizerCompare res={res} onApply={() => apply(res.symbol, res.best)} onRemove={() => remove(res.symbol)} />
+          <OptimizerCompare res={res} wf={wf[symbol]} onApply={() => apply(res.symbol, res.best)} onRemove={() => remove(res.symbol)} />
           <OptimizerHeatmap key={res.symbol} res={res} />
         </div>
       )}

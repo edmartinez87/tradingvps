@@ -115,3 +115,34 @@ class MarketData:
         data = [[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in rows]
         self._kcache[key] = (time.time(), data)
         return data
+
+    async def fetch_history(self, symbol: str, tf: str, total: int = 2000, cache_sec: int = 600) -> list:
+        """Up to `total` candles paginating backwards (Bybit `end` / Bitget history-candles). Returns what it could get (≥ 1 page)."""
+        key = (symbol, tf, "history", total)
+        hit = self._kcache.get(key)
+        if hit and time.time() - hit[0] < cache_sec:
+            return hit[1]
+        data = list(await self.fetch_klines(symbol, tf, 1000, cache_sec=300))
+        bybit_tf, bitget_tf = TF_MAP[tf]
+        while len(data) < total:
+            oldest, end = data[0][0], data[0][0] - 1
+            rows = None
+            if self.provider == "bybit":
+                try:
+                    rows = (await self._bybit("/v5/market/kline", {"category": "linear", "symbol": symbol, "interval": bybit_tf,
+                                                                    "limit": min(1000, total - len(data)), "end": end}))["list"]
+                except RuntimeError as e:
+                    self._warn_fallback(f"historial {symbol} {tf}", str(e))
+            if rows is None:
+                try:
+                    rows = await self._bitget("/api/v2/mix/market/history-candles", {"symbol": symbol, "granularity": bitget_tf, "limit": min(200, total - len(data)),
+                                                                                       "productType": "USDT-FUTURES", "endTime": end})
+                except Exception as e:
+                    logger.warning(f"historial {symbol} {tf}: {e} → usando {len(data)} velas")
+                    break
+            older = [[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in rows if int(k[0]) < oldest]
+            if not older:
+                break
+            data = sorted(older) + data
+        self._kcache[key] = (time.time(), data[-total:])
+        return data[-total:]
