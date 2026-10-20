@@ -26,7 +26,7 @@ export default function SessionsStrip({ hours, allowed = [] }) {
           const ok = !filtered || allowed.includes(s.id);
           return (
             <span key={s.id} data-testid={`session-${s.id}`} title={`Hora local ${s.local}${filtered ? (ok ? " · sesión permitida" : " · fuera del filtro de sesiones") : ""}`}
-              className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-mono text-[10px] ${s.open ? "border-sky-500/40 bg-sky-500/10 text-sky-300" : "border-[#1E293B] text-slate-500"} ${ok ? "" : "opacity-40 line-through"}`}>
+              className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-mono text-[10px] ${s.open ? "border-sky-500/40 bg-sky-500/10 text-sky-300" : "border-[#1E293B] text-slate-500"} ${ok ? "" : "opacity-60 line-through"}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${s.open ? "bg-sky-400" : "bg-slate-600"}`} /> {s.name} <span className="num opacity-70">{s.local}</span>
             </span>
           );

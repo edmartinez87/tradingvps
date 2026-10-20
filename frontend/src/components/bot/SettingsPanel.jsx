@@ -66,6 +66,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
       if (body[k] !== v) clamped.push(`${label.replace(/ \(.*\)$/, "")} → ${body[k]}`);
     });
     delete body.bot_running;
+    delete body.symbol_params;
     const ok = await onSave(body);
     setSaving(false);
     if (ok) {

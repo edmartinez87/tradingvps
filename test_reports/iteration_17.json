@@ -1,0 +1,29 @@
+{
+  "summary": "Iter 17 FRONTEND e2e (Playwright, 1920x1080) on HotForex /hotforex + crypto /bybit regression. All requested flows PASS: optimize-all-card + wf-auto-card present in FX Optimizer; wf-auto-remove-switch -> PUT /api/fx/config {wf_auto_remove:false/true} with toasts (restored to true); 'Revalidar ahora' -> POST /api/fx/walk-forward/check, button disabled with step 'PREPARANDO', toast 'Revalidación walk-forward completada', wf-auto-table + wf-auto-row-USDJPY (SL 3x TP 6x ATR 10, ROBUSTO, WFE 0.82); after removing USDJPY params wf-auto-empty shows. Optimize-all with 3 pairs (XAUUSD/EURUSD/USDJPY): steps shown (PREPARANDO, OPTIMIZANDO X, VALIDANDO X (WALK-FORWARD), CLAUDE ANALIZANDO TODOS LOS DATOS), polling only GET /api/fx/ai/optimize-all (no /api/ai/optimize-all call), finished in ~27 s, toast 'Claude revisó todo · sin cambios necesarios', optimize-all-result with summary + 'Sin cambios de configuración' + 6 notes. Undo button not shown (no changes) so undo could not be exercised. Sessions filter: settings-sessions-allowed with 4 chips, label (todas)->(2)->(todas), save toast 'Configuración guardada', PUT /api/fx/settings sessions_allowed ['london','newyork'] persisted (verified via API); sessions-strip sydney/tokyo get 'opacity-40 line-through', session-filter-badge 'SESIÓN OPERABLE' (NY open at test time); plan-profile-name stays ACTIVO, no Personalizado badge. Backtest EURUSD 1h: intro contains 'solo se abren entradas en Londres y Nueva York', backtest-skipped-session '27 señales descartadas fuera de las sesiones permitidas (Londres, Nueva York)', session rows only Londres, Londres/Nueva York, Nueva York, Tokio/Londres (overlap label, acceptable). After clearing: no line-through, no badge, intro without filter text, no skipped line, rows incl. Sídney/Tokio. Crypto regression: optimize-all-card + wf-auto-card present, switch -> PUT /api/config (not /api/fx), no settings-sessions-allowed, no sessions-strip; switch-bot-button works both ways. Final state verified via API: FX bot stopped, profile_active 2 (12 pairs), symbol_params {}, sessions_allowed [], wf_auto_remove true; crypto untouched (wf_auto_remove toggled and restored to true).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "FX Optimizer > optimize-all-result notes", "issues": ["One Claude note ends cut mid-word ('...así que no se restringe sessions_allow') and notes/summary expose internal keys (symbol_params, sessions_allowed, NO_RENTABLE) in user-facing Spanish text. Prompt should ask for user-friendly wording / complete sentences."]},
+      {"screen": "SessionsStrip", "issues": ["Disallowed sessions use opacity-40 + line-through on already slate-500 text: very low contrast, hard to read (intended de-emphasis, but consider opacity-60)."]}
+    ]
+  },
+  "test_report_links": ["/app/tests/fx_state.py"],
+  "action_items": [
+    "Optional: tighten optimize-all Claude prompt so notes are complete sentences without internal field names",
+    "Optional: slightly raise contrast of disallowed session chips in SessionsStrip"
+  ],
+  "critical_code_review_comments": [
+    "SettingsPanel save sends the full form (incl. symbol_params) — if the form is dirty while optimize-all/weekly WF changes symbol_params in the background, saving will silently overwrite Claude's/auto-removal changes. Consider sending only changed keys.",
+    "WalkForwardAuto initial text shows 'Aún no se ha ejecutado' briefly until GET /walk-forward/check resolves (autoRemove defaults true before load as well) — minor flash; could show a loading state.",
+    "optimize-all-undo-button path (PUT /api/fx/settings with previous) not exercised in UI because Claude made no changes (0 real trades)."
+  ],
+  "updated_files": ["/app/tests/fx_state.py"],
+  "success_rate": {"backend": "N/A (skipped as requested)", "frontend": "100% of executed checks (undo not exercisable)"},
+  "seed_data_creation": "None. Pre-existing USDJPY symbol_params (from backend tests) was used for the wf-auto-table check and then removed via 'Volver a valores por defecto'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login password BlackCat2233@. FX state left: bot stopped, profile 2 (12 pairs), symbol_params {}, sessions_allowed [], wf_auto_remove true; last optimize-all result exists (no changes). Optimize-all with 3 pairs takes ~27 s. Session filter badge depends on UTC hour. Undo flow of optimize-all still untested in UI (needs Claude to apply changes, unlikely with 0 real trades). AI signals SESION/MERCADO badges not verified (no FX signals; bot stopped).",
+  "rca of the issue": ""
+}

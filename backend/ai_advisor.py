@@ -130,11 +130,21 @@ def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
         f"(4) Para apagar una estrategia usa disabled_strategies (lista completa de claves apagadas; claves válidas: {STRATEGY_KEYS_TXT}) y deja strategy en 'all'. "
         "(5) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
         + market["extra_rule"] +
+        "Redacta summary y notes para el usuario final: frases completas y breves (máximo 2 por nota), en español claro y sin claves internas "
+        "(di «SL/TP optimizados» en vez de symbol_params, «sesiones permitidas» en vez de sessions_allowed, «sobreajustado» en vez de SOBREAJUSTADO). "
         "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
         '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), disabled_strategies (lista), risk_per_trade, '
         f'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{{sl_atr,tp_atr,atr_period}}){market["extra_keys"]}>}},'
         '"notes":["recomendaciones adicionales en español que no son cambios de configuración"]}'
     )
+
+
+def _clip(text: str, limit: int) -> str:
+    text = str(text)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:.") + "…"
 
 
 async def advise(scope: str, context: dict, policy: dict = None, market: dict = CRYPTO_MARKET) -> dict:
@@ -146,7 +156,7 @@ async def advise(scope: str, context: dict, policy: dict = None, market: dict = 
     data = json.loads(match.group(0))
     changes = data.get("changes") or {}
     return {
-        "summary": str(data.get("summary", ""))[:1200],
+        "summary": _clip(data.get("summary", ""), 1200),
         "changes": changes if isinstance(changes, dict) else {},
-        "notes": [str(n)[:300] for n in (data.get("notes") or [])][:6],
+        "notes": [_clip(n, 420) for n in (data.get("notes") or [])][:6],
     }
