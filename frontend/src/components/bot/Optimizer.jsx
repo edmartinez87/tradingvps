@@ -54,15 +54,21 @@ export default function Optimizer({ settings, onSave, refresh }) {
 
   const [check, setCheck] = useState(null);
   const [checkJob, setCheckJob] = useState(null);
+  const [autoRemove, setAutoRemove] = useState(true);
   const checkTimer = useRef(null);
   const pollCheck = async () => {
     try {
       const { data } = await http.get("/walk-forward/check");
       setCheckJob(data.job);
       setCheck(data.latest);
+      setAutoRemove(data.auto_remove);
       if (data.job.status === "running") checkTimer.current = setTimeout(pollCheck, 2500);
       else if (data.job.status === "error") toast.error(data.job.error || "La revalidación falló");
-      else if (data.job.status === "done" && data.latest) toast.success("Revalidación walk-forward completada");
+      else if (data.job.status === "done" && data.latest) {
+        const removed = Object.keys(data.latest.removed || {});
+        toast.success(removed.length ? `Revalidación completada · SL/TP quitados en ${removed.join(", ")}` : "Revalidación walk-forward completada");
+        if (removed.length) refresh?.();
+      }
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -77,7 +83,7 @@ export default function Optimizer({ settings, onSave, refresh }) {
     }
   };
   useEffect(() => {
-    http.get("/walk-forward/check").then(({ data }) => { setCheck(data.latest); setCheckJob(data.job); if (data.job.status === "running") checkTimer.current = setTimeout(pollCheck, 2500); }).catch(() => {});
+    http.get("/walk-forward/check").then(({ data }) => { setCheck(data.latest); setCheckJob(data.job); setAutoRemove(data.auto_remove); if (data.job.status === "running") checkTimer.current = setTimeout(pollCheck, 2500); }).catch(() => {});
     return () => clearTimeout(checkTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -192,7 +198,8 @@ export default function Optimizer({ settings, onSave, refresh }) {
         En la tabla multi-par, la columna <span className="text-slate-300">Decisión</span> cruza el óptimo robusto con ese veredicto: verde aplicar, ámbar con cautela, rojo no aplicar.
       </p>
 
-      <WalkForwardAuto check={check} running={checkJob?.status === "running"} step={checkJob?.step} onRun={runCheck} appliedCount={appliedCount} />
+      <WalkForwardAuto check={check} running={checkJob?.status === "running"} step={checkJob?.step} onRun={runCheck} appliedCount={appliedCount}
+        autoRemove={autoRemove} onAutoRemove={setAutoRemove} />
 
       {wf[symbol] && <WalkForward res={wf[symbol]} />}
 

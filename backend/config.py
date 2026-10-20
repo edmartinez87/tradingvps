@@ -61,9 +61,11 @@ class AppConfig(BaseModel):
     news_block_critical: bool = True
     news_reduce_on_high_risk: bool = True
     news_size_factor: float = 0.5
+    wf_auto_remove: bool = True
 
 
 class ConfigUpdate(BaseModel):
+    wf_auto_remove: Optional[bool] = None
     news_enabled: Optional[bool] = None
     news_interval_min: Optional[int] = Field(default=None, ge=5, le=240)
     news_block_events: Optional[bool] = None

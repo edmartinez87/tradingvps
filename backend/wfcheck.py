@@ -14,23 +14,28 @@ def job_state() -> dict:
     return dict(job)
 
 
+def _p(p: dict) -> str:
+    return f"SL {p.get('sl_atr')}× TP {p.get('tp_atr')}× ATR {int(p.get('atr_period') or 14)}"
+
+
 def _compact(wf: dict, params: dict, previous: str | None) -> dict:
     pick = ("trades", "expectancy_r", "profit_factor", "return_pct", "win_rate")
     a = wf["applied"] or wf
     return {"verdict": a["verdict"], "verdict_text": a["verdict_text"], "wfe": a["wfe"], "is_expectancy_r": a["is_expectancy_r"],
             "oos": {k: a["oos"][k] for k in pick}, "baseline_oos": {k: wf["baseline_oos"][k] for k in pick}, "process_verdict": wf["verdict"],
-            "folds": len(wf["folds"]), "params": params, "previous_verdict": previous, "changed": previous is not None and previous != a["verdict"]}
+            "folds": len(wf["folds"]), "params": params, "previous_verdict": previous, "changed": previous is not None and previous != a["verdict"],
+            "removed": False}
 
 
 def _line(sym: str, r: dict) -> str:
-    o, p = r["oos"], r["params"]
+    o = r["oos"]
     prev = f" (antes {r['previous_verdict']})" if r["changed"] else ""
     wfe = f" · WFE {r['wfe']:.2f}" if r["wfe"] is not None else ""
-    return (f"{ICON.get(r['verdict'], '•')} <b>{sym.replace('USDT', '')}</b> SL {p.get('sl_atr')}× TP {p.get('tp_atr')}× ATR {int(p.get('atr_period') or 14)} · "
+    return (f"{ICON.get(r['verdict'], '•')} <b>{sym.replace('USDT', '')}</b> {_p(r['params'])} · "
             f"{r['verdict']}{prev}{wfe} · OOS {o['expectancy_r']:+.2f}R en {o['trades']} ops (base {r['baseline_oos']['expectancy_r']:+.2f}R)")
 
 
-async def run_check(engine, db, source: str = "auto") -> dict:
+async def run_check(engine, db, store, source: str = "auto") -> dict:
     settings = await engine.get_settings()
     acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
     prev = (await db.wf_checks.find_one({"_id": "latest"}) or {}).get("results", {})
@@ -43,32 +48,49 @@ async def run_check(engine, db, source: str = "auto") -> dict:
                                      settings.trailing_enabled, acc["initial_balance"], sym, settings.signal_mode, settings.disabled_strategies,
                                      settings.symbol_params[sym])
         results[sym] = _compact(wf, settings.symbol_params[sym], prev.get(sym, {}).get("verdict"))
-    doc = {"ran_at": now_iso(), "source": source, "timeframe": settings.timeframe, "checked": symbols, "results": results}
-    await db.wf_checks.update_one({"_id": "latest"}, {"$set": doc}, upsert=True)
     bad = [s for s, r in results.items() if r["verdict"] in BAD]
+    removed = {}
+    if bad and store.cfg.wf_auto_remove:
+        removed = {s: settings.symbol_params[s] for s in bad}
+        await engine.update_settings({"symbol_params": {k: v for k, v in settings.symbol_params.items() if k not in bad}})
+        for s in bad:
+            results[s]["removed"] = True
+        await engine.log("PLAN", "Walk-forward: SL/TP optimizados quitados por sobreajuste → valores por defecto en "
+                                 + ", ".join(f"{s.replace('USDT', '')} ({_p(removed[s])})" for s in bad))
+    doc = {"ran_at": now_iso(), "source": source, "timeframe": settings.timeframe, "checked": symbols, "results": results,
+           "removed": removed, "auto_remove": bool(store.cfg.wf_auto_remove)}
+    await db.wf_checks.update_one({"_id": "latest"}, {"$set": doc}, upsert=True)
     if not symbols:
         await engine.log("PLAN", "Walk-forward semanal: ningún par tiene SL/TP optimizados aplicados · nada que revalidar")
         return doc
     await engine.log("PLAN", f"Walk-forward {'semanal' if source == 'auto' else 'manual'} · {len(symbols)} pares con SL/TP aplicados · "
                              + ", ".join(f"{s.replace('USDT', '')} {results[s]['verdict']}" for s in symbols))
-    head = (f"⚠️ <b>Walk-forward: {len(bad)} par{'es' if len(bad) > 1 else ''} sobreajustado{'s' if len(bad) > 1 else ''}</b>" if bad
-            else "🧪 <b>Walk-forward semanal · todo en orden</b>")
+    plural = len(bad) > 1
+    if removed:
+        head = f"✂️ <b>Walk-forward: SL/TP quitados en {len(bad)} par{'es' if plural else ''}</b>"
+    elif bad:
+        head = f"⚠️ <b>Walk-forward: {len(bad)} par{'es' if plural else ''} sobreajustado{'s' if plural else ''}</b>"
+    else:
+        head = "🧪 <b>Walk-forward semanal · todo en orden</b>"
     msg = head + f"\nRevalidación de {len(symbols)} pares con SL/TP optimizados · {settings.timeframe}\n\n" + "\n".join(_line(s, results[s]) for s in symbols)
-    if bad:
+    if removed:
+        msg += "\n\n<b>Cambios aplicados</b>\n" + "\n".join(f"– {s.replace('USDT', '')}: {_p(p)} → valores por defecto de la estrategia" for s, p in removed.items())
+        msg += "\nPuedes volver a optimizar el par cuando acumule más historial."
+    elif bad:
         msg += ("\n\n<b>Recomendación</b>: los parámetros optimizados de " + ", ".join(s.replace("USDT", "") for s in bad)
-                + " ya no se sostienen fuera de muestra. Quítalos en Optimizador → «Volver a valores por defecto» o deja que la revisión IA lo decida.")
+                + " ya no se sostienen fuera de muestra. Quítalos en Optimizador → «Volver a valores por defecto» o activa el borrado automático.")
     await notify.notify(msg, "review")
     return doc
 
 
-async def start_check(engine, db, source: str = "manual") -> bool:
+async def start_check(engine, db, store, source: str = "manual") -> bool:
     if job["status"] == "running":
         return False
     job.update(status="running", started_at=now_iso(), finished_at=None, error=None, step="Preparando")
 
     async def _run():
         try:
-            await run_check(engine, db, source)
+            await run_check(engine, db, store, source)
             job["status"] = "done"
         except Exception as e:
             logger.exception("walk-forward check")

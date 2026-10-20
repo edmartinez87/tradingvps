@@ -7,13 +7,14 @@ import { Switch } from "@/components/ui/switch";
 import { Panel } from "../Panel";
 import { http, errMsg } from "@/lib/api";
 import { Field, INPUT, BTN, BTN_OUT } from "./SecuritySection";
+import WeeklySummaryCard from "./WeeklySummaryCard";
 
 const ALERTS = [
   ["orders", "Entradas, salidas y límite diario"],
   ["ai", "Decisiones de Claude sobre cada señal"],
-  ["daily", "Resumen diario (00:00 UTC)"],
+  ["daily", "Resumen diario (00:00 UTC) y semanal (domingos 20:00 UTC)"],
   ["plan", "Avisos del plan de crecimiento"],
-  ["review", "Resultado de la revisión IA automática"],
+  ["review", "Revisión IA automática y revalidación walk-forward"],
   ["news", "Alertas de noticias graves y eventos macro"],
 ];
 
@@ -97,6 +98,7 @@ export default function TelegramSection({ config, onSave }) {
           {busy === "test" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />} Enviar prueba
         </Button>
       </div>
+      <WeeklySummaryCard ready={!!config.telegram_ready} />
     </Panel>
   );
 }

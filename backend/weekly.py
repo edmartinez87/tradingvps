@@ -1,0 +1,107 @@
+import logging
+from datetime import datetime, timezone, timedelta
+from models import now_iso
+from shadow import AI_KINDS
+import notify
+
+logger = logging.getLogger("weekly")
+STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
+                  "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21"}
+
+
+def _agg(rows: list) -> dict:
+    n = len(rows)
+    pnl = sum(r["pnl"] for r in rows)
+    wins = [r for r in rows if r["pnl"] > 0]
+    gw = sum(r["pnl"] for r in wins)
+    gl = sum(r["pnl"] for r in rows if r["pnl"] <= 0)
+    return {"trades": n, "pnl": round(pnl, 2), "wins": len(wins), "win_rate": round(len(wins) / n * 100, 1) if n else 0,
+            "profit_factor": round(gw / abs(gl), 2) if gl else None, "fees": round(sum(r.get("fees", 0) for r in rows), 2)}
+
+
+def _by(rows: list, field: str) -> list:
+    keys = sorted({r[field] for r in rows})
+    return sorted([{"key": k, **_agg([r for r in rows if r[field] == k])} for k in keys], key=lambda x: x["pnl"], reverse=True)
+
+
+async def build_weekly(engine, db) -> dict:
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=7)).isoformat()
+    settings = await engine.get_settings()
+    s = await engine.account_summary()
+    trades = await db.trades.find({"closed_at": {"$gte": since}}, {"_id": 0, "symbol": 1, "pnl": 1, "fees": 1, "strategy": 1, "reason": 1, "side": 1}).to_list(5000)
+    shadows = await db.shadow_trades.find({"closed_at": {"$gte": since}}, {"_id": 0, "pnl": 1, "kind": 1}).to_list(5000)
+    signals = {r["_id"]: r["n"] async for r in db.signals.aggregate([{"$match": {"created_at": {"$gte": since}}}, {"$group": {"_id": "$ai_decision", "n": {"$sum": 1}}}])}
+    snap = await db.equity.find_one({"ts": {"$lte": since}}, {"_id": 0, "equity": 1}, sort=[("ts", -1)]) \
+        or await db.equity.find_one({"ts": {"$gte": since}}, {"_id": 0, "equity": 1}, sort=[("ts", 1)])
+    start_equity = snap["equity"] if snap else s["initial_balance"]
+    by_symbol = _by(trades, "symbol")
+    ai_shadow = [r for r in shadows if r["kind"] in AI_KINDS]
+    checkin = await engine.checkin(settings, s)
+    return {
+        "from": since, "to": now_iso(), "mode": s["mode"],
+        "equity": s["equity"], "start_equity": round(start_equity, 2), "week_pnl": round(s["equity"] - start_equity, 2),
+        "week_return_pct": round((s["equity"] - start_equity) / start_equity * 100, 2) if start_equity else 0,
+        "total_return_pct": s["total_return_pct"], "max_drawdown": s["max_drawdown"], "open_positions": s["open_positions"],
+        "week": _agg(trades), "by_symbol": by_symbol, "by_strategy": _by(trades, "strategy"),
+        "best": [r for r in by_symbol if r["pnl"] > 0][:3], "worst": [r for r in reversed(by_symbol) if r["pnl"] < 0][:3],
+        "signals": {"total": sum(signals.values()), "by_decision": signals},
+        "shadow": {"trades": len(shadows), "filter_value": round(-sum(r["pnl"] for r in shadows), 2),
+                   "ai_trades": len(ai_shadow), "ai_value": round(-sum(r["pnl"] for r in ai_shadow), 2)},
+        "plan": {"phase_name": checkin["phase_name"], "message": checkin["message"], "warnings": checkin["warnings"],
+                 "ready_to_advance": checkin["ready_to_advance"], "days_running": checkin["days_running"], "last_30d": checkin["last_30d"]},
+        "news": engine.news.summary() if engine.news else None,
+        "risk_profile": settings.risk_profile,
+    }
+
+
+def _sym(k: str) -> str:
+    return k.replace("USDT", "")
+
+
+def format_weekly(w: dict) -> str:
+    wk, sh, pl = w["week"], w["shadow"], w["plan"]
+    arrow = "📈" if w["week_pnl"] >= 0 else "📉"
+    lines = [f"{arrow} <b>Resumen semanal · {w['mode']}</b>",
+             f"Equidad <b>${w['equity']:,.2f}</b> · semana {w['week_pnl']:+.2f} USDT ({w['week_return_pct']:+.2f}%) · total {w['total_return_pct']:+.2f}% · DD máx {w['max_drawdown']}%"]
+    if wk["trades"]:
+        lines.append(f"{wk['trades']} operaciones · acierto {wk['win_rate']}% · PF {wk['profit_factor'] if wk['profit_factor'] is not None else '—'} · comisiones {wk['fees']:.2f} USDT")
+    else:
+        lines.append("Sin operaciones cerradas esta semana.")
+    if w["best"]:
+        lines.append("\n<b>Mejores pares</b>\n" + "\n".join(f"🟢 {_sym(r['key'])} {r['pnl']:+.2f} USDT · {r['trades']} ops · {r['win_rate']}%" for r in w["best"]))
+    if w["worst"]:
+        lines.append("\n<b>Peores pares</b>\n" + "\n".join(f"🔴 {_sym(r['key'])} {r['pnl']:+.2f} USDT · {r['trades']} ops · {r['win_rate']}%" for r in w["worst"]))
+    if w["by_strategy"]:
+        top, bottom = w["by_strategy"][0], w["by_strategy"][-1]
+        strat = f"\n<b>Estrategias</b>: mejor {STRATEGY_NAMES.get(top['key'], top['key'])} {top['pnl']:+.2f}"
+        if bottom is not top:
+            strat += f" · peor {STRATEGY_NAMES.get(bottom['key'], bottom['key'])} {bottom['pnl']:+.2f}"
+        lines.append(strat)
+    sig = w["signals"]
+    if sig["total"]:
+        d = sig["by_decision"]
+        lines.append(f"\n<b>Filtro IA</b>: {sig['total']} señales · aprobadas {d.get('APROBADA', 0)} · rechazadas {d.get('RECHAZADA', 0)} · bloqueadas {d.get('BLOQUEADA', 0) + d.get('NOTICIAS', 0)}")
+    if sh["trades"]:
+        verb = "evitó pérdidas por" if sh["filter_value"] >= 0 else "dejó escapar"
+        lines.append(f"Valor del filtro: {verb} <b>{abs(sh['filter_value']):.2f} USDT</b> en {sh['trades']} operaciones sombra"
+                     + (f" (IA: {sh['ai_value']:+.2f} USDT en {sh['ai_trades']})" if sh["ai_trades"] else ""))
+    elif sig["total"]:
+        lines.append("Valor del filtro: aún sin operaciones sombra cerradas esta semana.")
+    lines.append(f"\n📋 <b>Plan</b> · {pl['message']}")
+    l30 = pl["last_30d"]
+    lines.append(f"Últimos 30 días: {l30['pnl']:+.2f} USDT · {l30['trades']} ops · PF {l30['profit_factor'] if l30['profit_factor'] is not None else '—'} · día {pl['days_running']}")
+    for wn in pl["warnings"]:
+        lines.append(f"⚠️ {wn}")
+    if w["news"] and w["news"].get("ready"):
+        lines.append(f"\n📰 Noticias: riesgo {w['news']['risk']} · sentimiento {w['news']['sentiment']:+d}")
+    return "\n".join(lines)
+
+
+async def send_weekly(engine, db, force: bool = False) -> dict:
+    w = await build_weekly(engine, db)
+    text = format_weekly(w)
+    await db.weekly.update_one({"_id": "latest"}, {"$set": {**w, "text": text}}, upsert=True)
+    await engine.log("PLAN", f"Resumen semanal: {w['week_pnl']:+.2f} USDT ({w['week_return_pct']:+.2f}%) · {w['week']['trades']} ops · filtro {w['shadow']['filter_value']:+.2f} USDT")
+    sent = await notify.send(text) if force else await notify.notify(text, "daily")
+    return {**w, "text": text, "sent": bool(sent)}

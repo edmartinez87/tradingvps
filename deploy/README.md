@@ -8,7 +8,7 @@ sudo bash install.sh
 
 El instalador: instala Docker, crea `backend.env` con secretos aleatorios, construye los
 contenedores (Mongo + backend FastAPI + Caddy sirviendo el frontend y proxy `/api`),
-programa los crons de revisión IA (08:00 UTC) y walk-forward semanal (lunes 07:00 UTC) y abre los puertos 80/443.
+programa los crons de revisión IA (08:00 UTC), walk-forward semanal (lunes 07:00 UTC) y resumen semanal por Telegram (domingo 20:00 UTC) y abre los puertos 80/443.
 
 | Comando | Para qué |
 |---|---|
@@ -18,6 +18,7 @@ programa los crons de revisión IA (08:00 UTC) y walk-forward semanal (lunes 07:
 | `./update.sh` | traer la última versión y reconstruir |
 | `bash cron-ai-review.sh` | disparar la revisión IA manualmente |
 | `bash cron-walk-forward.sh` | revalidar ahora con walk-forward los pares con SL/TP optimizados |
+| `bash cron-weekly-summary.sh` | enviar ahora el resumen semanal por Telegram |
 
 Archivos sensibles (no se suben a git): `deploy/.env`, `deploy/backend.env`.
 **Haz copia de `backend.env`**: `CREDENTIAL_ENCRYPTION_KEY` cifra las claves de Bybit guardadas;

@@ -40,6 +40,7 @@ from strategies import MODE_INFO  # noqa: E402
 from news import NewsAgent  # noqa: E402
 import migrations  # noqa: E402
 import wfcheck  # noqa: E402
+import weekly  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -312,18 +313,44 @@ def _cron_auth(request: Request):
 async def cron_walk_forward(request: Request):
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     _cron_auth(request)
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "Cuerpo inválido")
-    run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
+    run_id = await _cron_run_id(request)
     if run_id and run_id in _cron_seen:
         return {"accepted": True, "duplicate": True}
     if run_id:
         _cron_seen.append(run_id)
         del _cron_seen[:-200]
-    started = await wfcheck.start_check(engine, db, "auto")
+    started = await wfcheck.start_check(engine, db, store, "auto")
     return {"accepted": True, "scheduled": started}
+
+
+async def _cron_run_id(request: Request) -> str:
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Cuerpo inválido")
+    return request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
+
+
+async def _safe_weekly():
+    try:
+        await weekly.send_weekly(engine, db)
+    except Exception as e:
+        logger.exception("weekly summary")
+        await engine.log("ERROR", f"Resumen semanal falló: {str(e)[:160]}")
+
+
+@cron.post("/weekly-summary")
+async def cron_weekly_summary(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    _cron_auth(request)
+    run_id = await _cron_run_id(request)
+    if run_id and run_id in _cron_seen:
+        return {"accepted": True, "duplicate": True}
+    if run_id:
+        _cron_seen.append(run_id)
+        del _cron_seen[:-200]
+    asyncio.create_task(_safe_weekly())
+    return {"accepted": True, "scheduled": True}
 
 
 @api.get("/meta")
@@ -565,14 +592,29 @@ async def optimize_walk_forward(req: OptimizeRequest):
 
 @api.get("/walk-forward/check")
 async def walk_forward_check_status():
-    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db)}
+    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db), "auto_remove": store.cfg.wf_auto_remove}
 
 
 @api.post("/walk-forward/check")
 async def walk_forward_check_run():
-    if not await wfcheck.start_check(engine, db, "manual"):
+    if not await wfcheck.start_check(engine, db, store, "manual"):
         raise HTTPException(409, "Ya hay una revalidación en curso")
-    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db)}
+    return {"job": wfcheck.job_state(), "latest": await wfcheck.latest(db), "auto_remove": store.cfg.wf_auto_remove}
+
+
+@api.get("/weekly-summary")
+async def weekly_summary_preview():
+    w = await weekly.build_weekly(engine, db)
+    last = await db.weekly.find_one({"_id": "latest"}, {"_id": 0, "to": 1})
+    return {**w, "text": weekly.format_weekly(w), "last_sent_at": (last or {}).get("to")}
+
+
+@api.post("/weekly-summary/send")
+async def weekly_summary_send():
+    try:
+        return await weekly.send_weekly(engine, db, force=True)
+    except Exception as e:
+        raise HTTPException(424, str(e)[:200])
 
 
 @api.post("/ai/optimize-all")
