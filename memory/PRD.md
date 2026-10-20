@@ -95,6 +95,11 @@
 - UI: Ajustes → "Filtro de funding" (FundingSection.jsx); chip de funding en el watchlist (gris/ámbar/rojo, ≈0% neutro); badge FUNDING cian en señales IA; etiquetas en Rendimiento/Sombra.
 - Tested iteration_13: backend 21/21 (tests/test_iter13_funding.py: unit, config, prompt, watchlist, e2e con engine propio y tickers mockeados: EXTREMO→FUNDING+sombra, ALTO→50 % tamaño, a favor→normal) + regresión 32/32; frontend 100 %. Supuesto: intervalo de funding 8h (algunos pares liquidan cada 4h/1h; no se lee fundingInterval).
 
+## Implemented (2026-06, iteration 14 · intervalo de funding por par + server.py en routers)
+- market.fetch_funding_intervals(): intervalo de liquidación del funding por par (Bybit instruments-info `fundingInterval` en minutos, paginado; Bitget contracts `fundInterval` en horas), caché 1h, reintento a los 5 min si falla (se asume 8h); fetch_tickers añade `funding_interval_h` a cada ticker. funding.py: `per_8h()` normaliza al equivalente 8h; level/assess/gate aceptan `interval_h`; assess devuelve `rate_8h_pct` e `interval_h`; `fmt_rate` → "+0.0600%/4h ≈ +0.1200%/8h" (sin sufijo ≈ en pares 8h, texto idéntico al de iter13); prompt_line añade "se liquida cada 4h"; SYSTEM de Claude explica que el nivel ya está normalizado. engine pasa el intervalo del ticker; dashboard watchlist devuelve `funding_interval_h` y `funding_level` normalizado. UI: FundingChip en Watchlist (title "Funding normal · cada 8 h · largos pagan", sufijo "/4h" + title "≈ x% por 8 h" solo si el par no liquida cada 8h, `watchlist-funding-interval-SYM`); Ajustes → Filtro de funding con nota `funding-interval-note` y etiquetas "(% por 8 h)".
+- Refactor sin cambio de contrato: `deps.py` (client/db/engine/store/news/require_auth, `protected_router()`), `routers/cron_routes.py` (ai-review, walk-forward, weekly-summary con `_accept` = auth + idempotencia por run_id/X-Webhook-Id compartida; body no-dict → 400 también en ai-review), `routers/weekly_routes.py`, `routers/walk_forward_routes.py`. server.py ~540 líneas. Guardia de reintento: el cron semanal omite el envío si ya se envió hace < 6 días (log INFO).
+- Tested iteration_14: backend 15 nuevos (tests/test_iter14_funding_interval_routers.py) + regresión iter11-13 → 70/70; frontend 100 % (watchlist chips, Optimizador walk-forward + revalidación semanal, Telegram vista previa, Filtro de funding). Nota: los 12 pares disponibles liquidan cada 8h en Bitget, así que el sufijo /4h solo se ve con pares 4h/1h (cubierto por unit tests). test_iter4_auth_config.py tiene 6 asserts obsoletos (502→424, alerta news, 3 crons) anteriores a esta iteración.
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
@@ -102,5 +107,7 @@
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
 - P1: Telegram: configurar token/chat en el VPS y validar alertas end-to-end
 - P2: Backup nocturno de Mongo en el VPS (script + cron en /app/deploy)
-- P3: Leer fundingInterval por par (4h/1h) para normalizar umbrales y anualización del filtro de funding
-- P3: server.py ~700 líneas → separar routers (cron, weekly, walk-forward)
+- P3: Confirmación antes de "Revalidar ahora" cuando "Quitar sobreajustados" está activo (quita SL/TP sin diálogo)
+- P3: Persistir los run_id de los crons en Mongo (hoy lista en memoria; se pierde al reiniciar)
+- P3: Actualizar asserts obsoletos de tests/test_iter4_auth_config.py (502→424, alerta news, 3 crons)
+- P3: server.py ~540 líneas (routers cron/weekly/walk-forward ya separados); candidatos siguientes: bybit/mode, optimizer, ai

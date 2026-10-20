@@ -58,6 +58,10 @@ async def _safe_auto_review():
 
 async def _safe_weekly():
     try:
+        last = await db.weekly.find_one({"_id": "latest"}, {"_id": 0, "sent_at": 1})
+        if last and last.get("sent_at") and (datetime.now(timezone.utc) - datetime.fromisoformat(last["sent_at"])).days < 6:
+            await engine.log("INFO", f"Resumen semanal omitido: ya se envió el {last['sent_at'][:10]}")
+            return
         await weekly.send_weekly(engine, db)
     except Exception as e:
         logger.exception("weekly summary")

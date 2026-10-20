@@ -1,0 +1,24 @@
+{
+  "summary": "Iter14 regression after router refactor + funding-interval normalization. Backend: pytest iter14+iter13 36/36 pass (-n 0). Curls: POST /api/cron/weekly-summary no auth -> 401; Bearer secret + {} -> {accepted:true, scheduled:true}; body [1] -> 400 'Cuerpo inválido'; GET /api/walk-forward/check no auth -> 401, with token 200; POST /api/weekly-summary/send -> 424 'Telegram no configurado: faltan token o chat ID'; GET /api/dashboard watchlist all 6 pairs funding_interval_h==8, funding_level NORMAL (rates 0.001-0.010%). Frontend (1920x1080): login OK; 6 watchlist-funding-* chips 'F +0.0xx%' with title 'Funding normal · cada 8 h · largos pagan', 0 watchlist-funding-interval-* elements (no /4h). Optimizer: wf-auto-card loads from GET /walk-forward/check; wf-auto-remove-switch toggled true->false->true (PUT /config 200 x2, restored); 'Revalidar ahora' POST 200 + polling GET until done + toast 'Revalidación completada'. ETHUSDT 'Validar walk-forward' -> POST /optimize/walk-forward 200, WalkForward card rendered (ROBUSTO, applied DUDOSO, KPIs, wf-chart, 4 folds). Settings: Weekly 'Vista previa' shows summary text; 'Enviar ahora' disabled in UI because telegram_ready=false (API returns friendly 424). Funding section: funding-interval-note visible, labels 'Bloquear/Reducir ... (% por 8 h)' (rendered uppercase via CSS); save 0.2/0.08 -> toast 'Filtro de funding guardado', GET /config reflects 0.2/0.08; restored 0.1/0.05 verified. Zero console errors in all flows.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "POST /api/cron/weekly-summary", "issue": "Always schedules send (no due/last-sent guard like ai-review's 20h check); idempotency only by run_id/X-Webhook-Id held in an in-memory list (lost on restart). A cron retry without run_id would send the weekly summary twice."}
+  ]},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [
+    {"screen": "Optimizador → Revalidación semanal", "issues": ["'Revalidar ahora' with 'Quitar sobreajustados' ON immediately removes applied SL/TP (it removed BTCUSDT during testing) with no confirmation dialog; consider a confirm step or making the side effect explicit on the button."]}
+  ]},
+  "test_report_links": ["/app/backend/tests/test_iter14_funding_interval_routers.py", "/app/backend/tests/test_iter13_funding.py"],
+  "action_items": [
+    "Optional: add a due/last_sent_at guard to /api/cron/weekly-summary (e.g. skip if sent < 6 days ago) for retry safety",
+    "Optional: confirmation before 'Revalidar ahora' when auto-remove is enabled"
+  ],
+  "critical_code_review_comments": [
+    "Router split is clean: deps.protected_router() applies require_auth; cron router is public with hmac.compare_digest Bearer check; behaviour unchanged vs iter13.",
+    "cron _seen idempotency list is process-local; persist run_ids in Mongo if the cron provider retries across restarts."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Side effect: clicking 'Revalidar ahora' (auto_remove=true) removed BTCUSDT symbol_params (SL3/TP6/ATR10); restored via PUT /api/settings symbol_params {BTCUSDT:{3,6,10}, ETHUSDT:{2.5,5,14}} and verified. wf_auto_remove restored to true, funding 0.1/0.05 restored. One weekly summary generated via cron curl (not sent, Telegram disabled). Paper positions ADA/ETH/BTC untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Telegram: telegram_enabled=false, token empty, chat_id '123456' (pre-existing). wf latest check result now shows auto_remove run with BTCUSDT 'QUITADOS' even though BTCUSDT params were restored afterwards. Weekly send button is disabled in UI when telegram_ready=false, so 424 only testable via API."
+}
