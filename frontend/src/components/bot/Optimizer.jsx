@@ -16,6 +16,7 @@ export default function Optimizer({ settings, onSave, refresh }) {
   const [results, setResults] = useState({});
   const [wf, setWf] = useState({});
   const [wfLoading, setWfLoading] = useState(null);
+  const [batch, setBatch] = useState(false);
   const [loading, setLoading] = useState(null);
   const [job, setJob] = useState(null);
   const timer = useRef(null);
@@ -35,6 +36,8 @@ export default function Optimizer({ settings, onSave, refresh }) {
     if (all) toast.success(`Optimización completada para ${syms.length} pares`);
   };
   const validate = async (syms = [symbol]) => {
+    const isBatch = syms.length > 1;
+    setBatch(isBatch);
     for (const s of syms) {
       setWfLoading(s);
       try {
@@ -45,7 +48,8 @@ export default function Optimizer({ settings, onSave, refresh }) {
       }
     }
     setWfLoading(null);
-    if (syms.length > 1) toast.success(`Walk-forward completado para ${syms.length} pares`);
+    setBatch(false);
+    if (isBatch) toast.success(`Walk-forward completado para ${syms.length} pares`);
   };
 
   const [check, setCheck] = useState(null);
@@ -124,7 +128,8 @@ export default function Optimizer({ settings, onSave, refresh }) {
   };
 
   const withApplied = (r) => ({ ...r, applied: settings.symbol_params[r.symbol] || null,
-    wf_verdict: wf[r.symbol]?.verdict || r.walk_forward?.verdict || check?.results?.[r.symbol]?.verdict || null });
+    wf_verdict: wf[r.symbol]?.verdict || r.walk_forward?.verdict || check?.results?.[r.symbol]?.process_verdict || null,
+    applied_verdict: wf[r.symbol]?.applied?.verdict || r.walk_forward?.symbol_params_aplicados?.verdict || check?.results?.[r.symbol]?.verdict || null });
   const res = results[symbol] ? withApplied(results[symbol]) : null;
   const list = Object.values(results).map(withApplied);
   const running = job?.status === "running";
@@ -176,10 +181,10 @@ export default function Optimizer({ settings, onSave, refresh }) {
           {loading ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> {loading}</> : `Optimizar todos (${settings.symbols.length})`}
         </Button>
         <Button data-testid="optimizer-walk-forward-button" onClick={() => validate()} disabled={!!wfLoading || running} variant="outline" className="h-9 border-sky-500/40 bg-transparent font-mono text-[11px] uppercase tracking-wider text-sky-200 hover:bg-sky-500/10">
-          {wfLoading === symbol ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="mr-1.5 h-3.5 w-3.5" />} Validar walk-forward
+          {wfLoading === symbol && !batch ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="mr-1.5 h-3.5 w-3.5" />} Validar walk-forward
         </Button>
         <Button data-testid="optimizer-walk-forward-all-button" onClick={() => validate(settings.symbols)} disabled={!!wfLoading || running} variant="outline" className="h-9 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider text-slate-200 hover:bg-[#111827]">
-          {wfLoading && wfLoading !== symbol ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> {wfLoading}</> : `Validar todos (${settings.symbols.length})`}
+          {batch ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> {wfLoading}</> : `Validar todos (${settings.symbols.length})`}
         </Button>
       </div>
       <p className="text-[11px] leading-relaxed text-slate-500">

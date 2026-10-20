@@ -20,6 +20,13 @@ VERDICTS = {
     "NO_RENTABLE": "Ni in-sample ni fuera de muestra son rentables: el problema es el par/estrategia, no los parámetros. Considera desactivarlo.",
     "INSUFICIENTE": "Muy pocas operaciones fuera de muestra para concluir nada: espera más historial o usa un marco temporal menor.",
 }
+APPLIED_VERDICTS = {
+    "ROBUSTO": "Los SL/TP aplicados siguen ganando fuera de muestra: mantenlos.",
+    "DUDOSO": "Los SL/TP aplicados ganan fuera de muestra pero con poca ventaja o sin ventaja previa clara: vigílalos.",
+    "SOBREAJUSTADO": "Los SL/TP aplicados ganaban en el pasado pero pierden fuera de muestra: quítalos (volver a valores por defecto).",
+    "NO_RENTABLE": "Los SL/TP aplicados pierden dentro y fuera de muestra: quítalos y revisa si el par merece seguir activo.",
+    "INSUFICIENTE": "Pocas operaciones fuera de muestra con los SL/TP aplicados para concluir nada todavía.",
+}
 
 
 def _metrics(res: dict) -> dict:
@@ -103,8 +110,30 @@ def _verdict(oos: dict, base: dict, is_exp: float, wfe) -> str:
     return "SOBREAJUSTADO" if is_exp > 0 else "NO_RENTABLE"
 
 
+def _applied_check(dfs, sigs, klines, strategy, mode, disabled, params, splits, risk_pct, leverage, trailing, initial, symbol, base_stats):
+    """OOS performance of the SL/TP actually applied to the bot, over the same OOS windows."""
+    ap = int(params.get("atr_period") or 14)
+    sl, tp = params.get("sl_atr"), params.get("tp_atr")
+    if ap not in dfs:
+        dfs[ap] = build_df(klines, ap)
+        sigs[ap] = scan_signals(dfs[ap], strategy, None, mode, disabled)
+    n = len(klines)
+    is_res = simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, initial, symbol, sl, tp, 210, splits[0])
+    bal, R, curve = initial, [], []
+    for split in splits:
+        r = simulate(dfs[ap], sigs[ap], risk_pct, leverage, trailing, bal, symbol, sl, tp, split, min(n, split + WF_OOS))
+        bal, R, curve = r["final_equity"], R + r["r_multiples"], curve + r["equity_curve"]
+    stats = {**_r_stats(R), "return_pct": round((bal - initial) / initial * 100, 2), "max_drawdown": _max_dd(curve)}
+    is_exp = is_res["expectancy_r"]
+    wfe = round(stats["expectancy_r"] / is_exp, 2) if is_exp > 0 else None
+    verdict = _verdict(stats, base_stats, is_exp, wfe)
+    return {"params": {"sl_atr": sl, "tp_atr": tp, "atr_period": ap}, "oos": stats, "is_expectancy_r": is_exp, "is_trades": is_res["total_trades"], "wfe": wfe,
+            "beats_baseline": stats["expectancy_r"] > base_stats["expectancy_r"] and stats["return_pct"] >= base_stats["return_pct"],
+            "verdict": verdict, "verdict_text": APPLIED_VERDICTS[verdict], "curve": _thin(curve)}
+
+
 def walk_forward(klines: list, strategy: str, risk_pct: float, leverage: int, trailing: bool, initial: float, symbol: str,
-                 mode: str = "strict", disabled=()) -> dict:
+                 mode: str = "strict", disabled=(), params: dict = None) -> dict:
     n = len(klines)
     is_len = max(WF_IS_MIN, min(1000, n // 2))
     splits = list(range(is_len, n - WF_OOS + 1, WF_OOS))
@@ -135,6 +164,7 @@ def walk_forward(klines: list, strategy: str, risk_pct: float, leverage: int, tr
     wfe = round(oos_stats["expectancy_r"] / is_exp, 2) if is_exp > 0 else None
     verdict = _verdict(oos_stats, base_stats, is_exp, wfe) if splits else "INSUFICIENTE"
     combos = {(f["params"]["sl_atr"], f["params"]["tp_atr"], f["params"]["atr_period"]) for f in folds if f["params"]}
+    applied = _applied_check(dfs, sigs, klines, strategy, mode, disabled, params, splits, risk_pct, leverage, trailing, initial, symbol, base_stats) if params and splits else None
     return {
         "symbol": symbol, "strategy": strategy, "candles": n, "is_len": is_len, "oos_len": WF_OOS, "folds": folds,
         "period_start": iso(210) if n > 210 else None, "period_end": iso(n - 1), "oos_start": iso(splits[0]) if splits else None,
@@ -142,5 +172,5 @@ def walk_forward(klines: list, strategy: str, risk_pct: float, leverage: int, tr
         "beats_baseline": oos_stats["expectancy_r"] > base_stats["expectancy_r"] and oos_stats["return_pct"] >= base_stats["return_pct"],
         "params_unique": len(combos), "params_stable": bool(folds) and len(combos) <= max(1, math.ceil(len(folds) / 2)),
         "verdict": verdict, "verdict_text": VERDICTS[verdict],
-        "oos_curve": _thin(curve), "baseline_curve": _thin(base_curve),
+        "oos_curve": _thin(curve), "baseline_curve": _thin(base_curve), "applied": applied,
     }

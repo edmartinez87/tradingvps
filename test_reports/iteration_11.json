@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 11: weekly walk-forward revalidation + traffic-light decision column. Backend: new pytest suite test_iter11_wfcheck.py (14 tests: cron 401/400/ack<2.5s/duplicate, empty-params run -> checked [] + PLAN 'nada que revalidar', manual check running/409/done with checked order, fields, params, previous_verdict/changed on 2nd run, verdict == POST /api/optimize/walk-forward; unit tests of wfcheck.run_check with notify monkeypatched (⚠️ header + Recomendación + pair, 🧪 'todo en orden', no notify w/o params); review.build_context includes/excludes walk_forward_pares_aplicados; crons.yml / cron-walk-forward.sh / install.sh; dashboard + optimize regression) -> 14/14 pass. Regression test_iter10_walk_forward.py 19/19 pass. Frontend (Playwright): wf-auto-card title/'Cada lunes a las 07:00 UTC', wf-auto-empty with empty params, 'Revalidar ahora' -> disabled + 'PREPARANDO' step, toast 'Revalidación walk-forward completada', table rows/badges/WFE/Exp OOS/Ops OOS/Base OOS match API exactly, 'Última revalidación: ... (manual)'. Optimizar todos -> summary has Walk-forward/Decisión columns; BTC SOBREAJUSTADO->'Quitar parámetros' red, ETH ROBUSTO->'Mantener' green, rows without verdict -> Validar button + 'Falta walk-forward' grey / 'No aplicar' red (XRP best e<=0). Row 'Validar' shows spinner, badge then appears, decision recalculated, selected pair unchanged (stopPropagation OK). 'Validar todos (6)' -> toast 'Walk-forward completado para 6 pares', all rows badged. Single 'Validar walk-forward' still renders card; Noticias/Rendimiento render; no console errors. State cleaned: symbol_params={} and wf_checks emptied.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/logs", "issue": "Does not exist (405, only DELETE /api/logs); logs are only exposed via GET /api/dashboard. Review request referenced /api/logs — not a bug per se, tests use dashboard.logs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Optimizer 'Validar todos (N)'", "issue": "While the currently-selected symbol is being validated (usually the first one), the all-button shows no spinner/symbol (condition `wfLoading !== symbol`), so for the first ~4s it looks idle; observed states never included BTCUSDT.", "selector": "[data-testid='optimizer-walk-forward-all-button']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter11_wfcheck.py", "/app/test_reports/pytest/iter11.xml"],
+  "action_items": [
+    "LOW: show spinner on 'Validar todos' for every symbol of a batch run (track a separate batch flag instead of wfLoading !== symbol).",
+    "Consider (design): walk_forward()/run_check never uses the applied symbol_params — it re-optimizes per fold and validates the optimization process, so 'params' in results is informational only. E.g. BTC applied 3×/6×/10 while current robust best is 1×/4×/10; the 'Mantener'/'Quitar parámetros' semaphore and Telegram message speak about the applied params. Either also report OOS of the applied params, or clarify the wording."
+  ],
+  "critical_code_review_comments": [
+    "wfcheck.run_check passes no params to walk_forward: revalidation verdict is independent of the actual applied SL/TP values (see action item).",
+    "OptimizerSummary.decide uses r.applied only as a boolean; it doesn't check that applied params == r.best, so 'Mantener' can be shown when applied params differ from the current robust optimum.",
+    "wf_verdict fallback uses check.results[SYM] even if symbol_params for that pair changed after the check (stale verdict for different params). Minor.",
+    "Job state is in-memory (wfcheck.job); a backend reload (uvicorn --reload also watches backend/tests/) mid-run loses it -> UI polling sees 'idle'. Acceptable for single worker but note that editing test files reloads the backend."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter11_wfcheck.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporarily applied symbol_params BTC/ETH and ran checks; restored symbol_params={} and deleted wf_checks at the end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with `pytest tests/test_iter11_wfcheck.py -n 0`. Test class TestWalkForwardCheckAPI is sequential and mutates settings.symbol_params/wf_checks (leaves BTC/ETH params applied — clean up afterwards). Logs are read from /api/dashboard. Do not edit files under /app/backend while tests run (uvicorn --reload restarts the backend and drops in-memory job state). Observed verdicts: BTC SOBREAJUSTADO, ETH ROBUSTO, SOL/XRP SOBREAJUSTADO, AVAX DUDOSO, LINK ROBUSTO (1h, Bitget data)."
+}

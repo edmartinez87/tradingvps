@@ -126,8 +126,11 @@ async def _safe_walk_forward(engine, settings, initial: float, sym: str):
     try:
         klines = await engine.market.fetch_history(sym, settings.timeframe, WF_CANDLES)
         wf = await asyncio.to_thread(walk_forward, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
-                                     settings.trailing_enabled, initial, sym, settings.signal_mode, settings.disabled_strategies)
-        return {k: wf[k] for k in ("verdict", "verdict_text", "wfe", "oos", "baseline_oos", "is_expectancy_r", "beats_baseline", "params_stable", "params_unique")} | {"folds": len(wf["folds"])}
+                                     settings.trailing_enabled, initial, sym, settings.signal_mode, settings.disabled_strategies, settings.symbol_params.get(sym))
+        out = {k: wf[k] for k in ("verdict", "verdict_text", "wfe", "oos", "baseline_oos", "is_expectancy_r", "beats_baseline", "params_stable", "params_unique")} | {"folds": len(wf["folds"])}
+        if wf["applied"]:
+            out["symbol_params_aplicados"] = {k: wf["applied"][k] for k in ("params", "verdict", "verdict_text", "wfe", "oos")}
+        return out
     except Exception as e:
         logger.warning(f"walk-forward {sym}: {e}")
         return None

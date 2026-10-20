@@ -30,10 +30,12 @@ const Cell = ({ label, value, hint, cls = "text-slate-100", testId }) => (
 );
 
 export default function WalkForward({ res }) {
-  const { oos, baseline_oos: base, wfe, verdict } = res;
-  const curve = res.oos_curve.map((p, i) => ({ i, time: p.time, opt: p.equity, base: res.baseline_curve[Math.min(i, res.baseline_curve.length - 1)]?.equity }));
+  const { oos, baseline_oos: base, wfe, verdict, applied } = res;
+  const curve = res.oos_curve.map((p, i) => ({ i, time: p.time, opt: p.equity, base: res.baseline_curve[Math.min(i, res.baseline_curve.length - 1)]?.equity,
+    app: applied ? applied.curve[Math.min(i, applied.curve.length - 1)]?.equity : undefined }));
   const folds = res.folds.length;
   const good = (a, b) => (a > b ? "text-emerald-400" : a < b ? "text-rose-400" : "text-slate-100");
+  const NAMES = { opt: "Re-optimizado (OOS)", base: "Línea base (OOS)", app: "SL/TP aplicados (OOS)" };
   return (
     <div data-testid="walk-forward" className="space-y-3 rounded-md border border-sky-500/30 bg-sky-500/[0.05] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -47,6 +49,22 @@ export default function WalkForward({ res }) {
         <VerdictBadge verdict={verdict} testId="wf-verdict" size="lg" />
       </div>
       <p data-testid="wf-verdict-text" className="text-[12px] leading-relaxed text-slate-200">{res.verdict_text}</p>
+
+      {applied && (
+        <div data-testid="wf-applied" className="rounded-md border border-amber-500/30 bg-amber-500/[0.05] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[12px] text-slate-200">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-amber-300">SL/TP aplicados al bot</span>
+              <span className="num ml-2 font-semibold">SL {applied.params.sl_atr}×ATR · TP {applied.params.tp_atr}×ATR · ATR {applied.params.atr_period}</span>
+            </p>
+            <VerdictBadge verdict={applied.verdict} testId="wf-applied-verdict" />
+          </div>
+          <p data-testid="wf-applied-text" className="mt-1.5 text-[12px] leading-relaxed text-slate-300">{applied.verdict_text}</p>
+          <p data-testid="wf-applied-stats" className="num mt-1 text-[11px] text-slate-400">
+            OOS {sign(applied.oos.expectancy_r)}R en {applied.oos.trades} ops · PF {applied.oos.profit_factor ?? "—"} · retorno {sign(applied.oos.return_pct, 2)}% (base {sign(base.return_pct, 2)}%) · in-sample {sign(applied.is_expectancy_r)}R · WFE {applied.wfe == null ? "—" : applied.wfe.toFixed(2)}
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#1E293B] bg-[#1E293B] sm:grid-cols-3 lg:grid-cols-6">
         <Cell label="Expectativa OOS (R)" value={sign(oos.expectancy_r)} hint={`in-sample ${sign(res.is_expectancy_r)} · base ${sign(base.expectancy_r)}`} cls={good(oos.expectancy_r, 0)} testId="wf-oos-expectancy" />
@@ -65,8 +83,9 @@ export default function WalkForward({ res }) {
               <YAxis tick={{ fill: "#64748B", fontSize: 10, fontFamily: "IBM Plex Mono" }} width={60} axisLine={false} tickLine={false} tickFormatter={(v) => fmtUsd(v, 0)} domain={["auto", "auto"]} />
               <ReferenceLine y={curve[0].opt} stroke="#334155" strokeDasharray="4 4" />
               <Tooltip contentStyle={{ background: "#0D111A", border: "1px solid #1E293B", fontFamily: "IBM Plex Mono", fontSize: 11 }}
-                labelFormatter={(t) => fmtDateTime(t)} formatter={(v, name) => [fmtUsd(v), name === "opt" ? "Optimizado (OOS)" : "Línea base (OOS)"]} />
+                labelFormatter={(t) => fmtDateTime(t)} formatter={(v, name) => [fmtUsd(v), NAMES[name]]} />
               <Line type="monotone" dataKey="base" stroke="#64748B" strokeWidth={1.2} dot={false} isAnimationActive={false} />
+              {applied && <Line type="monotone" dataKey="app" stroke="#F7A600" strokeWidth={1.4} dot={false} isAnimationActive={false} />}
               <Line type="monotone" dataKey="opt" stroke="#38BDF8" strokeWidth={1.6} dot={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>

@@ -79,6 +79,12 @@
 - Tested iteration_10: backend 51/51 (19 nuevos en tests/test_iter10_walk_forward.py + regresión iter7/iter9), frontend OK. Fix del tester: off-by-one en paginación Bitget. Ajustes posteriores: ROBUSTO exige wfe real (no None), cierre FIN al final de ventana, texto "hasta N velas" + velas IS por tramo, margen del gráfico.
 - Resultado real (1h, perfil 0): BTC/XRP SOBREAJUSTADO, ETH ROBUSTO→DUDOSO según ventana, SOL/LINK/AVAX DUDOSO.
 
+## Implemented (2026-06, iteration 11 · walk-forward semanal automático + semáforo de decisión)
+- optimizer.walk_forward(..., params): si el par tiene symbol_params aplicados, `_applied_check` simula a ciegas ESOS SL/TP en las mismas ventanas OOS (balance encadenado) + in-sample en el primer tramo → `applied {params, oos, is_expectancy_r, is_trades, wfe, verdict (misma regla _verdict), verdict_text (APPLIED_VERDICTS), beats_baseline, curve}`. POST /api/optimize/walk-forward devuelve `applied` (+ `applied_params`).
+- wfcheck.py: `run_check` revalida solo los pares activos con symbol_params → db.wf_checks `latest` {ran_at, source auto|manual, timeframe, checked, results{SYM: verdict (de los SL/TP aplicados), process_verdict (re-optimización), wfe, oos, baseline_oos, params, previous_verdict, changed}}; log PLAN; Telegram kind "review": cabecera ⚠️ + recomendación de quitar parámetros si algún par es SOBREAJUSTADO/NO_RENTABLE, 🧪 "todo en orden" si no; sin pares aplicados → solo log. Job en background (`start_check`, 409 si corre). Endpoints: POST /api/cron/walk-forward (Bearer WEBHOOK_CRON_SECRET, idempotente, ack inmediato), GET/POST /api/walk-forward/check. `.emergent/crons.yml` → walk-forward-weekly lunes 07:00 UTC; deploy: cron-walk-forward.sh + crontab en install.sh + README. review.build_context añade `walk_forward_pares_aplicados` (la revisión IA de las 08:00 ve el resultado del lunes 07:00); `_safe_walk_forward` incluye `symbol_params_aplicados` en el contexto de "Optimizar todo".
+- UI Optimizador: tarjeta "Revalidación semanal automática" (WalkForwardAuto.jsx: Revalidar ahora con polling, tabla par/params/veredicto aplicados/WFE/OOS/base/re-optimización, "antes X" si cambió, vacío si no hay pares aplicados); botón "Validar todos (N)" (spinner por lote); tarjeta WalkForward muestra bloque ámbar "SL/TP aplicados al bot" + tercera línea en el gráfico; OptimizerSummary: columna "Walk-forward" (badge + "aplicados: X", o botón Validar por fila) y columna "Decisión" (semáforo `decide()`: aplicado → Mantener/Vigilar/Quitar parámetros según veredicto de los SL/TP aplicados; no aplicado → Aplicar (ROBUSTO y mejor que base) / Con cautela / No aplicar (SOBREAJUSTADO, NO_RENTABLE, exp≤0 o DUDOSO sin mejora) / Falta walk-forward / Sin datos OOS).
+- Tested iteration_11: backend 14/14 (tests/test_iter11_wfcheck.py) + regresión iter10 19/19, frontend 100 %. Tras el informe: la revalidación ahora evalúa los SL/TP aplicados (no solo el proceso), spinner del lote corregido, tests actualizados (33/33).
+
 ## Known constraints
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 
@@ -86,5 +92,5 @@
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
 - P1: Telegram: configurar token/chat en el VPS y validar alertas end-to-end
 - P2: Backup nocturno de Mongo en el VPS (script + cron en /app/deploy)
-- P2: Walk-forward automático periódico (cron) con aviso Telegram si un par aplicado pasa a SOBREAJUSTADO
+- P2: Quitar automáticamente los symbol_params cuando la revalidación semanal los marca SOBREAJUSTADO (hoy solo avisa)
 - P2: Funding-rate context for AI

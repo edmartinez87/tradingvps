@@ -16,16 +16,18 @@ def job_state() -> dict:
 
 def _compact(wf: dict, params: dict, previous: str | None) -> dict:
     pick = ("trades", "expectancy_r", "profit_factor", "return_pct", "win_rate")
-    return {"verdict": wf["verdict"], "verdict_text": wf["verdict_text"], "wfe": wf["wfe"], "is_expectancy_r": wf["is_expectancy_r"],
-            "oos": {k: wf["oos"][k] for k in pick}, "baseline_oos": {k: wf["baseline_oos"][k] for k in pick},
-            "folds": len(wf["folds"]), "params": params, "previous_verdict": previous, "changed": previous is not None and previous != wf["verdict"]}
+    a = wf["applied"] or wf
+    return {"verdict": a["verdict"], "verdict_text": a["verdict_text"], "wfe": a["wfe"], "is_expectancy_r": a["is_expectancy_r"],
+            "oos": {k: a["oos"][k] for k in pick}, "baseline_oos": {k: wf["baseline_oos"][k] for k in pick}, "process_verdict": wf["verdict"],
+            "folds": len(wf["folds"]), "params": params, "previous_verdict": previous, "changed": previous is not None and previous != a["verdict"]}
 
 
 def _line(sym: str, r: dict) -> str:
-    o = r["oos"]
+    o, p = r["oos"], r["params"]
     prev = f" (antes {r['previous_verdict']})" if r["changed"] else ""
     wfe = f" · WFE {r['wfe']:.2f}" if r["wfe"] is not None else ""
-    return f"{ICON.get(r['verdict'], '•')} <b>{sym.replace('USDT', '')}</b> · {r['verdict']}{prev}{wfe} · OOS {o['expectancy_r']:+.2f}R en {o['trades']} ops"
+    return (f"{ICON.get(r['verdict'], '•')} <b>{sym.replace('USDT', '')}</b> SL {p.get('sl_atr')}× TP {p.get('tp_atr')}× ATR {int(p.get('atr_period') or 14)} · "
+            f"{r['verdict']}{prev}{wfe} · OOS {o['expectancy_r']:+.2f}R en {o['trades']} ops (base {r['baseline_oos']['expectancy_r']:+.2f}R)")
 
 
 async def run_check(engine, db, source: str = "auto") -> dict:
@@ -38,7 +40,8 @@ async def run_check(engine, db, source: str = "auto") -> dict:
         job["step"] = f"Validando {sym}"
         klines = await engine.market.fetch_history(sym, settings.timeframe, WF_CANDLES)
         wf = await asyncio.to_thread(walk_forward, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
-                                     settings.trailing_enabled, acc["initial_balance"], sym, settings.signal_mode, settings.disabled_strategies)
+                                     settings.trailing_enabled, acc["initial_balance"], sym, settings.signal_mode, settings.disabled_strategies,
+                                     settings.symbol_params[sym])
         results[sym] = _compact(wf, settings.symbol_params[sym], prev.get(sym, {}).get("verdict"))
     doc = {"ran_at": now_iso(), "source": source, "timeframe": settings.timeframe, "checked": symbols, "results": results}
     await db.wf_checks.update_one({"_id": "latest"}, {"$set": doc}, upsert=True)

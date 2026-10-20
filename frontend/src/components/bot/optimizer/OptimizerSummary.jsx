@@ -10,15 +10,23 @@ const LIGHT = {
   grey: "border-slate-600/50 bg-slate-500/10 text-slate-400",
 };
 
-export function decide(r, verdict) {
+export function decide(r, verdict, appliedVerdict) {
+  if (r.applied) {
+    const av = appliedVerdict || verdict;
+    if (!av) return { color: "grey", text: "Falta walk-forward" };
+    if (BAD.includes(av)) return { color: "red", text: "Quitar parámetros" };
+    if (av === "INSUFICIENTE") return { color: "grey", text: "Sin datos OOS" };
+    if (av === "ROBUSTO") return { color: "green", text: "Mantener" };
+    return { color: "amber", text: "Vigilar" };
+  }
   if (!r.best) return { color: "grey", text: "Sin óptimo fiable" };
   const better = r.best.sqn > r.baseline.sqn && r.best.profit_factor >= r.baseline.profit_factor;
-  if (r.best.expectancy_r <= 0 || BAD.includes(verdict)) return { color: "red", text: r.applied ? "Quitar parámetros" : "No aplicar" };
+  if (r.best.expectancy_r <= 0 || BAD.includes(verdict)) return { color: "red", text: "No aplicar" };
   if (!verdict) return { color: "grey", text: "Falta walk-forward" };
   if (verdict === "INSUFICIENTE") return { color: "grey", text: "Sin datos OOS" };
-  if (verdict === "ROBUSTO" && better) return { color: "green", text: r.applied ? "Mantener" : "Aplicar" };
-  if (verdict === "DUDOSO" && !better) return { color: "red", text: r.applied ? "Quitar parámetros" : "No aplicar" };
-  return { color: "amber", text: r.applied ? "Vigilar" : "Con cautela" };
+  if (verdict === "ROBUSTO" && better) return { color: "green", text: "Aplicar" };
+  if (verdict === "DUDOSO" && !better) return { color: "red", text: "No aplicar" };
+  return { color: "amber", text: "Con cautela" };
 }
 
 const Light = ({ d, testId }) => (
@@ -44,14 +52,19 @@ export default function OptimizerSummary({ list, onSelect, onValidate, validatin
               <TD right className="text-amber-400">{r.best?.robust ?? "—"}</TD>
               <TD right>{r.best?.trades ?? "—"}</TD>
               <TD>
-                {r.wf_verdict ? <VerdictBadge verdict={r.wf_verdict} testId={`optimizer-summary-wf-${r.symbol}`} /> : (
+                {r.wf_verdict ? (
+                  <span className="inline-flex flex-wrap items-center gap-1">
+                    <VerdictBadge verdict={r.wf_verdict} testId={`optimizer-summary-wf-${r.symbol}`} />
+                    {r.applied && r.applied_verdict && <span data-testid={`optimizer-summary-applied-wf-${r.symbol}`} className="font-mono text-[9px] uppercase text-amber-300/80" title="Veredicto de los SL/TP aplicados">aplicados: {r.applied_verdict}</span>}
+                  </span>
+                ) : (
                   <button data-testid={`optimizer-summary-validate-${r.symbol}`} onClick={(e) => { e.stopPropagation(); onValidate(r.symbol); }} disabled={!!validating}
                     className="inline-flex items-center gap-1 rounded-sm border border-sky-500/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-sky-300 transition-colors hover:bg-sky-500/10 disabled:opacity-50">
                     {validating === r.symbol ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />} Validar
                   </button>
                 )}
               </TD>
-              <TD><Light d={decide(r, r.wf_verdict)} testId={`optimizer-summary-decision-${r.symbol}`} /></TD>
+              <TD><Light d={decide(r, r.wf_verdict, r.applied_verdict)} testId={`optimizer-summary-decision-${r.symbol}`} /></TD>
               <TD>{r.applied ? <span className="rounded-sm border border-emerald-500/30 px-1.5 py-0.5 font-mono text-[10px] uppercase text-emerald-400">Aplicado</span> : <span className="font-mono text-[10px] uppercase text-slate-500">Por defecto</span>}</TD>
             </tr>
           ))}

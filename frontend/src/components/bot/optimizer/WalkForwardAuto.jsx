@@ -14,7 +14,7 @@ export default function WalkForwardAuto({ check, running, step, onRun, appliedCo
         <div className="min-w-[240px] flex-1">
           <p className="flex items-center gap-1.5 font-display text-[15px] font-bold text-slate-100"><CalendarClock className="h-4 w-4 text-sky-300" /> Revalidación semanal automática</p>
           <p className="mt-1 text-[12px] leading-relaxed text-slate-400">
-            Cada lunes a las 07:00 UTC el bot repite el walk-forward en los pares que tienen SL/TP optimizados aplicados y te avisa por Telegram si alguno pasa a sobreajustado.
+            Cada lunes a las 07:00 UTC el bot repite el walk-forward en los pares que tienen SL/TP optimizados aplicados: simula a ciegas esos mismos SL/TP en los tramos fuera de muestra y te avisa por Telegram si alguno pasa a sobreajustado.
             {check ? <> Última revalidación: <span className="text-slate-200">{fmtDateTime(check.ran_at)}</span> ({check.source === "auto" ? "automática" : "manual"}).</> : " Aún no se ha ejecutado."}
           </p>
         </div>
@@ -31,7 +31,7 @@ export default function WalkForwardAuto({ check, running, step, onRun, appliedCo
         <div data-testid="wf-auto-table" className="mt-3 overflow-x-auto thin-scroll rounded-sm border border-[#1E293B]">
           <table className="w-full text-sm">
             <thead className="border-b border-[#1E293B] bg-[#0D111A]">
-              <tr><TH>Par</TH><TH>Parámetros aplicados</TH><TH>Veredicto</TH><TH right>WFE</TH><TH right>Exp. OOS (R)</TH><TH right>Ops OOS</TH><TH right>Base OOS (R)</TH></tr>
+              <tr><TH>Par</TH><TH>Parámetros aplicados</TH><TH>Veredicto (SL/TP aplicados)</TH><TH right>WFE</TH><TH right>Exp. OOS (R)</TH><TH right>Ops OOS</TH><TH right>Base OOS (R)</TH><TH>Re-optimización</TH></tr>
             </thead>
             <tbody className="num text-[12px]">
               {rows.map(([sym, r]) => (
@@ -46,6 +46,7 @@ export default function WalkForwardAuto({ check, running, step, onRun, appliedCo
                   <TD right className={`font-semibold ${r.oos.expectancy_r > 0 ? "text-emerald-400" : "text-rose-400"}`}>{sign(r.oos.expectancy_r, 3)}</TD>
                   <TD right>{r.oos.trades}</TD>
                   <TD right className="text-slate-400">{sign(r.baseline_oos.expectancy_r, 3)}</TD>
+                  <TD>{r.process_verdict ? <VerdictBadge verdict={r.process_verdict} testId={`wf-auto-process-${sym}`} /> : <span className="text-slate-600">—</span>}</TD>
                 </tr>
               ))}
             </tbody>
