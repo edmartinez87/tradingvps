@@ -41,6 +41,7 @@ from news import NewsAgent  # noqa: E402
 import migrations  # noqa: E402
 import wfcheck  # noqa: E402
 import weekly  # noqa: E402
+import funding  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -392,6 +393,7 @@ async def dashboard():
         t = engine.market.tickers.get(sym, {})
         watchlist.append({"symbol": sym, "price": t.get("price"), "change_pct": t.get("change_pct"),
                           "volume_usdt": t.get("volume_usdt"), "funding_rate": t.get("funding_rate"),
+                          "funding_level": funding.level(t.get("funding_rate"), store.cfg),
                           **engine.analysis.get(sym, {})})
     return {
         "status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(),

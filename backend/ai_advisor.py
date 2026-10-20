@@ -4,6 +4,7 @@ import json
 import uuid
 import logging
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+import funding
 
 logger = logging.getLogger("ai")
 _cfg = {"api_key": os.environ.get("EMERGENT_LLM_KEY", ""), "provider": "anthropic", "model": "claude-sonnet-5-5"}
@@ -40,7 +41,10 @@ SYSTEM = (
     "Eres un gestor de riesgo cuantitativo senior especializado en futuros perpetuos USDT de criptomonedas. "
     "Evalúas señales generadas por un sistema algorítmico y decides si se ejecutan. Prioriza preservar capital: "
     "rechaza señales con indicadores contradictorios, entradas tardías (RSI extremo a favor), contra la tendencia mayor, "
-    "con volatilidad anormal o funding rate extremo en contra. Si se incluye contexto de noticias, úsalo como factor de riesgo: "
+    "con volatilidad anormal o funding rate extremo en contra. Funding: si la señal va EN CONTRA del funding y el nivel es ALTO baja la confianza "
+    "de forma clara (el lado está sobrecargado y la posición paga por mantenerse); si es EXTREMO en contra, rechaza salvo confluencia excepcional. "
+    "Un funding A FAVOR es un pequeño punto positivo, nunca suficiente por sí solo para aprobar. "
+    "Si se incluye contexto de noticias, úsalo como factor de riesgo: "
     "una noticia grave sobre el par o un evento macro inminente justifican rechazar o bajar la confianza; un sentimiento favorable no basta por sí solo para aprobar. "
     "Aprueba solo setups con confluencia clara. "
     "Responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional, con este formato: "
@@ -71,7 +75,7 @@ def _build_prompt(symbol, timeframe, sig, ctx) -> str:
         f"Confirmaciones ({sig['score']}): {'; '.join(sig['reasons'])}\n"
         f"Indicadores: {json.dumps(sig['indicators'])}\n"
         f"Tendencia TF superior ({ctx.get('htf_tf')}): {ctx.get('htf_trend')}\n"
-        f"Cambio 24h: {ctx.get('change_24h', 0):.2f}% | Funding rate: {ctx.get('funding_rate', 0):.5f}\n"
+        f"Cambio 24h: {ctx.get('change_24h', 0):.2f}% | {funding.prompt_line(ctx.get('funding'))}\n"
         f"Últimos cierres (% cambio por vela, más reciente al final): {ctx.get('recent_changes')}\n"
         f"Cuenta: {ctx.get('open_positions')} posiciones abiertas, PnL diario {ctx.get('daily_pnl_pct', 0):.2f}%\n"
         + _news_lines(ctx.get("news")) +

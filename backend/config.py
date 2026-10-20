@@ -62,10 +62,20 @@ class AppConfig(BaseModel):
     news_reduce_on_high_risk: bool = True
     news_size_factor: float = 0.5
     wf_auto_remove: bool = True
+    funding_enabled: bool = True
+    funding_block_pct: float = 0.10
+    funding_reduce_pct: float = 0.05
+    funding_reduce: bool = True
+    funding_size_factor: float = 0.5
 
 
 class ConfigUpdate(BaseModel):
     wf_auto_remove: Optional[bool] = None
+    funding_enabled: Optional[bool] = None
+    funding_block_pct: Optional[float] = Field(default=None, ge=0.01, le=2.0)
+    funding_reduce_pct: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    funding_reduce: Optional[bool] = None
+    funding_size_factor: Optional[float] = Field(default=None, ge=0.1, le=1.0)
     news_enabled: Optional[bool] = None
     news_interval_min: Optional[int] = Field(default=None, ge=5, le=240)
     news_block_events: Optional[bool] = None
@@ -161,6 +171,10 @@ class ConfigStore:
             patch.update(bybit_verified_at=None, bybit_verified_equity=None)
         if "auto_review_frequency" in patch and patch["auto_review_frequency"] not in ("daily", "weekly"):
             raise ValueError("Frecuencia inválida")
+        block = patch.get("funding_block_pct", self.cfg.funding_block_pct)
+        reduce = patch.get("funding_reduce_pct", self.cfg.funding_reduce_pct)
+        if ("funding_block_pct" in patch or "funding_reduce_pct" in patch) and reduce > block:
+            raise ValueError("El umbral de reducción debe ser menor o igual que el de bloqueo")
         if "telegram_alerts" in patch:
             merged = {**self.cfg.telegram_alerts, **patch["telegram_alerts"]}
             patch["telegram_alerts"] = {k: bool(merged.get(k, True)) for k in DEFAULT_ALERTS}

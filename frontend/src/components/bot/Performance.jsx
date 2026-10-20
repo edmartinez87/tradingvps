@@ -7,7 +7,7 @@ import { http, fmtSignedUsd, pnlClass, STRATEGY_LABELS, STRATEGY_KEYS, REASON_LA
 import ShadowStats from "./performance/ShadowStats";
 
 const SIDE = { long: "Long", short: "Short" };
-const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", SIN_IA: "Sin IA", ERROR: "Error IA" };
+const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", FUNDING: "Bloqueadas funding", SIN_IA: "Sin IA", ERROR: "Error IA" };
 
 const Group = ({ title, label, rows, render = (k) => k, testId, isOn, onToggle }) => (
   <div data-testid={testId} className="overflow-hidden rounded-sm border border-[#1E293B]">

@@ -9,6 +9,7 @@ const DECISION_CLS = {
   SIN_IA: "bg-slate-500/10 text-slate-300 border-slate-500/30",
   BLOQUEADA: "bg-amber-500/10 text-amber-300 border-amber-500/30",
   NOTICIAS: "bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/30",
+  FUNDING: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30",
 };
 
 function SignalCard({ s }) {
@@ -27,7 +28,7 @@ function SignalCard({ s }) {
       <p className="mt-1 font-mono text-[10px] text-slate-500">
         {STRATEGY_LABELS[s.strategy]} · {fmtPrice(s.price)} · SL {fmtPrice(s.sl)} · TP {fmtPrice(s.tp)} · {fmtTime(s.created_at)}
       </p>
-      {!["SIN_IA", "ERROR", "BLOQUEADA", "NOTICIAS"].includes(s.ai_decision) && (
+      {!["SIN_IA", "ERROR", "BLOQUEADA", "NOTICIAS", "FUNDING"].includes(s.ai_decision) && (
         <div className="mt-2 flex items-center gap-2">
           <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#1E293B]">
             <div className="h-full bg-purple-500" style={{ width: `${s.ai_confidence}%` }} />

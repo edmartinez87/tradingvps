@@ -10,6 +10,7 @@ import AccountSection from "./admin/AccountSection";
 import BybitSection from "./admin/BybitSection";
 import LiveModeSection from "./admin/LiveModeSection";
 import NewsSection from "./admin/NewsSection";
+import FundingSection from "./admin/FundingSection";
 
 export default function AdminSettings({ account, refresh }) {
   const [config, setConfig] = useState(null);
@@ -45,6 +46,7 @@ export default function AdminSettings({ account, refresh }) {
         <TelegramSection config={config} onSave={save} />
         <AutoReviewSection config={config} onSave={save} onRan={load} />
         <NewsSection config={config} onSave={save} />
+        <FundingSection config={config} onSave={save} />
         <AccountSection account={account} refresh={refresh} />
       </div>
     </div>

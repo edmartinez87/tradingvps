@@ -2,7 +2,7 @@ import { Ghost } from "lucide-react";
 import { TH, TD } from "../PositionsTable";
 import { fmtSignedUsd, pnlClass, STRATEGY_LABELS } from "@/lib/api";
 
-const KIND = { RECHAZADA: "Rechazadas por IA", BAJA_CONFIANZA: "IA aprobó, confianza baja", BLOQUEADA: "Bloqueadas por riesgo", NOTICIAS: "Bloqueadas por noticias", ERROR: "Error de IA" };
+const KIND = { RECHAZADA: "Rechazadas por IA", BAJA_CONFIANZA: "IA aprobó, confianza baja", BLOQUEADA: "Bloqueadas por riesgo", NOTICIAS: "Bloqueadas por noticias", FUNDING: "Bloqueadas por funding", ERROR: "Error de IA" };
 
 const Card = ({ label, value, hint, cls = "text-slate-100", testId }) => (
   <div data-testid={testId} className="min-w-[150px] flex-1 rounded-sm border border-[#1E293B] bg-[#0D111A] px-3 py-2.5">

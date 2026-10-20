@@ -14,6 +14,9 @@ from notify import notify as tg
 from bybit import BybitClient, BybitError
 from live import LiveBroker
 from shadow import open_shadow, monitor_shadows
+import funding
+
+BLOCK_BY = {"NOTICIAS": "noticias", "FUNDING": "funding", "BLOQUEADA": "riesgo"}
 
 logger = logging.getLogger("engine")
 INITIAL_BALANCE = 500.0
@@ -44,8 +47,10 @@ class TradingEngine:
         self.exchange_error = None
         self._external_warned = set()
         self.news = None
+        self.cfg = None
 
     async def apply_config(self, cfg):
+        self.cfg = cfg
         self.live = cfg.trading_mode == "live"
         self.env = cfg.bybit_env
         key = (cfg.bybit_api_key, cfg.bybit_api_secret, cfg.bybit_env, cfg.bybit_base_url)
@@ -329,7 +334,7 @@ class TradingEngine:
             self._last_snapshot = time.time()
             await self.db.equity.insert_one({"ts": now_iso(), "equity": s["equity"], "balance": s["balance"]})
 
-    async def open_position(self, symbol: str, sig: dict, settings: Settings, signal_id: str, risk_factor: float = 1.0):
+    async def open_position(self, symbol: str, sig: dict, settings: Settings, signal_id: str, risk_factor: float = 1.0, risk_reason: str = "noticias"):
         risk_pct = settings.risk_per_trade * risk_factor
         async with self.lock:
             open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
@@ -380,7 +385,7 @@ class TradingEngine:
                 pos.id = str(res.inserted_id)
                 await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
         tag = "REAL " if self.live else ""
-        reduced = f" · tamaño reducido al {int(risk_factor * 100)}% por riesgo de noticias" if risk_factor < 1 else ""
+        reduced = f" · tamaño reducido al {int(risk_factor * 100)}% por {risk_reason}" if risk_factor < 1 else ""
         await self.log("ORDER", f"ABIERTA {tag}{sig['side'].upper()} {symbol} @ {entry:.6g} · qty {qty:.6g} · {settings.leverage}x · SL {sl:.6g} · TP {tp:.6g}{reduced}")
         await tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {tag}{sig['side'].upper()} {symbol}</b> @ {entry:.6g}\n"
                  f"Cantidad {qty:.6g} · {settings.leverage}x · margen ${margin:,.2f}\nSL {sl:.6g} · TP {tp:.6g}\n"
@@ -496,12 +501,18 @@ class TradingEngine:
         news_block, risk_factor = self.news.gate(symbol) if self.news else (None, 1.0)
         if not block and news_block:
             block, kind = news_block, "NOTICIAS"
+        funding_rate = self.market.tickers.get(symbol, {}).get("funding_rate")
+        f_block, f_factor = funding.gate(funding_rate, sig["side"], self.cfg)
+        if not block and f_block:
+            block, kind = f_block, "FUNDING"
+        risk_reason = " y ".join(r for r, f in (("riesgo de noticias", risk_factor), ("funding alto en contra", f_factor)) if f < 1)
+        risk_factor = min(risk_factor, f_factor)
         if block:
             await self.log("RISK", f"{symbol}: señal descartada · {block}")
             res = await self.db.signals.insert_one(Signal(
                 symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,
                 price=sig["price"], sl=sig["sl"], tp=sig["tp"], score=sig["score"], reasons=sig["reasons"],
-                indicators=sig["indicators"], ai_decision=kind, note=f"Bloqueada por {'noticias' if kind == 'NOTICIAS' else 'riesgo'}: {block}", key=key,
+                indicators=sig["indicators"], ai_decision=kind, note=f"Bloqueada por {BLOCK_BY.get(kind, 'riesgo')}: {block}", key=key,
             ).to_mongo())
             await open_shadow(self, str(res.inserted_id), symbol, sig, settings, kind, acc["equity"], risk_factor=risk_factor)
             return
@@ -517,6 +528,7 @@ class TradingEngine:
             ctx = {
                 "htf_tf": htf_tf, "htf_trend": {1: "ALCISTA", -1: "BAJISTA", 0: "NEUTRAL"}.get(htf, "N/D"),
                 "change_24h": t.get("change_pct", 0), "funding_rate": t.get("funding_rate", 0),
+                "funding": funding.assess(funding_rate, sig["side"], self.cfg),
                 "recent_changes": [round(x, 3) for x in (closes.pct_change().dropna() * 100).tolist()],
                 "open_positions": len(open_syms), "daily_pnl_pct": acc["daily_pnl_pct"],
                 "news": self.news.context(symbol) if self.news else None,
@@ -540,7 +552,7 @@ class TradingEngine:
         res = await self.db.signals.insert_one(signal.to_mongo())
         sid = str(res.inserted_id)
         if approve:
-            pos = await self.open_position(symbol, sig, settings, sid, risk_factor)
+            pos = await self.open_position(symbol, sig, settings, sid, risk_factor, risk_reason)
             if pos:
                 await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True}})
         elif shadow_kind:
