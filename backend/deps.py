@@ -35,5 +35,27 @@ fx_news = FxNewsAgent(fx_engine.db, fx_engine)
 fx_engine.news = fx_news
 
 
+async def _ai_health_event(event: str, h: dict):
+    """AI provider down/up → log in both bots (they share the AI config) + Telegram 'system' alert."""
+    import notify
+    from fx.engine import fmt_duration
+    from datetime import datetime, timezone
+    model = ai_advisor.label()
+    if event == "down":
+        text = f"IA sin servicio ({h['label']}) · {model} · {h['error']}"
+        tg = (f"🧠⚠️ <b>IA sin servicio · {h['label']}</b>\n{model}: {h['error']}\n"
+              "Las señales nuevas quedan sin evaluar (se registran como ERROR y no se operan) y el agente de noticias no se actualiza hasta que la IA responda.")
+    else:
+        dur = fmt_duration((datetime.now(timezone.utc) - datetime.fromisoformat(h["down_since"])).total_seconds()) if h.get("down_since") else "?"
+        text = f"IA operativa de nuevo · {model} · estuvo sin servicio {dur}"
+        tg = f"✅ <b>IA operativa de nuevo</b> · {model} · estuvo sin servicio {dur}. El bot vuelve a evaluar señales con normalidad."
+    for eng in (engine, fx_engine):
+        await eng.log("ERROR" if event == "down" else "INFO", text)
+    await notify.notify(tg, "system")
+
+
+ai_advisor.set_health_hook(_ai_health_event)
+
+
 def protected_router() -> APIRouter:
     return APIRouter(prefix="/api", dependencies=[Depends(require_auth)])

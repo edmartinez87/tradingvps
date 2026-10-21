@@ -59,7 +59,9 @@ const UsageChip = ({ usage, ai }) => {
     <span data-testid="ai-usage-chip" title={title} className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider">
       <span className="rounded-sm border border-[#1E293B] bg-[#0D111A] px-1.5 py-0.5 text-slate-300">IA hoy <span className="num text-amber-300">{usage.total}</span>
         {usage.skipped_news ? <span className="text-emerald-400"> · {usage.skipped_news} ahorradas</span> : null}</span>
-      {ai?.label && <span className="rounded-sm border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-purple-300">{ai.label}</span>}
+      {ai?.label && (ai.health?.ok === false
+        ? <span data-testid="ai-model-badge" title={ai.health.error} className="rounded-sm border border-rose-500/50 bg-rose-500/15 px-1.5 py-0.5 text-rose-300">{ai.label} · sin servicio</span>
+        : <span data-testid="ai-model-badge" className="rounded-sm border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-purple-300">{ai.label}</span>)}
     </span>
   );
 };

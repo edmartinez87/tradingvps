@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import logging
+from datetime import datetime, timezone
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
 import funding
 
@@ -19,7 +20,12 @@ _FAMILY = {"claude": "Claude", "gpt": "GPT", "gemini": "Gemini"}
 
 
 def configure(api_key: str, provider: str, model: str, source: str = "emergent"):
+    changed = (api_key, provider, model) != (_cfg["api_key"], _cfg["provider"], _cfg["model"])
     _cfg.update(api_key=api_key, provider=provider, model=model, source=source)
+    if changed:
+        # New key/model → assume healthy again, but still announce the recovery when the next call succeeds.
+        pending = bool(_health["alerted_at"] or _health["recovery_pending"])
+        _health.update(_fresh_health(), recovery_pending=pending, since=_health["since"] if pending else None)
 
 
 def label(model: str = None) -> str:
@@ -34,24 +40,95 @@ def label(model: str = None) -> str:
 
 def current(cfg: dict = None) -> dict:
     c = cfg or _cfg
-    return {"provider": c["provider"], "model": c["model"], "source": c["source"], "label": label(c["model"])}
+    return {"provider": c["provider"], "model": c["model"], "source": c["source"], "label": label(c["model"]), "health": health()}
+
+
+# ---------- health: detects auth / balance / quota / model / network failures of the active provider ----------
+CONFIG_CODES = ("auth", "balance", "model")  # won't heal by themselves → alert on the first failure
+TRANSIENT_FAILS = 3  # consecutive failures before alerting for rate/network/other errors
+TRANSIENT_MINUTES = 15  # …or this long without a single successful call
+CODE_LABELS = {"auth": "API key inválida", "balance": "saldo o cuota agotados", "model": "modelo no disponible", "rate": "límite de peticiones", "network": "sin conexión con el proveedor", "other": "error del proveedor"}
+_health_hook = None
+
+
+def _fresh_health() -> dict:
+    return {"ok": True, "code": None, "error": None, "since": None, "fails": 0, "alerted_at": None, "last_ok": None, "last_error_at": None, "recovery_pending": False}
+
+
+_health = _fresh_health()
+
+
+def set_health_hook(fn):
+    """fn(event: 'down'|'up', health: dict) async — Telegram/log notifications live outside this module."""
+    global _health_hook
+    _health_hook = fn
+
+
+def health() -> dict:
+    return {**_health, "label": CODE_LABELS.get(_health["code"]) if _health["code"] else None}
+
+
+def classify(e: Exception) -> tuple:
+    low = f"{type(e).__name__} {e}".lower()
+    if any(k in low for k in ("api_key_invalid", "api key not valid", "authenticationerror", "invalid x-api-key", "incorrect api key", "permission_denied", "unauthorized", " 401", "invalid api key", "invalid_api_key", "invalid credentials", "insufficient permissions")):
+        return "auth", "API key inválida o sin permisos: revisa la clave en Ajustes → Inteligencia artificial"
+    if any(k in low for k in ("insufficient", "credit balance", "credits", "budget", " 402", "payment required", "exceeded your current quota", "insufficient_quota", "billing", "out of tokens", "no tokens", "balance")):
+        return "balance", "Saldo insuficiente o cuota agotada: recarga el saldo de la clave (Emergent: Perfil → Manage plan → Universal Key → Add Balance) o revisa la facturación del proveedor"
+    if any(k in low for k in ("resource_exhausted", "ratelimit", "rate limit", "rate_limit", "quota", " 429", "too many requests")):
+        return "rate", "Cuota o límite de peticiones agotado (429): espera unos minutos o revisa el plan y la facturación del proveedor"
+    if any(k in low for k in ("notfound", "not found", "does not exist", "unknown model", "model_not_found")):
+        return "model", "Modelo no encontrado: comprueba el nombre del modelo en Ajustes → Inteligencia artificial"
+    if any(k in low for k in ("timeout", "timed out", "connecterror", "connection", "service unavailable", "503", "502", "overloaded", "apiconnectionerror")):
+        return "network", "El proveedor de IA no responde (red, timeout o servicio saturado): se reintentará con la siguiente señal"
+    return "other", str(e)[:200]
 
 
 def friendly_error(e: Exception) -> str:
-    low = f"{type(e).__name__} {e}".lower()
-    if any(k in low for k in ("api_key_invalid", "api key not valid", "authenticationerror", "invalid x-api-key", "incorrect api key", "permission_denied")):
-        return "API key inválida o sin permisos: revisa la clave en Ajustes → Inteligencia artificial"
-    if any(k in low for k in ("resource_exhausted", "ratelimit", "quota", " 429")):
-        return "Cuota o límite de peticiones agotado (429): espera unos minutos o revisa el plan y la facturación del proveedor"
-    if any(k in low for k in ("notfound", "not found", "does not exist", "unknown model")):
-        return "Modelo no encontrado: comprueba el nombre del modelo en Ajustes → Inteligencia artificial"
-    return str(e)[:200]
+    return classify(e)[1]
+
+
+async def _mark_failure(e: Exception):
+    code, msg = classify(e)
+    now = _now_iso()
+    first = _health["ok"]
+    _health.update(ok=False, code=code, error=msg, fails=_health["fails"] + 1, last_error_at=now, since=_health["since"] or now)
+    if first:
+        logger.error(f"IA sin servicio ({code}): {msg}")
+    down_min = _minutes_since(_health["since"])
+    should_alert = _health["alerted_at"] is None and (code in CONFIG_CODES or _health["fails"] >= TRANSIENT_FAILS or down_min >= TRANSIENT_MINUTES)
+    if should_alert and _health_hook:
+        _health["alerted_at"] = now
+        try:
+            await _health_hook("down", health())
+        except Exception as ex:
+            logger.warning(f"ai health hook: {ex}")
+
+
+async def _mark_ok():
+    was_down, announce, since = not _health["ok"], _health["alerted_at"] or _health["recovery_pending"], _health["since"]
+    _health.update(_fresh_health(), last_ok=_now_iso())
+    if was_down:
+        logger.info("IA operativa de nuevo")
+    if announce and _health_hook:
+        try:
+            await _health_hook("up", {**health(), "down_since": since})
+        except Exception as ex:
+            logger.warning(f"ai health hook: {ex}")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _minutes_since(iso: str) -> float:
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() / 60 if iso else 0.0
 
 
 def _chat(system: str, prefix: str, cfg: dict = None) -> LlmChat:
     c = cfg or _cfg
     chat = LlmChat(api_key=c["api_key"], session_id=f"{prefix}-{uuid.uuid4()}", system_message=system).with_model(c["provider"], c["model"])
     chat._kind = prefix
+    chat._probe = cfg is not None and (cfg["api_key"], cfg["provider"], cfg["model"]) != (_cfg["api_key"], _cfg["provider"], _cfg["model"])
     return chat
 
 
@@ -74,11 +151,19 @@ async def record_usage(kind: str, skipped: bool = False):
 
 async def _ask(chat: LlmChat, prompt: str) -> str:
     text = ""
-    async for ev in chat.stream_message(UserMessage(text=prompt)):
-        if isinstance(ev, TextDelta):
-            text += ev.content
-        elif isinstance(ev, StreamDone):
-            break
+    probe = getattr(chat, "_probe", False)
+    try:
+        async for ev in chat.stream_message(UserMessage(text=prompt)):
+            if isinstance(ev, TextDelta):
+                text += ev.content
+            elif isinstance(ev, StreamDone):
+                break
+    except Exception as e:
+        if not probe:
+            await _mark_failure(e)
+        raise
+    if not probe:
+        await _mark_ok()
     await record_usage(getattr(chat, "_kind", "other"))
     return text
 

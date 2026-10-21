@@ -31,7 +31,7 @@ class TestAiSource:
         assert d["ai_sources"] == ["emergent", "gemini"]
         assert set(d["ai_models"]) == {"anthropic", "openai", "gemini"} and "claude-sonnet-5-5" in d["ai_models"]["anthropic"]
         assert "gemini-3.1-pro-preview" in d["gemini_models"] and d["gemini_key_url"].startswith("https://aistudio.google.com")
-        assert d["ai_active"] == {"provider": "anthropic", "model": "claude-sonnet-5-5", "source": "emergent", "label": "Claude Sonnet 5.5"}
+        assert {k: v for k, v in d["ai_active"].items() if k != "health"} == {"provider": "anthropic", "model": "claude-sonnet-5-5", "source": "emergent", "label": "Claude Sonnet 5.5"}
         assert "ai_api_key" not in d and "ai_key_source" not in d
 
     def test_gemini_requires_key(self):
@@ -41,7 +41,7 @@ class TestAiSource:
     def test_switch_to_gemini_and_status(self):
         d = put({"ai_source": "gemini", "gemini_api_key": "AIzaBogusKey1234567890", "gemini_model": "gemini-2.5-flash"}).json()
         assert d["ai_source"] == "gemini" and d["gemini_configured"] is True and d["gemini_api_key"].endswith("7890")
-        assert d["ai_active"] == {"provider": "gemini", "model": "gemini-2.5-flash", "source": "gemini", "label": "Gemini 2.5 Flash"}
+        assert {k: v for k, v in d["ai_active"].items() if k != "health"} == {"provider": "gemini", "model": "gemini-2.5-flash", "source": "gemini", "label": "Gemini 2.5 Flash"}
         for path in ("/api/dashboard", "/api/fx/dashboard"):
             s = requests.get(f"{BASE_URL}{path}", headers=H(), timeout=60).json()["status"]["ai"]
             assert s["source"] == "gemini" and s["label"] == "Gemini 2.5 Flash", path
@@ -76,7 +76,7 @@ class TestAiSource:
 
     def test_emergent_model_choice(self):
         d = put({"ai_source": "emergent", "ai_provider": "openai", "ai_model": "gpt-5.4-mini"}).json()
-        assert d["ai_active"] == {"provider": "openai", "model": "gpt-5.4-mini", "source": "emergent", "label": "GPT 5.4 Mini"}
+        assert {k: v for k, v in d["ai_active"].items() if k != "health"} == {"provider": "openai", "model": "gpt-5.4-mini", "source": "emergent", "label": "GPT 5.4 Mini"}
         d = put({"ai_provider": "anthropic", "ai_model": "claude-sonnet-5-5"}).json()
         assert d["ai_active"]["label"] == "Claude Sonnet 5.5"
 

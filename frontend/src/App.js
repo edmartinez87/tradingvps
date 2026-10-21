@@ -23,6 +23,7 @@ import GrowthPlan from "@/components/bot/GrowthPlan";
 import Optimizer from "@/components/bot/Optimizer";
 import NewsPanel from "@/components/bot/NewsPanel";
 import AiSignals from "@/components/bot/AiSignals";
+import { AiHealthBanner } from "@/components/bot/AiHealthBanner";
 import SettingsPanel from "@/components/bot/SettingsPanel";
 import Terminal from "@/components/bot/Terminal";
 import { Panel } from "@/components/bot/Panel";
@@ -85,6 +86,7 @@ function Dashboard({ onLogout }) {
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><AdminSettings account={data.account} refresh={refresh} /></main>
       ) : (
       <main className="mx-auto max-w-[1920px] space-y-4 p-4 md:p-6">
+        <AiHealthBanner ai={data.status.ai} />
         {data.status.exchange_error && (
           <div data-testid="exchange-error-banner" className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 font-mono text-[11px] text-rose-200">
             Bybit sin respuesta: {data.status.exchange_error} · mostrando los últimos datos locales
