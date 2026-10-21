@@ -1,0 +1,20 @@
+{
+  "summary": "Iteration 22, frontend only, tested with Playwright at 1920x1080 against the preview URL. All requested flows passed. Crypto Plan tab: plan-scenarios-note is present. The 4 cards show PRUDENTE 2.5% mensual, REALISTA 4% mensual, AMBICIOSO 6% mensual and SEGÚN BACKTEST -9.44% mensual. The old names Conservador/Base/Optimista no longer appear as card names. Clicking Ambicioso gives it an amber border and the projection shows '6%/mes'. GET /api/settings returned plan_scenario=optimista, and it was restored to base afterwards. The intro mentions 'Prudente / Realista / Ambicioso'. Projection, phases and Monte Carlo still render. FX Plan tab: PRUDENTE 1.5%, REALISTA 3%, AMBICIOSO 5% (all 'mensual') plus the note. The FX scenario was left as base. AI usage chip: crypto shows 'IA hoy 3' and FX 'IA hoy 2', both matching status.ai_usage.total. 'Claude Sonnet 5.5' appears next to it. The title includes señales, noticias, revisiones and ambos bots. News: crypto news-updated showed 'Actualizado 21:31:56 · cada 20 min' (bot running). After news-refresh-button (about 6 s) it showed 'Actualizado 21:34:44 · cada 20 min', and the chip went from 3 to 4 within 11 s, matching the API (news 4, total 4). FX fxnews-updated showed 'Actualizado 21:20:28 · cada 60 min' with the FX bot stopped; Actualizar ahora was not pressed in FX. Settings hints are present for crypto (news-section) and FX (fxnews-section). The bot selector works, and there were no console errors on either dashboard. The crypto bot was not stopped; the FX bot stayed stopped.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "News panel header (news-updated / fxnews-updated)", "issues": ["The '· cada N min' suffix uses text-slate-600 on a very dark background, so contrast is low and it is barely readable"]}
+    ]
+  },
+  "test_report_links": ["/app/tests/iter21_api.sh"],
+  "action_items": ["Optional: raise contrast of the '· cada N min' suffix (e.g. text-slate-500/400)"],
+  "critical_code_review_comments": ["UsageChip only shows '· M ahorradas' when skipped_news>0, which is fine. The 'IA hh:mm · fuentes hh:mm' variant was not observed live (both cycles had AI run); its logic is code-reviewed only (analysis_at !== updated_at)."],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped (frontend only)", "frontend": "100%"},
+  "seed_data_creation": "None. One manual crypto news refresh consumed 1 AI call (crypto ai_usage total 3 -> 4).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login password BlackCat2233@. Testids used: bot-card-crypto/bot-card-fx, settings-view-button, ai-signals-panel > ai-usage-chip, plan-scenario-{conservador|base|optimista|backtest}[-rate], plan-scenarios-note, news-updated, news-refresh-button, fx-tab-news, fx-tab-plan, fxnews-updated. Both plan_scenario settings were left at 'base'. Crypto bot running (cada 20 min), FX bot stopped (cada 60 min)."
+}
