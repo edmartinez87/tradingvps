@@ -534,6 +534,7 @@ async def _mode_checks() -> dict:
     checks = [
         {"key": "keys", "label": "Token de MetaApi y cuenta HFM guardados", "ok": bool(c.metaapi_token and c.mt_login and c.mt_password and c.mt_server), "required": True},
         {"key": "linked", "label": "Cuenta vinculada y desplegada en MetaApi", "ok": bool(c.metaapi_account_id and c.hfm_state == "DEPLOYED"), "required": True,
+         "warn": bool(c.hfm_connection and c.hfm_connection != "CONNECTED"),
          "detail": f"{c.hfm_state or 'sin vincular'}{' · ' + c.hfm_connection if c.hfm_connection else ''}"},
         {"key": "verified", "label": f"Conexión verificada con HFM {c.mt_server or ''}".strip(), "ok": bool(c.hfm_verified_at), "required": True,
          "detail": f"equidad {c.hfm_verified_equity:,.2f} {c.hfm_currency}" if c.hfm_verified_equity is not None else None},

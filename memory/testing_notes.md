@@ -14,3 +14,7 @@
 - Tests antiguos (`test_trading_bot`, `test_plan_performance`, `test_optimizer_checkin_ai`) ahora autentican (sesión con Bearer) y
   asumen cuenta de $500 y 5 estrategias.
 - Nuevo `test_iter20_ai_source_routers.py`: fuente IA (Emergent vs Gemini propia), errores amigables, override sin guardar, routers movidos.
+
+## Iteración 21
+- `tests/test_iter21_hfm_alert_cron_ai.py` (-n 0): usa el mock MetaApi (:8012) y `POST /mock/connection`, pasa el bot FX a REAL con `hfm_alert_after_sec=15` y lo devuelve a paper; el último test reinicia el backend con supervisorctl (ejecutarlo al final, no en paralelo con otras suites).
+- `test_iter18` puede fallar esporádicamente en test_08 si el escaneo real del bot abre una posición en GBPUSD/USDJPY mientras el bot está activo en REAL (carrera con el mercado, no regresión); repetir la suite.

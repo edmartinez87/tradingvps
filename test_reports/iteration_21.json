@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 21 FRONTEND testing (Playwright + API checks via /app/tests/iter21_api.sh). All 6 requested flows PASS. (1) HFM Advanced: hfm-advanced-toggle shows hfm-base-url-input + hfm-alert-after-input (default 60); 15 -> saved (toast, API=15); 3 -> clamped to 10 (input and API=10); restored 60. (2) Telegram: 7 alerts on both FX and crypto settings, last = telegram-alert-system-switch 'Conexión con el bróker (HFM/MetaApi) caída o restablecida'; off+save -> /api/config telegram_alerts.system=false; on+save -> true (from both bots). (3) HFM REAL + mock: configured via UI (mocktoken/12345678/masterpass/HFMarketsGlobal-Demo, endpoint http://127.0.0.1:8012, alert 15s), Link OK, Test shows DEPLOYED/CONNECTED and equity 1000, went to REAL via dialog, header 'MODO REAL · HFM DEMO'. Mock drop -> fx-broker-error-banner appeared after 3.6s: 'Cuenta HFM sin conexión con MetaApi desde las 21:08:18 (1 min) · MetaApi 404: Account is not connected to the broker · el bot no abrirá nuevas operaciones hasta reconectar'; '· aviso enviado por Telegram' added about 19s after the drop (broker_health.alerted=true, alert_after_sec=15); terminal ERROR 'Cuenta HFM sin conexión con MetaApi desde hace 15 s · …' logged; Settings checklist shows 'DEPLOYED · DISCONNECTED_FROM_BROKER' and the Redeploy button. Restore -> banner gone after 17.4s, INFO 'Conexión con HFM restablecida · estuvo sin conexión 35 s'. Cleanup done (paper + reset stats via UI, Quitar via UI, PUT fx config reset). (4) Gemini: picked 2.5 Flash + bogus key -> toast 'Configuración de IA guardada', active label Gemini 2.5 Flash, clear button visible; clear -> Emergent aria-pressed=true, button gone, Gemini tile shows the default 'Gemini 3.1 Pro · gemini-3.1-pro-preview'; API ai_source=emergent, gemini_model=gemini-3.1-pro-preview, gemini_configured=false. (5) AI form resync: PUT openai/gpt-5.6-terra was reflected in the form after 29.1s without a reload; after the user edited the form (Anthropic) and the API changed again (gpt-5.5), the form kept Anthropic after 36s while ai-active-label updated to GPT 5.5 (correct). Config restored to emergent/anthropic/claude-sonnet-5-5. (6) Regression: /bybit and /hotforex load with no console errors, the bot selector works, no broker banner in PAPER.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "FX dashboard broker banner", "issues": ["Duration uses Math.max(1, round(down_sec/60)), so it shows '(1 min)' even when the account has been down only 3 s. Consider '<1 min' or seconds under 60 s."]},
+      {"screen": "FX Ajustes · Modo de operación checklist", "issues": ["While the broker is DISCONNECTED_FROM_BROKER, 'Cuenta vinculada y desplegada' and 'Conexión verificada' stay green. Only the detail text shows the problem. A warning tone for that row could make it more visible (optional)."]}
+    ]
+  },
+  "test_report_links": ["/app/tests/iter21_api.sh"],
+  "action_items": [
+    "Optional/cosmetic: show '<1 min' or seconds in the fx-broker-error-banner when down_sec < 60",
+    "Optional: show a warning color on the livemode-check for the linked account when hfm_connection is DISCONNECTED_FROM_BROKER"
+  ],
+  "critical_code_review_comments": [
+    "AiSection: dirty stays true after the user manually reverts an edit (it is only reset on a successful save), so background resync stops for the rest of the session. Acceptable, but a 'Descartar cambios' action or comparing against config could help.",
+    "AiSection clear-gemini sends the whole form (ai_source=gemini, gemini_model=gemini-2.5-flash) plus clear_gemini_api_key. The backend correctly overrides to emergent + default model (verified), but the frontend relies on backend precedence.",
+    "HfmSection form state is initialised from config only on mount, so the 30 s /config polling does not resync these inputs (fine, because they hold secrets/edits)."
+  ],
+  "updated_files": ["/app/tests/iter21_api.sh (new helper: login + authenticated curl)"],
+  "success_rate": {"backend": "N/A (skipped, frontend only)", "frontend": "100% (6/6 flows)"},
+  "seed_data_creation": "None. Temporary HFM mock account linked and then removed; FX switched to REAL and back to paper with stats reset (FX paper equity $500). Crypto bot account/credentials untouched (crypto bot was already RUNNING in paper and was not touched).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bot-card testids are bot-card-crypto and bot-card-fx (not bot-card-bybit). Settings toggle is settings-view-button. MetaApi mock runs on 127.0.0.1:8012 (POST /mock/connection?connected=false|true, /mock/reset). Final state: FX paper, stopped, HFM cleared, hfm_alert_after_sec=60, metaapi_base_url=''; AI = emergent/anthropic/claude-sonnet-5-5, gemini not configured; telegram_alerts all true. The resync polling interval is 30 s (observed 29 s)."
+}

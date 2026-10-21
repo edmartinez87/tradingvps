@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Rocket, Loader2, CheckCircle2, XCircle, CircleDashed, Undo2 } from "lucide-react";
+import { Rocket, Loader2, CheckCircle2, XCircle, CircleDashed, Undo2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -56,10 +56,10 @@ export default function LiveModeSection({ config, refresh, labels = BYBIT_LIVE_L
         {data.checks.map((c) => (
           <li key={c.key} data-testid={`livemode-check-${c.key}`} className="flex items-center justify-between gap-3 rounded-sm border border-[#1E293B] bg-[#0D111A] px-3 py-2 text-[12px]">
             <span className="flex items-center gap-2 text-slate-200">
-              {c.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : c.required ? <XCircle className="h-3.5 w-3.5 text-rose-400" /> : <CircleDashed className="h-3.5 w-3.5 text-amber-400" />}
+              {c.ok ? (c.warn ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />) : c.required ? <XCircle className="h-3.5 w-3.5 text-rose-400" /> : <CircleDashed className="h-3.5 w-3.5 text-amber-400" />}
               {c.label}{!c.required && <span className="font-mono text-[9px] uppercase tracking-wider text-slate-500">recomendado</span>}
             </span>
-            {c.detail && <span className="num text-[11px] text-slate-500">{c.detail}</span>}
+            {c.detail && <span className={`num text-[11px] ${c.warn ? "text-amber-300" : "text-slate-500"}`}>{c.detail}</span>}
           </li>
         ))}
       </ul>
