@@ -41,7 +41,7 @@ export default function FxNewsSection({ config, onSave }) {
     <Panel testId="fxnews-section" title="Noticias forex y trading por noticias" icon={Newspaper} bodyClass="p-4 space-y-3"
       actions={<Button data-testid="fxnews-save-button" size="sm" onClick={save} disabled={busy || !form.news_countries.length} className={`${BTN} h-7 text-[10px]`}><Save className="mr-1 h-3 w-3" /> Guardar</Button>}>
       <p className="text-[12px] leading-relaxed text-slate-400">
-        Claude lee titulares (ForexLive, Investing, FXEmpire, MarketWatch) y la agenda económica de las economías marcadas; el resultado (sesgo por divisa, riesgo por par, alertas)
+        La IA lee titulares (ForexLive, Investing, FXEmpire, MarketWatch) y la agenda económica de las economías marcadas; el resultado (sesgo por divisa, riesgo por par, alertas)
         entra en la evaluación de cada señal y puede pausar entradas alrededor de eventos de alto impacto. Además, al publicarse un dato ALTO, el bot busca el resultado real en los titulares
         y, si la sorpresa es clara y la confianza supera el umbral, abre una <span className="text-slate-200">operación de noticias</span> con SL/TP por ATR 15m y cierre máximo por tiempo.
       </p>

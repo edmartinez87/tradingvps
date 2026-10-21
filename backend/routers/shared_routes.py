@@ -1,10 +1,11 @@
 """Endpoints shared by both bots (session, password, Telegram/AI connection tests). Registered on each protected router."""
+from typing import Optional
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 import notify
 from auth import hash_password, verify_password, create_token
-from ai_advisor import ping as ai_ping, current as ai_current
+from ai_advisor import ping as ai_ping, current as ai_current, friendly_error
 from deps import store
 
 
@@ -15,6 +16,14 @@ class PasswordChange(BaseModel):
 
 class ChatsRequest(BaseModel):
     token: str = ""
+
+
+class AiTestRequest(BaseModel):
+    ai_source: Optional[str] = None
+    ai_provider: Optional[str] = None
+    ai_model: Optional[str] = Field(default=None, max_length=80)
+    gemini_model: Optional[str] = Field(default=None, max_length=80)
+    gemini_api_key: Optional[str] = Field(default=None, max_length=200)
 
 
 def add_shared_routes(router, engine, label: str):
@@ -51,8 +60,12 @@ def add_shared_routes(router, engine, label: str):
         return {"ok": True}
 
     @router.post("/ai/test")
-    async def ai_test():
+    async def ai_test(body: AiTestRequest = None):
         try:
-            return {"ok": True, "reply": await ai_ping(), **ai_current()}
+            rt = store.ai_runtime(body.model_dump() if body else None)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        try:
+            return {"ok": True, "reply": await ai_ping(rt), **ai_current(rt), "saved": body is None or not body.model_dump(exclude_none=True)}
         except Exception as e:
-            raise HTTPException(424, f"Error IA: {str(e)[:200]}")
+            raise HTTPException(424, f"Error IA: {friendly_error(e)}")

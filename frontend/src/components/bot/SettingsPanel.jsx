@@ -18,7 +18,7 @@ const NUMS = [
   { k: "scan_interval_sec", label: "Intervalo escaneo (seg)", step: 10, min: 30, max: 900 },
 ];
 const TOGGLES = [
-  { k: "ai_enabled", label: "Confirmación con Claude Sonnet", hint: "La IA aprueba o rechaza cada señal" },
+  { k: "ai_enabled", label: "Confirmación con IA", hint: "La IA aprueba o rechaza cada señal" },
   { k: "trailing_enabled", label: "Breakeven + trailing stop", hint: "BE a +1R, trailing ATR desde +1.5R" },
   { k: "htf_filter", label: "Filtro de temporalidad superior", hint: "No operar contra la tendencia mayor" },
 ];

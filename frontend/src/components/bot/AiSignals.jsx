@@ -53,10 +53,10 @@ function SignalCard({ s }) {
 
 export default function AiSignals({ signals }) {
   return (
-    <Panel testId="ai-signals-panel" title="Evaluación IA · Claude" icon={Sparkles} className="lg:col-span-4" bodyClass="max-h-[480px] overflow-y-auto thin-scroll" delay={260}
+    <Panel testId="ai-signals-panel" title="Evaluación IA" icon={Sparkles} className="lg:col-span-4" bodyClass="max-h-[480px] overflow-y-auto thin-scroll" delay={260}
       actions={<span className="rounded-sm border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-purple-300">Sonnet</span>}>
       {signals.length ? signals.map((s) => <SignalCard key={s.id} s={s} />) : (
-        <Empty testId="ai-signals-empty" text="Cuando el bot detecte una señal, Claude la evaluará aquí con su razonamiento." />
+        <Empty testId="ai-signals-empty" text="Cuando el bot detecte una señal, la IA la evaluará aquí con su razonamiento." />
       )}
     </Panel>
   );

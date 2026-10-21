@@ -77,7 +77,7 @@ export default function AiAdvice({ scope, payload = {}, onDone, label = "Analiza
       const { data } = await http.post("/ai/advise", { scope, ...payload });
       setRes(data);
       const n = Object.keys(data.applied).length;
-      toast.success(n ? `Claude aplicó ${n} cambio${n > 1 ? "s" : ""} a la configuración` : "Claude revisó el análisis · sin cambios necesarios");
+      toast.success(n ? `La IA aplicó ${n} cambio${n > 1 ? "s" : ""} a la configuración` : "La IA revisó el análisis · sin cambios necesarios");
       onDone?.();
     } catch (e) {
       toast.error(errMsg(e));
@@ -91,7 +91,7 @@ export default function AiAdvice({ scope, payload = {}, onDone, label = "Analiza
       <Button data-testid={`${testId}-button`} onClick={run} disabled={loading}
         className="h-9 border border-purple-500/40 bg-purple-500/10 font-mono text-[11px] font-bold uppercase tracking-wider text-purple-200 hover:bg-purple-500/20">
         {loading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-        {loading ? "Claude analizando..." : label}
+        {loading ? "IA analizando..." : label}
       </Button>
       {res && <AiResult key={res.ran_at || res.summary} res={res} testId={testId} onDone={onDone} />}
     </div>

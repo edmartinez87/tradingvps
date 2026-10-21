@@ -7,20 +7,51 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, Strea
 import funding
 
 logger = logging.getLogger("ai")
-_cfg = {"api_key": os.environ.get("EMERGENT_LLM_KEY", ""), "provider": "anthropic", "model": "claude-sonnet-5-5"}
+_cfg = {"api_key": os.environ.get("EMERGENT_LLM_KEY", ""), "provider": "anthropic", "model": "claude-sonnet-5-5", "source": "emergent"}
+EMERGENT_MODELS = {
+    "anthropic": ["claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+    "openai": ["gpt-5.6-terra", "gpt-6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5-mini"],
+    "gemini": ["gemini-3.1-pro-preview", "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"],
+}
+GEMINI_MODELS = ["gemini-3.1-pro-preview", "gemini-3.8-flash", "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+GEMINI_KEY_URL = "https://aistudio.google.com/apikey"
+_FAMILY = {"claude": "Claude", "gpt": "GPT", "gemini": "Gemini"}
 
 
-def configure(api_key: str, provider: str, model: str):
-    _cfg.update(api_key=api_key, provider=provider, model=model)
+def configure(api_key: str, provider: str, model: str, source: str = "emergent"):
+    _cfg.update(api_key=api_key, provider=provider, model=model, source=source)
 
 
-def current() -> dict:
-    return {"provider": _cfg["provider"], "model": _cfg["model"]}
+def label(model: str = None) -> str:
+    out = []
+    for p in re.sub(r"-(preview|\d{8})$", "", model or _cfg["model"]).split("-"):
+        if out and re.fullmatch(r"\d+", p) and re.fullmatch(r"\d+(\.\d+)?", out[-1]):
+            out[-1] += f".{p}"
+        else:
+            out.append(_FAMILY.get(p.lower(), p.capitalize()))
+    return " ".join(out)
 
 
-def _chat(system: str, prefix: str) -> LlmChat:
-    return LlmChat(api_key=_cfg["api_key"], session_id=f"{prefix}-{uuid.uuid4()}", system_message=system) \
-        .with_model(_cfg["provider"], _cfg["model"])
+def current(cfg: dict = None) -> dict:
+    c = cfg or _cfg
+    return {"provider": c["provider"], "model": c["model"], "source": c["source"], "label": label(c["model"])}
+
+
+def friendly_error(e: Exception) -> str:
+    low = f"{type(e).__name__} {e}".lower()
+    if any(k in low for k in ("api_key_invalid", "api key not valid", "authenticationerror", "invalid x-api-key", "incorrect api key", "permission_denied")):
+        return "API key inválida o sin permisos: revisa la clave en Ajustes → Inteligencia artificial"
+    if any(k in low for k in ("resource_exhausted", "ratelimit", "quota", " 429")):
+        return "Cuota o límite de peticiones agotado (429): espera unos minutos o revisa el plan y la facturación del proveedor"
+    if any(k in low for k in ("notfound", "not found", "does not exist", "unknown model")):
+        return "Modelo no encontrado: comprueba el nombre del modelo en Ajustes → Inteligencia artificial"
+    return str(e)[:200]
+
+
+def _chat(system: str, prefix: str, cfg: dict = None) -> LlmChat:
+    c = cfg or _cfg
+    return LlmChat(api_key=c["api_key"], session_id=f"{prefix}-{uuid.uuid4()}", system_message=system) \
+        .with_model(c["provider"], c["model"])
 
 
 async def _ask(chat: LlmChat, prompt: str) -> str:
@@ -33,8 +64,8 @@ async def _ask(chat: LlmChat, prompt: str) -> str:
     return text
 
 
-async def ping() -> str:
-    text = await _ask(_chat("Responde en español con una sola frase breve.", "ping"), "Confirma que estás operativo para analizar señales de trading.")
+async def ping(cfg: dict = None) -> str:
+    text = await _ask(_chat("Responde en español con una sola frase breve.", "ping", cfg), "Confirma que estás operativo para analizar señales de trading.")
     return text.strip()[:200]
 
 SYSTEM = (

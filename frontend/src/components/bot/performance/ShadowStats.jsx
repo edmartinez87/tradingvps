@@ -42,8 +42,8 @@ export default function ShadowStats({ data }) {
       <div>
         <p className="flex items-center gap-1.5 font-display text-[14px] font-bold text-fuchsia-200"><Ghost className="h-4 w-4" /> Operaciones sombra · ¿acierta el filtro?</p>
         <p className="mt-1 text-[12px] leading-relaxed text-slate-400">
-          Cada señal rechazada por Claude o bloqueada por riesgo/noticias se simula igual que una operación real (mismo tamaño, SL, TP y trailing).
-          «Evitó» son las pérdidas que el filtro ahorró; «se perdió» las ganancias que dejó escapar. Valor neto positivo = el filtro suma. Claude recibe estos datos en «Optimizar todo con IA».
+          Cada señal rechazada por la IA o bloqueada por riesgo/noticias se simula igual que una operación real (mismo tamaño, SL, TP y trailing).
+          «Evitó» son las pérdidas que el filtro ahorró; «se perdió» las ganancias que dejó escapar. Valor neto positivo = el filtro suma. La IA recibe estos datos en «Optimizar todo con IA».
         </p>
       </div>
       {t.trades === 0 ? (
@@ -57,11 +57,11 @@ export default function ShadowStats({ data }) {
             <Card label="Ganancias perdidas" value={fmtSignedUsd(-t.missed)} cls="text-rose-400" testId="shadow-missed" />
             <Card label="Valor neto del filtro" value={fmtSignedUsd(fv)} cls={fv >= 0 ? "text-emerald-400" : "text-rose-400"}
               hint={fv >= 0 ? "El filtro está protegiendo la cuenta" : "El filtro está costando dinero"} testId="shadow-filter-value" />
-            <Card label="Solo filtro IA" value={fmtSignedUsd(data.ai.filter_value)} cls={data.ai.filter_value >= 0 ? "text-emerald-400" : "text-rose-400"} hint={`${data.ai.trades} señales de Claude`} testId="shadow-ai-value" />
+            <Card label="Solo filtro IA" value={fmtSignedUsd(data.ai.filter_value)} cls={data.ai.filter_value >= 0 ? "text-emerald-400" : "text-rose-400"} hint={`${data.ai.trades} señales rechazadas por la IA`} testId="shadow-ai-value" />
           </div>
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             <Table title="Por motivo del descarte" label="Motivo" rows={data.by_kind} render={(k) => KIND[k] || k} testId="shadow-by-kind" />
-            <Table title="Rechazos de Claude por confianza" label="Confianza IA" rows={data.by_confidence} testId="shadow-by-confidence" />
+            <Table title="Rechazos de la IA por confianza" label="Confianza IA" rows={data.by_confidence} testId="shadow-by-confidence" />
             <Table title="Por estrategia" label="Estrategia" rows={data.by_strategy} render={(k) => STRATEGY_LABELS[k] || k} testId="shadow-by-strategy" />
             <Table title="Por par" label="Par" rows={data.by_symbol} testId="shadow-by-symbol" />
           </div>

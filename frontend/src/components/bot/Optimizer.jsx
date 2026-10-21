@@ -11,7 +11,7 @@ import OptimizerSummary from "./optimizer/OptimizerSummary";
 import WalkForward from "./optimizer/WalkForward";
 import WalkForwardAuto from "./optimizer/WalkForwardAuto";
 
-const AI_ALL_INTRO = (n) => `Corre el optimizador en los ${n} pares activos y Claude cruza esos resultados con las operaciones reales por par y estrategia, el backtest y el plan. Apaga lo que pierde, aplica los SL/TP óptimos y ajusta los filtros, siempre dentro de los topes de tu perfil de riesgo. Los cambios se aplican directamente y te avisa por Telegram.`;
+const AI_ALL_INTRO = (n) => `Corre el optimizador en los ${n} pares activos y la IA cruza esos resultados con las operaciones reales por par y estrategia, el backtest y el plan. Apaga lo que pierde, aplica los SL/TP óptimos y ajusta los filtros, siempre dentro de los topes de tu perfil de riesgo. Los cambios se aplican directamente y te avisa por Telegram.`;
 
 export default function Optimizer({ settings, onSave, refresh, aiAll = true, weekly = true, intro, aiAllIntro = AI_ALL_INTRO }) {
   const [symbol, setSymbol] = useState(settings.symbols[0]);
@@ -96,7 +96,7 @@ export default function Optimizer({ settings, onSave, refresh, aiAll = true, wee
     if (j.status === "done" && j.result) {
       setResults(Object.fromEntries((j.result.optimizer || []).map((r) => [r.symbol, r])));
       const n = Object.keys(j.result.applied || {}).length;
-      toast.success(n ? `Claude aplicó ${n} cambio${n > 1 ? "s" : ""} a la configuración` : "Claude revisó todo · sin cambios necesarios");
+      toast.success(n ? `La IA aplicó ${n} cambio${n > 1 ? "s" : ""} a la configuración` : "La IA revisó todo · sin cambios necesarios");
       refresh?.();
     } else if (j.status === "error") {
       toast.error(j.error || "La optimización global falló");

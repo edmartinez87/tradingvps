@@ -8,7 +8,7 @@ from market import MarketData, HTF
 from indicators import build_df, trend_label, htf_trend
 from strategies import evaluate, STRATEGY_INFO
 from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
-from ai_advisor import evaluate_signal
+from ai_advisor import evaluate_signal, label as ai_label
 from plan import SCENARIOS, build_checkin
 from notify import notify as tg
 from bybit import BybitClient, BybitError
@@ -523,7 +523,7 @@ class TradingEngine:
                         indicators=sig["indicators"], ai_decision="SIN_IA", key=key)
         approve, shadow_kind = True, None
         if settings.ai_enabled:
-            await self.log("AI_EVAL", f"Claude Sonnet evaluando {symbol} {sig['side'].upper()}...")
+            await self.log("AI_EVAL", f"{ai_label()} evaluando {symbol} {sig['side'].upper()}...")
             closes = df["close"].iloc[-22:-1]
             t = self.market.tickers.get(symbol, {})
             ctx = {
@@ -548,7 +548,7 @@ class TradingEngine:
                 logger.exception("ai error")
                 signal.ai_decision, signal.note, approve, shadow_kind = "ERROR", f"Error IA: {str(e)[:180]}", False, "ERROR"
             await self.log("AI_EVAL", f"{symbol}: {signal.ai_decision} · confianza {signal.ai_confidence}% · riesgo {signal.ai_risk}")
-            await tg(f"🤖 <b>Claude · {symbol} {sig['side'].upper()}</b>: {signal.ai_decision} ({signal.ai_confidence}% · riesgo {signal.ai_risk})\n"
+            await tg(f"🤖 <b>{ai_label()} · {symbol} {sig['side'].upper()}</b>: {signal.ai_decision} ({signal.ai_confidence}% · riesgo {signal.ai_risk})\n"
                      f"{signal.ai_reasoning[:300] or signal.note}", "ai")
         res = await self.db.signals.insert_one(signal.to_mongo())
         sid = str(res.inserted_id)

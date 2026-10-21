@@ -81,7 +81,7 @@ export default function FxNewsPanel({ summary, symbols = [], currencyNames = {} 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-[12px] text-slate-400">
-        {summary?.enabled === false ? "Agente de noticias desactivado en Ajustes." : "Claude lee titulares (ForexLive, Investing, FXEmpire, MarketWatch) y la agenda económica de las economías configuradas; el sesgo por divisa entra en cada señal, los eventos de alto impacto pausan entradas y el dato publicado puede generar una operación de noticias."}
+        {summary?.enabled === false ? "Agente de noticias desactivado en Ajustes." : "La IA lee titulares (ForexLive, Investing, FXEmpire, MarketWatch) y la agenda económica de las economías configuradas; el sesgo por divisa entra en cada señal, los eventos de alto impacto pausan entradas y el dato publicado puede generar una operación de noticias."}
       </p>
       <Button data-testid="fxnews-refresh-button" size="sm" onClick={refresh} disabled={busy} variant="outline" className="h-7 border-[#1E293B] bg-transparent font-mono text-[10px] uppercase tracking-wider text-slate-200 hover:bg-[#111827]">
         {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />} Actualizar ahora

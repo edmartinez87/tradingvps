@@ -65,7 +65,7 @@ export default function BotPanel({ settings: s, meta, account, equity, profileAc
           </span>
         </div>
         <p className="mt-1 text-[12px] leading-relaxed text-slate-400">
-          Claude Sonnet revisa cada señal y solo se ejecuta si la aprueba con confianza ≥ {s.ai_min_confidence}%.
+          La IA revisa cada señal y solo se ejecuta si la aprueba con confianza ≥ {s.ai_min_confidence}%.
         </p>
       </div>
 

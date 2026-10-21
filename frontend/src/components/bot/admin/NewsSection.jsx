@@ -30,7 +30,7 @@ export default function NewsSection({ config, onSave }) {
     <Panel testId="news-section" title="Agente de noticias" icon={Newspaper} bodyClass="p-4 space-y-3"
       actions={<Button data-testid="news-save-button" size="sm" onClick={save} disabled={busy} className={`${BTN} h-7 text-[10px]`}><Save className="mr-1 h-3 w-3" /> Guardar</Button>}>
       <p className="text-[12px] leading-relaxed text-slate-400">
-        Lee titulares de CoinDesk, CoinTelegraph, The Block y Decrypt más el calendario macro de EE. UU.; Claude los convierte en un nivel de riesgo y sentimiento por par.
+        Lee titulares de CoinDesk, CoinTelegraph, The Block y Decrypt más el calendario macro de EE. UU.; la IA los convierte en un nivel de riesgo y sentimiento por par.
         Ese contexto entra en la evaluación de cada señal y, si lo activas, pausa nuevas entradas alrededor de eventos de alto impacto o noticias críticas y reduce el tamaño cuando el riesgo es alto.
       </p>
       <Toggle label="Agente activo" hint="Analiza noticias de forma periódica (coste IA pequeño por ciclo)" checked={form.news_enabled} onChange={(v) => set("news_enabled", v)} testId="news-enabled-switch" />

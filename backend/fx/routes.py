@@ -11,7 +11,7 @@ from strategies import MODE_INFO
 from indicators import build_df
 from performance import performance
 from config import ConfigUpdate
-from ai_advisor import current as ai_current
+from ai_advisor import current as ai_current, friendly_error
 import notify
 from deps import store, fx_engine as engine, fx_store, fx_news as news, protected_router
 from routers.shared_routes import add_shared_routes
@@ -151,7 +151,7 @@ async def ai_advise(req: AdviseRequest):
         return await fx_review.advise_scope(engine, req.scope, req.optimizer_results)
     except Exception as e:
         logger.exception("fx advise")
-        raise HTTPException(424, f"Error IA: {str(e)[:160]}")
+        raise HTTPException(424, f"Error IA: {friendly_error(e)}")
 
 
 @router.post("/ai/auto-review")
@@ -160,7 +160,7 @@ async def ai_auto_review_now():
         return await fx_review.run_auto_review(engine, engine.db, fx_store)
     except Exception as e:
         logger.exception("fx auto review")
-        raise HTTPException(424, f"Error IA: {str(e)[:200]}")
+        raise HTTPException(424, f"Error IA: {friendly_error(e)}")
 
 
 @router.post("/plan")

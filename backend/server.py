@@ -12,28 +12,22 @@ from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from bson import ObjectId  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from models import (  # noqa: E402
-    Position, Trade, Signal, LogEntry, SettingsUpdate, BacktestRequest, ResetRequest, PlanRequest,
-    OptimizeRequest, AdviseRequest, BybitTestRequest, ModeRequest, ProfileRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS, SIGNAL_MODES, now_iso,
+    Position, Trade, Signal, LogEntry, SettingsUpdate, ResetRequest, ProfileRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS, SIGNAL_MODES,
 )
 from market import TF_SECONDS  # noqa: E402
 from indicators import build_df  # noqa: E402
-from strategies import STRATEGY_INFO  # noqa: E402
-from backtest import run_backtest  # noqa: E402
+from strategies import STRATEGY_INFO, MODE_INFO  # noqa: E402
 from performance import performance  # noqa: E402
-from plan import build_plan, SCENARIOS  # noqa: E402
-from optimizer import optimize  # noqa: E402
-from ai_advisor import advise, ping as ai_ping, current as ai_current  # noqa: E402
-from auth import hash_password, verify_password, create_token, client_ip, check_locked, register_failure, clear_failures  # noqa: E402
+from ai_advisor import current as ai_current  # noqa: E402
+from auth import verify_password, create_token, client_ip, check_locked, register_failure, clear_failures  # noqa: E402
 from config import ConfigUpdate  # noqa: E402
-from bybit import BybitClient, BybitError  # noqa: E402
 import notify  # noqa: E402
-from review import plan_stats, build_context, apply_ai_changes, run_auto_review, start_global_optimization, job_state  # noqa: E402
-from profiles import PROFILES, detect_profile, profile_patch, ai_policy  # noqa: E402
-from strategies import MODE_INFO  # noqa: E402
+from review import job_state  # noqa: E402
+from profiles import PROFILES, detect_profile, profile_patch  # noqa: E402
 import migrations  # noqa: E402
 import funding  # noqa: E402
 from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news  # noqa: E402
-from routers import cron_routes, weekly_routes, walk_forward_routes  # noqa: E402
+from routers import cron_routes, weekly_routes, walk_forward_routes, bybit_routes, ai_routes, analysis_routes  # noqa: E402
 from routers.shared_routes import add_shared_routes  # noqa: E402
 from fx import routes as fx_routes  # noqa: E402
 
@@ -101,100 +95,6 @@ async def put_config(body: ConfigUpdate):
         await store.update(patch)
         await engine.log("INFO", f"Ajustes actualizados: {', '.join(patch)}")
     return store.public()
-
-
-def _bybit_client(body: BybitTestRequest = None):
-    c = store.cfg
-    use_saved = not (body and body.api_key and body.api_secret and not body.api_key.startswith("••"))
-    key, secret = (c.bybit_api_key, c.bybit_api_secret) if use_saved else (body.api_key.strip(), body.api_secret.strip())
-    if not key or not secret:
-        raise HTTPException(400, "Introduce la API key y el secret de Bybit")
-    env = (body.env if body and body.env else c.bybit_env)
-    base = body.base_url if body and body.base_url is not None else c.bybit_base_url
-    return BybitClient(key, secret, env, base), use_saved
-
-
-@api.post("/bybit/test")
-async def bybit_test(body: BybitTestRequest = None):
-    client, saved = _bybit_client(body)
-    try:
-        t0 = time.time()
-        srv = await client.server_time()
-        offset_ms = int((srv - t0) * 1000) if srv else None
-        wallet = await client.wallet()
-        positions = await client.positions()
-    except BybitError as e:
-        raise HTTPException(424, f"Bybit rechazó la conexión ({e.code}): {e.msg}")
-    except Exception as e:
-        raise HTTPException(424, f"No se pudo conectar con Bybit: {str(e)[:160]}")
-    finally:
-        await client.aclose()
-    if saved:
-        await store.update({"bybit_verified_at": now_iso(), "bybit_verified_equity": wallet["equity"]})
-        await engine.log("INFO", f"Conexión Bybit {client.env} verificada · equidad ${wallet['equity']:,.2f}")
-    return {"ok": True, "env": client.env, "base_url": client.base_url, "server_offset_ms": offset_ms,
-            "wallet": wallet, "open_positions": len(positions), "positions": positions, "saved_credentials": saved}
-
-
-async def _mode_checks() -> dict:
-    c = store.cfg
-    open_pos = await db.positions.count_documents({})
-    checkin = await engine.checkin()
-    phase0 = checkin["phases"][0]
-    checks = [
-        {"key": "keys", "label": "API key y secret de Bybit guardados", "ok": bool(c.bybit_api_key and c.bybit_api_secret), "required": True},
-        {"key": "verified", "label": f"Conexión verificada con Bybit {c.bybit_env}", "ok": bool(c.bybit_verified_at), "required": True,
-         "detail": f"equidad ${c.bybit_verified_equity:,.2f}" if c.bybit_verified_equity is not None else None},
-        {"key": "stopped", "label": "Bot detenido", "ok": not engine.running, "required": True},
-        {"key": "flat", "label": "Sin posiciones abiertas", "ok": open_pos == 0, "required": True, "detail": f"{open_pos} abiertas" if open_pos else None},
-        {"key": "plan", "label": "Fase 0 del plan completada (validación en paper)", "ok": phase0["met"] == phase0["total"], "required": False,
-         "detail": f"{phase0['met']}/{phase0['total']} criterios"},
-    ]
-    return {"mode": c.trading_mode, "env": c.bybit_env, "live_since": c.live_since, "checks": checks,
-            "can_go_live": all(x["ok"] for x in checks if x["required"]), "verified_equity": c.bybit_verified_equity}
-
-
-@api.get("/mode")
-async def get_mode():
-    return await _mode_checks()
-
-
-@api.post("/mode")
-async def set_mode(body: ModeRequest):
-    if body.mode not in ("paper", "live"):
-        raise HTTPException(400, "Modo inválido")
-    checks = await _mode_checks()
-    if body.mode == checks["mode"]:
-        return checks
-    blocked = [x["label"] for x in checks["checks"] if x["required"] and not x["ok"] and x["key"] in ("stopped", "flat")]
-    if blocked:
-        raise HTTPException(409, "Antes de cambiar de modo: " + " · ".join(blocked))
-    if body.mode == "live":
-        if body.confirm.strip().upper() != "REAL":
-            raise HTTPException(400, "Escribe REAL para confirmar el cambio a modo real")
-        if not checks["can_go_live"]:
-            raise HTTPException(409, "Faltan requisitos: " + " · ".join(x["label"] for x in checks["checks"] if x["required"] and not x["ok"]))
-        await store.update({"trading_mode": "live", "live_since": now_iso()})
-        if body.reset_stats:
-            await engine.reset_account(store.cfg.bybit_verified_equity or None)
-        await engine.log("RISK", f"MODO REAL ACTIVADO · Bybit {store.cfg.bybit_env} · el bot operará con dinero real al iniciarse")
-        await notify.notify(f"🚨 <b>MODO REAL ACTIVADO</b> · Bybit {store.cfg.bybit_env}\nEquidad ${store.cfg.bybit_verified_equity or 0:,.2f}. El bot operará con dinero real cuando lo inicies.", "orders")
-    else:
-        await store.update({"trading_mode": "paper", "live_since": None})
-        if body.reset_stats:
-            await engine.reset_account()
-        await engine.log("INFO", "Vuelta a modo PAPER · simulación con precios reales")
-        await notify.notify("📄 <b>Vuelta a modo PAPER</b> · simulación con precios reales", "orders")
-    return await _mode_checks()
-
-
-@api.post("/ai/auto-review")
-async def ai_auto_review_now():
-    try:
-        return await run_auto_review(engine, db, store)
-    except Exception as e:
-        logger.exception("auto review")
-        raise HTTPException(424, f"Error IA: {str(e)[:200]}")
 
 
 @api.get("/meta")
@@ -403,87 +303,17 @@ async def refresh_news():
     return {"latest": news.latest, "summary": news.summary()}
 
 
-@api.post("/plan")
-async def growth_plan(req: PlanRequest):
-    settings = await engine.get_settings()
-    if req.scenario not in SCENARIOS and req.scenario != "backtest":
-        req.scenario = "base"
-    if (settings.plan_scenario, settings.plan_target_monthly, settings.plan_monthly_deposit) != (req.scenario, req.target_monthly, req.monthly_deposit):
-        await engine.update_settings({"plan_scenario": req.scenario, "plan_target_monthly": req.target_monthly,
-                                      "plan_monthly_deposit": req.monthly_deposit})
-    return build_plan(req.model_dump(), await plan_stats(engine, settings, req.initial_capital))
-
-
-@api.get("/plan/checkin")
-async def plan_checkin():
-    return await engine.checkin()
-
-
-@api.post("/optimize")
-async def optimize_symbol(req: OptimizeRequest):
-    if req.symbol not in AVAILABLE_SYMBOLS:
-        raise HTTPException(400, "Símbolo inválido")
-    s = await engine.get_settings()
-    acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
-    klines = await engine.market.fetch_klines(req.symbol, s.timeframe, 1000, cache_sec=300)
-    res = optimize(klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"], req.symbol, s.signal_mode, s.disabled_strategies)
-    return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
-
-
-@api.post("/ai/optimize-all")
-async def ai_optimize_all():
-    if not await start_global_optimization(engine, db):
-        raise HTTPException(409, "Ya hay una optimización global en curso")
-    return job_state()
-
-
-@api.get("/ai/optimize-all")
-async def ai_optimize_all_status():
-    return job_state()
-
-
-@api.post("/ai/advise")
-async def ai_advise(req: AdviseRequest):
-    if req.scope not in ("optimizer", "plan"):
-        raise HTTPException(400, "Ámbito inválido")
-    settings = await engine.get_settings()
-    before = settings.model_dump(exclude={"bot_running"})
-    acc = await engine.account_summary()
-    ctx = await build_context(engine, db, settings, acc, req.scope == "plan")
-    if req.scope == "optimizer":
-        ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (req.optimizer_results or [])]
-    await engine.log("AI_EVAL", f"Claude analizando {'optimizador' if req.scope == 'optimizer' else 'plan'} y rendimiento real...")
-    try:
-        res = await advise(req.scope, ctx, ai_policy(settings.risk_profile))
-    except Exception as e:
-        logger.exception("advise")
-        raise HTTPException(424, f"Error IA: {str(e)[:160]}")
-    applied, previous = await apply_ai_changes(engine, res, before, settings)
-    await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
-    return {**res, "applied": applied, "previous": previous}
-
-
 @api.delete("/logs")
 async def clear_logs():
     await db.logs.delete_many({})
     return {"ok": True}
 
 
-@api.post("/backtest")
-async def backtest(req: BacktestRequest):
-    if req.symbol not in AVAILABLE_SYMBOLS or req.timeframe not in TIMEFRAMES or req.strategy not in STRATEGY_KEYS:
-        raise HTTPException(400, "Parámetros inválidos")
-    df = build_df(await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60))
-    acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
-    s = await engine.get_settings()
-    result = run_backtest(df, req.strategy, req.risk_per_trade, req.leverage, initial=acc["initial_balance"], symbol=req.symbol,
-                          mode=s.signal_mode, disabled=s.disabled_strategies)
-    result.pop("r_multiples", None)
-    return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, **result}
-
-
 app.include_router(public)
 app.include_router(api)
+app.include_router(bybit_routes.router)
+app.include_router(ai_routes.router)
+app.include_router(analysis_routes.router)
 app.include_router(cron_routes.router)
 app.include_router(weekly_routes.router)
 app.include_router(walk_forward_routes.router)

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BrainCircuit, Loader2, Plug } from "lucide-react";
+import { BrainCircuit, Loader2, Plug, KeyRound, Sparkles, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,64 +7,92 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Panel } from "../Panel";
 import { http, errMsg } from "@/lib/api";
 import { Field, INPUT, BTN, BTN_OUT } from "./SecuritySection";
+import { ModelPicker } from "./ModelPicker";
 
 const PROVIDER_LABEL = { anthropic: "Anthropic (Claude)", openai: "OpenAI (GPT)", gemini: "Google (Gemini)" };
+const SOURCES = [
+  { id: "emergent", icon: Sparkles, title: "Clave universal de Emergent", desc: "Sin configurar nada: Claude, GPT o Gemini con el saldo de tu clave Emergent." },
+  { id: "gemini", icon: KeyRound, title: "Google Gemini · mi API key", desc: "Usa tu propia clave de Google AI Studio; el consumo se factura en tu cuenta de Google." },
+];
+
+const SourceCard = ({ s, active, onClick }) => (
+  <button type="button" data-testid={`ai-source-${s.id}`} onClick={onClick} aria-pressed={active}
+    className={`rounded-sm border px-3 py-2.5 text-left transition-colors ${active ? "border-amber-500/60 bg-amber-500/10" : "border-[#1E293B] bg-[#07090E] hover:border-slate-600"}`}>
+    <span className={`flex items-center gap-2 text-[13px] font-semibold ${active ? "text-amber-200" : "text-slate-200"}`}><s.icon className="h-3.5 w-3.5" /> {s.title}</span>
+    <span className="mt-1 block text-[11px] leading-snug text-slate-500">{s.desc}</span>
+  </button>
+);
 
 export default function AiSection({ config, onSave }) {
-  const [form, setForm] = useState({ ai_provider: config.ai_provider, ai_model: config.ai_model, ai_api_key: "" });
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [form, setForm] = useState({ ai_source: config.ai_source, ai_provider: config.ai_provider, ai_model: config.ai_model, gemini_model: config.gemini_model, gemini_api_key: "" });
+  const [busy, setBusy] = useState("");
   const [reply, setReply] = useState(null);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const gemini = form.ai_source === "gemini";
+  const active = config.ai_active;
 
   const save = async (extra = {}) => {
-    setSaving(true);
+    setBusy("save");
     const ok = await onSave({ ...form, ...extra }, "Configuración de IA guardada");
-    setSaving(false);
-    if (ok) setForm((f) => ({ ...f, ai_api_key: "" }));
+    setBusy("");
+    if (ok) setForm((f) => ({ ...f, gemini_api_key: "", ...(extra.clear_gemini_api_key ? { ai_source: "emergent" } : {}) }));
   };
   const test = async () => {
-    setTesting(true);
+    setBusy("test");
     setReply(null);
     try {
-      const { data } = await http.post("/ai/test");
-      setReply(`${data.provider}/${data.model}: ${data.reply}`);
-      toast.success("La IA respondió correctamente");
+      const { data } = await http.post("/ai/test", form);
+      setReply(`${data.label} (${data.source === "gemini" ? "tu clave de Google" : "clave Emergent"}): ${data.reply}`);
+      toast.success("La IA respondió correctamente · recuerda guardar para activarla");
     } catch (e) {
-      setReply(null);
       toast.error(errMsg(e));
     } finally {
-      setTesting(false);
+      setBusy("");
     }
   };
 
   return (
     <Panel testId="ai-section" title="Inteligencia artificial" icon={BrainCircuit} bodyClass="p-4 space-y-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Proveedor">
-          <Select value={form.ai_provider} onValueChange={(v) => setForm((f) => ({ ...f, ai_provider: v }))}>
-            <SelectTrigger data-testid="ai-provider-select" className={INPUT}><SelectValue /></SelectTrigger>
-            <SelectContent className="border-[#1E293B] bg-[#0D111A]">
-              {config.ai_providers.map((p) => <SelectItem key={p} value={p} className="font-mono text-xs">{PROVIDER_LABEL[p] || p}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Modelo" hint="Ej.: claude-sonnet-5-5, claude-haiku-4-5, gpt-5.5, gemini-3-flash">
-          <Input data-testid="ai-model-input" value={form.ai_model} onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))} className={INPUT} />
-        </Field>
+      <p data-testid="ai-active-label" className="rounded-sm border border-[#1E293B] bg-[#07090E] px-3 py-2 text-[12px] text-slate-300">
+        Activa ahora en ambos bots: <span className="font-semibold text-amber-300">{active.label}</span> <span className="text-slate-500">· {active.source === "gemini" ? "tu API key de Google Gemini" : "clave universal de Emergent"} · {active.model}</span>
+      </p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {SOURCES.map((s) => <SourceCard key={s.id} s={s} active={form.ai_source === s.id} onClick={() => set("ai_source", s.id)} />)}
       </div>
-      <Field label={`API key · actual: ${config.ai_key_source === "custom" ? `propia ${config.ai_api_key}` : "clave universal de Emergent"}`}
-        hint="Déjala vacía para mantener la actual. La clave universal de Emergent funciona con Claude, GPT y Gemini sin configurar nada.">
-        <Input data-testid="ai-api-key-input" type="password" autoComplete="off" value={form.ai_api_key} placeholder={config.ai_key_source === "custom" ? config.ai_api_key : "sk-… (opcional)"}
-          onChange={(e) => setForm((f) => ({ ...f, ai_api_key: e.target.value }))} className={INPUT} />
-      </Field>
+      {gemini ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label={`API key de Google Gemini${config.gemini_configured ? ` · guardada ${config.gemini_api_key}` : ""}`}
+            hint={<>Déjala vacía para mantener la guardada. <a data-testid="gemini-key-link" href={config.gemini_key_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-300 hover:underline">Obtener una API key en Google AI Studio <ExternalLink className="h-3 w-3" /></a></>}>
+            <Input data-testid="gemini-api-key-input" type="password" autoComplete="off" value={form.gemini_api_key} placeholder={config.gemini_configured ? config.gemini_api_key : "AIza…"}
+              onChange={(e) => set("gemini_api_key", e.target.value)} className={INPUT} />
+          </Field>
+          <Field label="Modelo de Gemini" hint="Pro = más razonamiento; Flash = más rápido y barato.">
+            <ModelPicker models={config.gemini_models} value={form.gemini_model} onChange={(v) => set("gemini_model", v)} testId="gemini-model" />
+          </Field>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Proveedor">
+            <Select value={form.ai_provider} onValueChange={(v) => setForm((f) => ({ ...f, ai_provider: v, ai_model: config.ai_models[v]?.[0] || f.ai_model }))}>
+              <SelectTrigger data-testid="ai-provider-select" className={INPUT}><SelectValue /></SelectTrigger>
+              <SelectContent className="border-[#1E293B] bg-[#0D111A]">
+                {config.ai_providers.map((p) => <SelectItem key={p} value={p} className="font-mono text-xs">{PROVIDER_LABEL[p] || p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Modelo" hint="El consumo se descuenta del saldo de tu clave Emergent.">
+            <ModelPicker models={config.ai_models[form.ai_provider] || []} value={form.ai_model} onChange={(v) => set("ai_model", v)} testId="ai-model" />
+          </Field>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
-        <Button data-testid="ai-save-button" onClick={() => save()} disabled={saving} className={BTN}>{saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Guardar</Button>
-        {config.ai_key_source === "custom" && (
-          <Button data-testid="ai-clear-key-button" variant="outline" onClick={() => save({ clear_ai_api_key: true })} className={BTN_OUT}>Volver a la clave de Emergent</Button>
-        )}
-        <Button data-testid="ai-test-button" variant="outline" onClick={test} disabled={testing} className={BTN_OUT}>
-          {testing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plug className="mr-1.5 h-3.5 w-3.5" />} Probar conexión
+        <Button data-testid="ai-save-button" onClick={() => save()} disabled={!!busy} className={BTN}>{busy === "save" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Guardar</Button>
+        <Button data-testid="ai-test-button" variant="outline" onClick={test} disabled={!!busy} className={BTN_OUT}>
+          {busy === "test" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plug className="mr-1.5 h-3.5 w-3.5" />} Probar conexión
         </Button>
+        {config.gemini_configured && (
+          <Button data-testid="ai-clear-gemini-button" variant="outline" onClick={() => save({ clear_gemini_api_key: true })} disabled={!!busy} className={`${BTN_OUT} text-rose-300 hover:bg-rose-500/10`}>Quitar clave de Gemini</Button>
+        )}
       </div>
       {reply && <p data-testid="ai-test-reply" className="rounded-sm border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[12px] text-emerald-200">{reply}</p>}
     </Panel>

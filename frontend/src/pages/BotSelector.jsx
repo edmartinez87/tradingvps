@@ -9,14 +9,14 @@ const BOTS = [
     key: "crypto", path: "/bybit", icon: Zap, accent: "amber",
     title: <>Bybit <span className="text-amber-400">AI</span> Trader</>,
     subtitle: "Criptomonedas · Futuros perpetuos USDT",
-    desc: "Bot cripto 24/7 con 5 estrategias, validación con Claude, filtros de noticias y funding, optimizador walk-forward y modo REAL en Bybit.",
+    desc: "Bot cripto 24/7 con 5 estrategias, validación con IA, filtros de noticias y funding, optimizador walk-forward y modo REAL en Bybit.",
     tags: ["BTC · ETH · SOL · XRP…", "Paper / REAL Bybit", "Bitget espejo"],
   },
   {
     key: "fx", path: "/hotforex", icon: Landmark, accent: "sky",
     title: <>HotForex <span className="text-sky-400">AI</span> Trading</>,
     subtitle: "Forex y metales · Oro, plata, EUR, GBP, CHF, CAD, NZD, JPY",
-    desc: "Mismo motor adaptado a divisas: horario forex, lotes y pips, agenda macro de 8 economías, trading por noticias con Claude y cuenta real HFM vía MetaApi.",
+    desc: "Mismo motor adaptado a divisas: horario forex, lotes y pips, agenda macro de 8 economías, trading por noticias con IA y cuenta real HFM vía MetaApi.",
     tags: ["XAUUSD · XAGUSD · EURUSD…", "Paper trading · 1:100", "Yahoo Finance · HFM"],
   },
 ];
@@ -63,7 +63,7 @@ export default function BotSelector({ onLogout }) {
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">Panel de control · acceso verificado</p>
             <h1 className="font-display mt-2 text-3xl font-extrabold uppercase leading-none tracking-tight text-slate-50 md:text-4xl">¿Qué bot quieres operar?</h1>
-            <p className="mt-3 max-w-xl text-sm text-slate-400">Dos motores independientes con la misma filosofía: estrategias técnicas, puertas de riesgo y validación con Claude. Cada uno tiene su cuenta paper, su historial y sus ajustes.</p>
+            <p className="mt-3 max-w-xl text-sm text-slate-400">Dos motores independientes con la misma filosofía: estrategias técnicas, puertas de riesgo y validación con IA. Cada uno tiene su cuenta paper, su historial y sus ajustes.</p>
           </div>
           <Button data-testid="selector-logout-button" variant="ghost" onClick={onLogout} className="h-9 font-mono text-[11px] uppercase tracking-wider text-slate-400 hover:bg-[#111827] hover:text-rose-300">
             <LogOut className="mr-1.5 h-3.5 w-3.5" /> Cerrar sesión

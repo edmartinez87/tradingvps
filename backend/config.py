@@ -6,9 +6,10 @@ import ai_advisor
 import notify
 from auth import hash_password
 
-SECRET_FIELDS = ("ai_api_key", "telegram_bot_token", "bybit_api_key", "bybit_api_secret")
-ENCRYPTED_FIELDS = ("bybit_api_secret", "bybit_api_key", "ai_api_key", "telegram_bot_token")
+SECRET_FIELDS = ("gemini_api_key", "telegram_bot_token", "bybit_api_key", "bybit_api_secret")
+ENCRYPTED_FIELDS = ("bybit_api_secret", "bybit_api_key", "gemini_api_key", "telegram_bot_token")
 AI_PROVIDERS = ["anthropic", "openai", "gemini"]
+AI_SOURCES = ["emergent", "gemini"]
 BYBIT_ENVS = ["mainnet", "testnet", "demo"]
 DEFAULT_ALERTS = {"orders": True, "ai": True, "daily": True, "plan": True, "review": True, "news": True}
 _fernet = Fernet(os.environ["CREDENTIAL_ENCRYPTION_KEY"].encode()) if os.environ.get("CREDENTIAL_ENCRYPTION_KEY") else None
@@ -31,9 +32,11 @@ class AppConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
     password_hash: str = ""
     token_version: int = 1
-    ai_api_key: str = ""
+    ai_source: str = "emergent"
     ai_provider: str = "anthropic"
     ai_model: str = "claude-sonnet-5-5"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.1-pro-preview"
     telegram_enabled: bool = False
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
@@ -84,9 +87,11 @@ class ConfigUpdate(BaseModel):
     news_block_critical: Optional[bool] = None
     news_reduce_on_high_risk: Optional[bool] = None
     news_size_factor: Optional[float] = Field(default=None, ge=0.1, le=1.0)
-    ai_api_key: Optional[str] = None
+    ai_source: Optional[str] = None
     ai_provider: Optional[str] = None
     ai_model: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    gemini_api_key: Optional[str] = Field(default=None, max_length=200)
+    gemini_model: Optional[str] = Field(default=None, min_length=2, max_length=80)
     telegram_enabled: Optional[bool] = None
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = Field(default=None, max_length=40)
@@ -99,7 +104,7 @@ class ConfigUpdate(BaseModel):
     bybit_api_secret: Optional[str] = Field(default=None, max_length=200)
     bybit_env: Optional[str] = None
     bybit_base_url: Optional[str] = Field(default=None, max_length=200)
-    clear_ai_api_key: bool = False
+    clear_gemini_api_key: bool = False
     clear_telegram_bot_token: bool = False
     clear_bybit: bool = False
 
@@ -132,17 +137,32 @@ class ConfigStore:
 
     async def _apply(self):
         c = self.cfg
-        ai_advisor.configure(c.ai_api_key or os.environ.get("EMERGENT_LLM_KEY", ""), c.ai_provider, c.ai_model)
+        ai_advisor.configure(**self.ai_runtime())
         notify.configure(c.telegram_enabled, c.telegram_bot_token, c.telegram_chat_id, c.telegram_alerts)
         for fn in self.listeners:
             await fn(c)
+
+    def ai_runtime(self, override: dict = None) -> dict:
+        c = self.cfg.model_dump()
+        c.update({k: v for k, v in (override or {}).items() if v not in (None, "")})
+        if c["ai_source"] == "gemini":
+            key = self.cfg.gemini_api_key if c["gemini_api_key"].startswith("••") else c["gemini_api_key"]
+            if not key:
+                raise ValueError("Introduce la API key de Google Gemini")
+            return {"api_key": key, "provider": "gemini", "model": c["gemini_model"], "source": "gemini"}
+        return {"api_key": os.environ.get("EMERGENT_LLM_KEY", ""), "provider": c["ai_provider"], "model": c["ai_model"], "source": "emergent"}
 
     def public(self) -> dict:
         d = self.cfg.model_dump(exclude={"password_hash", "token_version"})
         for k in SECRET_FIELDS:
             d[k] = mask(d[k])
-        d["ai_key_source"] = "custom" if self.cfg.ai_api_key else "emergent"
+        d["ai_sources"] = AI_SOURCES
         d["ai_providers"] = AI_PROVIDERS
+        d["ai_models"] = ai_advisor.EMERGENT_MODELS
+        d["gemini_models"] = ai_advisor.GEMINI_MODELS
+        d["gemini_key_url"] = ai_advisor.GEMINI_KEY_URL
+        d["gemini_configured"] = bool(self.cfg.gemini_api_key)
+        d["ai_active"] = ai_advisor.current()
         d["bybit_envs"] = BYBIT_ENVS
         d["bybit_configured"] = bool(self.cfg.bybit_api_key and self.cfg.bybit_api_secret)
         d["telegram_ready"] = notify.is_on()
@@ -151,18 +171,24 @@ class ConfigStore:
 
     def patch_from(self, body: ConfigUpdate) -> dict:
         patch = {}
-        for k, v in body.model_dump(exclude={"clear_ai_api_key", "clear_telegram_bot_token", "clear_bybit"}).items():
+        for k, v in body.model_dump(exclude={"clear_gemini_api_key", "clear_telegram_bot_token", "clear_bybit"}).items():
             if v is None or (k in SECRET_FIELDS and (v == "" or v.startswith("••"))):
                 continue
             patch[k] = v.strip() if isinstance(v, str) else v
-        if body.clear_ai_api_key:
-            patch["ai_api_key"] = ""
+        if body.clear_gemini_api_key:
+            patch["gemini_api_key"] = ""
+            if patch.get("ai_source", self.cfg.ai_source) == "gemini":
+                patch["ai_source"] = "emergent"
         if body.clear_telegram_bot_token:
             patch["telegram_bot_token"] = ""
         if body.clear_bybit:
             patch.update(bybit_api_key="", bybit_api_secret="", bybit_verified_at=None, bybit_verified_equity=None)
+        if "ai_source" in patch and patch["ai_source"] not in AI_SOURCES:
+            raise ValueError("Fuente de IA inválida")
         if "ai_provider" in patch and patch["ai_provider"] not in AI_PROVIDERS:
             raise ValueError("Proveedor de IA inválido")
+        if patch.get("ai_source", self.cfg.ai_source) == "gemini" and not patch.get("gemini_api_key", self.cfg.gemini_api_key):
+            raise ValueError("Introduce la API key de Google Gemini para usarla como fuente de IA")
         if "bybit_env" in patch and patch["bybit_env"] not in BYBIT_ENVS:
             raise ValueError("Entorno de Bybit inválido")
         if "bybit_base_url" in patch and patch["bybit_base_url"] and not patch["bybit_base_url"].startswith("http"):

@@ -11,7 +11,7 @@ import WeeklySummaryCard from "./WeeklySummaryCard";
 
 const ALERTS = [
   ["orders", "Entradas, salidas y límite diario"],
-  ["ai", "Decisiones de Claude sobre cada señal"],
+  ["ai", "Decisiones de la IA sobre cada señal"],
   ["daily", "Resumen diario (00:00 UTC) y semanal (domingos 20:00 UTC)"],
   ["plan", "Avisos del plan de crecimiento"],
   ["review", "Revisión IA automática y revalidación walk-forward"],

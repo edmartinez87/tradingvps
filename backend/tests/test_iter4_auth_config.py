@@ -25,6 +25,14 @@ def login(pw):
     return requests.post(f"{BASE_URL}/api/auth/login", json={"password": pw}, timeout=20)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _token():
+    if "token" not in ST:
+        r = login(PW)
+        if r.status_code == 200:
+            ST["token"] = r.json()["token"]
+
+
 # ---- AUTH ----
 class TestAuth:
     def test_root_public(self):
@@ -91,25 +99,28 @@ class TestConfig:
     def test_get_defaults(self):
         d = requests.get(f"{BASE_URL}/api/config", headers=H(), timeout=15).json()
         assert d["ai_provider"] == "anthropic" and d["ai_model"] == "claude-sonnet-5-5"
-        assert d["ai_api_key"] == "" and d["ai_key_source"] == "emergent"
+        assert d["ai_source"] == "emergent" and d["gemini_api_key"] == "" and d["gemini_configured"] is False
+        assert d["ai_active"]["source"] == "emergent" and d["ai_active"]["label"] == "Claude Sonnet 5.5"
         assert d["telegram_enabled"] is False and d["telegram_ready"] is False
-        assert set(d["telegram_alerts"]) == {"orders", "ai", "daily", "plan", "review"}
+        assert set(d["telegram_alerts"]) == {"orders", "ai", "daily", "plan", "review", "news"}
         assert d["auto_review_enabled"] is True and d["auto_review_frequency"] == "weekly"
         assert d["auto_review_day"] == 0 and d["auto_review_apply"] is True
-        assert d["ai_providers"] == ["anthropic", "openai", "gemini"]
+        assert d["ai_providers"] == ["anthropic", "openai", "gemini"] and d["ai_sources"] == ["emergent", "gemini"]
         assert "password_hash" not in d and "token_version" not in d
 
-    def test_custom_key_masking(self):
-        d = self.put({"ai_api_key": "sk-test-1234567890abcdef"}).json()
-        assert d["ai_key_source"] == "custom"
-        assert d["ai_api_key"].endswith("cdef") and "1234567890" not in d["ai_api_key"]
-        d = self.put({"ai_api_key": ""}).json()
-        assert d["ai_key_source"] == "custom"
-        d = self.put({"clear_ai_api_key": True}).json()
-        assert d["ai_key_source"] == "emergent" and d["ai_api_key"] == ""
+    def test_gemini_key_masking(self):
+        d = self.put({"gemini_api_key": "AIza-test-1234567890abcdef"}).json()
+        assert d["gemini_configured"] is True and d["ai_source"] == "emergent"
+        assert d["gemini_api_key"].endswith("cdef") and "1234567890" not in d["gemini_api_key"]
+        d = self.put({"gemini_api_key": ""}).json()
+        assert d["gemini_configured"] is True
+        d = self.put({"clear_gemini_api_key": True}).json()
+        assert d["gemini_configured"] is False and d["gemini_api_key"] == ""
 
     def test_bad_provider(self):
         assert self.put({"ai_provider": "foo"}).status_code == 422
+        assert self.put({"ai_source": "foo"}).status_code == 422
+        assert self.put({"ai_source": "gemini"}).status_code == 422
 
     def test_autoreview_fields(self):
         d = self.put({"auto_review_frequency": "daily", "auto_review_day": 3, "auto_review_apply": False}).json()
@@ -124,7 +135,7 @@ class TestConfig:
     def test_telegram_fields(self):
         d = self.put({"telegram_chat_id": "123456", "telegram_alerts": {"orders": False}}).json()
         assert d["telegram_chat_id"] == "123456"
-        assert d["telegram_alerts"] == {"orders": False, "ai": True, "daily": True, "plan": True, "review": True}
+        assert d["telegram_alerts"] == {"orders": False, "ai": True, "daily": True, "plan": True, "review": True, "news": True}
         d = self.put({"telegram_chat_id": "", "telegram_alerts": {"orders": True}}).json()
         assert d["telegram_chat_id"] == "" and d["telegram_alerts"]["orders"] is True
 
@@ -135,17 +146,17 @@ class TestAi:
         r = requests.post(f"{BASE_URL}/api/ai/test", headers=H(), timeout=90)
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["ok"] is True and d["reply"] and d["provider"] == "anthropic" and d["model"] == "claude-sonnet-5-5"
+        assert d["ok"] is True and d["reply"] and d["provider"] == "anthropic" and d["model"] == "claude-sonnet-5-5" and d["source"] == "emergent"
 
-    def test_ai_bogus_key_then_restore(self):
-        requests.put(f"{BASE_URL}/api/config", json={"ai_api_key": "sk-bogus-key-123456789"}, headers=H(), timeout=15)
+    def test_ai_bogus_gemini_key_then_restore(self):
+        requests.put(f"{BASE_URL}/api/config", json={"ai_source": "gemini", "gemini_api_key": "AIzaBogusKey123456789"}, headers=H(), timeout=15)
         try:
             r = requests.post(f"{BASE_URL}/api/ai/test", headers=H(), timeout=90)
             ST["bogus_status"] = r.status_code
-            assert r.status_code == 502 and "Error IA" in r.json()["detail"], r.text
+            assert r.status_code == 424 and "Error IA" in r.json()["detail"], r.text
         finally:
-            d = requests.put(f"{BASE_URL}/api/config", json={"clear_ai_api_key": True}, headers=H(), timeout=15).json()
-            assert d["ai_key_source"] == "emergent"
+            d = requests.put(f"{BASE_URL}/api/config", json={"clear_gemini_api_key": True}, headers=H(), timeout=15).json()
+            assert d["ai_source"] == "emergent" and d["gemini_configured"] is False
         r = requests.post(f"{BASE_URL}/api/ai/test", headers=H(), timeout=90)
         assert r.status_code == 200 and r.json()["ok"] is True
 
@@ -158,11 +169,11 @@ class TestTelegram:
 
     def test_chats_bad(self):
         r = requests.post(f"{BASE_URL}/api/telegram/chats", json={"token": "123:badtoken"}, headers=H(), timeout=30)
-        assert r.status_code == 502
+        assert r.status_code == 424
 
     def test_send_unconfigured(self):
         r = requests.post(f"{BASE_URL}/api/telegram/test", headers=H(), timeout=20)
-        assert r.status_code == 502
+        assert r.status_code == 424
 
 
 # ---- AUTO REVIEW (1 real call) ----
@@ -202,7 +213,8 @@ class TestCron:
         body = {"event": "schedule.triggered", "run_id": f"qa-run-{uuid.uuid4().hex[:8]}"}
         r = requests.post(f"{BASE_URL}/api/cron/ai-review", json=body, headers=h, timeout=15)
         assert r.status_code == 200
-        assert r.json() == {"accepted": True, "scheduled": False}
+        d = r.json()
+        assert d["accepted"] is True and set(d) == {"accepted", "scheduled", "scheduled_fx"}
         r2 = requests.post(f"{BASE_URL}/api/cron/ai-review", json=body, headers=h, timeout=15)
         assert r2.json() == {"accepted": True, "duplicate": True}
 
@@ -213,10 +225,11 @@ class TestCron:
 
     def test_crons_yaml(self):
         y = yaml.safe_load(open("/app/.emergent/crons.yml"))
-        assert len(y["crons"]) == 1
-        c = y["crons"][0]
-        assert c["name"] == "ai-review-daily" and c["cron"] == "0 8 * * *"
-        assert c["endpoint"] == "{{BASE_URL}}/api/cron/ai-review" and c["method"] == "POST"
+        crons = {c["name"]: c for c in y["crons"]}
+        assert set(crons) == {"ai-review-daily", "walk-forward-weekly", "weekly-summary"}
+        assert crons["ai-review-daily"]["cron"] == "0 8 * * *" and crons["walk-forward-weekly"]["cron"] == "0 7 * * 1" and crons["weekly-summary"]["cron"] == "0 20 * * 0"
+        for name, ep in (("ai-review-daily", "ai-review"), ("walk-forward-weekly", "walk-forward"), ("weekly-summary", "weekly-summary")):
+            assert crons[name]["endpoint"] == f"{{{{BASE_URL}}}}/api/cron/{ep}" and crons[name]["method"] == "POST" and crons[name]["enabled"] is True
 
 
 # ---- REGRESSION ----

@@ -9,7 +9,7 @@ import {
 
 const CRYPTO_BRAND = {
   title: <>Bybit <span className="text-amber-400">AI</span> Trader</>,
-  subtitle: "Futuros perpetuos USDT · Claude Sonnet",
+  subtitle: (status) => `Futuros perpetuos USDT · ${status.ai?.label || "IA"}`,
   icon: Zap,
   liveLabel: (status) => `Modo REAL · Bybit ${status.env}`,
   dataLabel: (status) => (status.provider === "bitget" ? "Datos: Bitget (espejo)" : "Datos: Bybit"),
@@ -52,7 +52,7 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
             <h1 className="font-display text-lg font-extrabold uppercase leading-none tracking-tight md:text-xl">
               {brand.title}
             </h1>
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">{brand.subtitle}</p>
+            <p data-testid="header-subtitle" className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">{brand.subtitle(status)}</p>
           </div>
         </div>
 

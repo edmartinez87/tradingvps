@@ -16,7 +16,7 @@ const Toggle = ({ label, hint, checked, onChange, testId }) => (
   </label>
 );
 
-const DEFAULT_DESC = "Claude revisa rendimiento real, chequeo del plan y backtests, y ajusta el bot dentro de los topes de seguridad (riesgo ≤ 1.5%, apalancamiento ≤ 5x, mínimo 2 pares). Se dispara a las 08:00 UTC del día programado y te avisa por Telegram.";
+const DEFAULT_DESC = "La IA revisa rendimiento real, chequeo del plan y backtests, y ajusta el bot dentro de los topes de seguridad (riesgo ≤ 1.5%, apalancamiento ≤ 5x, mínimo 2 pares). Se dispara a las 08:00 UTC del día programado y te avisa por Telegram.";
 
 export default function AutoReviewSection({ config, onSave, onRan, desc = DEFAULT_DESC }) {
   const [form, setForm] = useState({ auto_review_enabled: config.auto_review_enabled, auto_review_frequency: config.auto_review_frequency, auto_review_day: config.auto_review_day, auto_review_apply: config.auto_review_apply });
@@ -70,7 +70,7 @@ export default function AutoReviewSection({ config, onSave, onRan, desc = DEFAUL
       <div className="flex flex-wrap gap-2">
         <Button data-testid="autoreview-save-button" onClick={save} disabled={busy === "save"} className={BTN}>{busy === "save" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Guardar</Button>
         <Button data-testid="autoreview-run-button" variant="outline" onClick={runNow} disabled={busy === "run"} className={`${BTN_OUT} border-purple-500/40 text-purple-200 hover:bg-purple-500/10`}>
-          {busy === "run" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />} {busy === "run" ? "Claude revisando..." : "Ejecutar ahora"}
+          {busy === "run" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />} {busy === "run" ? "IA revisando..." : "Ejecutar ahora"}
         </Button>
       </div>
       {(summary || config.auto_review_last_at) && (

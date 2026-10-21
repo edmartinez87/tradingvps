@@ -43,7 +43,7 @@ export default function NewsPanel({ summary, symbols = [] }) {
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-[12px] text-slate-400">
-        {summary?.enabled === false ? "Agente de noticias desactivado en Ajustes." : "Claude lee titulares (CoinDesk, CoinTelegraph, The Block, Decrypt) y el calendario macro cada pocos minutos; el resultado entra en la evaluación de cada señal y puede pausar entradas o reducir el tamaño."}
+        {summary?.enabled === false ? "Agente de noticias desactivado en Ajustes." : "La IA lee titulares (CoinDesk, CoinTelegraph, The Block, Decrypt) y el calendario macro cada pocos minutos; el resultado entra en la evaluación de cada señal y puede pausar entradas o reducir el tamaño."}
       </p>
       <Button data-testid="news-refresh-button" size="sm" onClick={refresh} disabled={busy} variant="outline" className="h-7 border-[#1E293B] bg-transparent font-mono text-[10px] uppercase tracking-wider text-slate-200 hover:bg-[#111827]">
         {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />} Actualizar ahora

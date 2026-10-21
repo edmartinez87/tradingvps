@@ -28,7 +28,7 @@ const TAB_CLS = "rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking
 const FX_TFS = ["5m", "15m", "1h", "4h"];
 export const FX_BRAND = {
   title: <>HotForex <span className="text-sky-400">AI</span> Trading</>,
-  subtitle: "Forex · Metales · Claude Sonnet",
+  subtitle: (status) => `Forex · Metales · ${status.ai?.label || "IA"}`,
   icon: Landmark,
   liveLabel: (status) => `Modo REAL · HFM ${/demo/i.test(status.env || "") ? "Demo" : "Live"}`,
   dataLabel: (status) => (status.mode === "REAL" ? "Señales: Yahoo · Ejecución: HFM" : "Datos: Yahoo Finance"),
@@ -42,7 +42,7 @@ const EXTRA_NUMS = [{ k: "min_lot_max_risk", label: "Riesgo máx. lote mínimo (
   hint: "Si el tamaño ideal queda por debajo de 0.01 lotes (típico en oro/plata con poco capital), se abre el lote mínimo siempre que su riesgo no supere este % de la equidad. 0 = nunca." }];
 const BT_INTRO = (s) => `Evalúa la estrategia sobre las últimas 1.000 velas de Yahoo Finance (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes de 0.01 y el mismo plan de riesgo: ${s.risk_per_trade}% por operación, 1:${s.leverage}, spread HFM como único coste, trailing stop${s.close_before_weekend ? " y cierre antes del fin de semana" : ""}. Cada operación se atribuye a la sesión (Sídney, Tokio, Londres, Nueva York) en la que se abrió${s.sessions_allowed?.length ? `; solo se abren entradas en ${s.sessions_allowed.map((x) => SESSION_NAMES[x]).join(" y ")}, como en el bot` : ""}.`;
 const OPT_INTRO = "Optimización por par con lotes, spread y cierre de fin de semana como en el bot: ";
-const AI_ALL_INTRO = (n) => `Corre el optimizador y el walk-forward en los ${n} pares activos y Claude cruza esos resultados con las operaciones reales del bot, las estadísticas por sesión del backtest, las noticias y la revalidación semanal. Aplica los SL/TP que se sostienen fuera de muestra, restringe las sesiones si hay evidencia y poda lo que pierde, siempre dentro de los topes de tu perfil de riesgo forex. Los cambios se aplican directamente y te avisa por Telegram.`;
+const AI_ALL_INTRO = (n) => `Corre el optimizador y el walk-forward en los ${n} pares activos y la IA cruza esos resultados con las operaciones reales del bot, las estadísticas por sesión del backtest, las noticias y la revalidación semanal. Aplica los SL/TP que se sostienen fuera de muestra, restringe las sesiones si hay evidencia y poda lo que pierde, siempre dentro de los topes de tu perfil de riesgo forex. Los cambios se aplican directamente y te avisa por Telegram.`;
 const SESSION_CHIPS = (meta) => [{ k: "sessions_allowed", label: "Sesiones para abrir posiciones", emptyLabel: "todas", options: meta?.sessions || [],
   hint: "El bot solo abre nuevas entradas cuando alguna de las sesiones marcadas está abierta (Londres y Nueva York concentran la liquidez). Sin selección opera en todo el horario forex. Las posiciones abiertas se gestionan igual en cualquier sesión. El backtest aplica el mismo filtro." }];
 const fmtLev = (v) => `1:${v}`;

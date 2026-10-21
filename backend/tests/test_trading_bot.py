@@ -22,6 +22,7 @@ def inject(symbol, side, noai=True, timeout=90):
 @pytest.fixture(scope="session")
 def s():
     sess = requests.Session()
+    sess.headers["Authorization"] = "Bearer " + requests.post(f"{API}/auth/login", json={"password": "BlackCat2233@"}, timeout=20).json()["token"]
     yield sess
     sess.put(f"{API}/settings", json=DEFAULTS)
     sess.post(f"{API}/bot/stop")
@@ -34,6 +35,10 @@ class TestRead:
         r = s.get(f"{API}/dashboard")
         assert r.status_code == 200
         d = r.json()
+        if not all("trend" in w for w in d["watchlist"]):  # fresh backend: analysis is filled by the first scan
+            s.post(f"{API}/bot/scan")
+            time.sleep(25)
+            d = s.get(f"{API}/dashboard").json()
         for k in ("status", "settings", "account", "positions", "trades", "signals", "logs", "watchlist", "equity"):
             assert k in d
         assert d["status"]["provider"] in ("bitget", "bybit")
@@ -47,7 +52,7 @@ class TestRead:
     def test_meta(self, s):
         d = s.get(f"{API}/meta").json()
         assert "BTCUSDT" in d["symbols"] and "1h" in d["timeframes"]
-        assert set(d["strategies"]) == {"all", "trend_ema", "mean_reversion", "breakout_turtle"}
+        assert set(d["strategies"]) == {"all", "trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback"}
         assert "trend_ema" in d["strategy_info"]
 
     def test_klines(self, s):
@@ -122,9 +127,9 @@ class TestPositions:
         assert p["side"] == "long" and p["sl"] < p["entry_price"] < p["tp"] and p["leverage"] == 3
         acc = s.get(f"{API}/account").json()
         assert abs(acc["balance"] - (bal0 - p["fees"])) < 0.02
-        # risk ~1% of equity
+        # risk ~1% of equity ($500 paper account → ~$5; lot-size rounding allowed)
         risk = abs(p["entry_price"] - p["sl"]) * p["qty"]
-        assert 90 < risk < 110, risk
+        assert 4 < risk < 6, risk
         time.sleep(11)
         p2 = [x for x in s.get(f"{API}/positions").json() if x["id"] == p["id"]][0]
         assert p2["mark_price"] > 0
@@ -197,7 +202,7 @@ class TestBacktest:
 class TestReset:
     def test_reset_and_logs(self, s):
         r = s.post(f"{API}/account/reset")
-        assert r.status_code == 200 and r.json()["balance"] == 10000
+        assert r.status_code == 200 and r.json()["balance"] == 500
         d = s.get(f"{API}/dashboard").json()
         assert d["positions"] == [] and d["trades"] == [] and d["signals"] == []
         assert s.delete(f"{API}/logs").json()["ok"] is True

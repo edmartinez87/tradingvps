@@ -6,6 +6,7 @@ import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 S = requests.Session()
+S.headers["Authorization"] = "Bearer " + requests.post(f"{BASE_URL}/api/auth/login", json={"password": "BlackCat2233@"}, timeout=20).json()["token"]
 PLAN = {"initial_capital": 500, "monthly_deposit": 0, "target_monthly": 1000, "scenario": "base"}
 
 

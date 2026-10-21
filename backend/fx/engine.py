@@ -14,6 +14,7 @@ from fx.market import FxMarket, HTF, market_open, market_status, closing_soon, i
 from fx.symbols import SPECS, fmt_price, pips
 from fx import risk
 from fx.ai import evaluate_signal
+from ai_advisor import label as ai_label
 from fx.backtest import build_fx_df
 from fx.live import FxLiveBroker
 from fx import plan as fx_plan
@@ -583,7 +584,7 @@ class FxEngine:
         signal = Signal(**base, ai_decision="SIN_IA")
         approve = True
         if settings.ai_enabled:
-            await self.log("AI_EVAL", f"Claude evaluando {symbol} {sig['side'].upper()}...")
+            await self.log("AI_EVAL", f"{ai_label()} evaluando {symbol} {sig['side'].upper()}...")
             closes = df["close"].iloc[-22:-1]
             t = self.market.tickers.get(symbol, {})
             ctx = {
@@ -603,7 +604,7 @@ class FxEngine:
                 logger.exception("ai error")
                 signal.ai_decision, signal.note, approve = "ERROR", f"Error IA: {str(e)[:180]}", False
             await self.log("AI_EVAL", f"{symbol}: {signal.ai_decision} · confianza {signal.ai_confidence}% · riesgo {signal.ai_risk}")
-            await self.tg(f"🤖 <b>Claude · {symbol} {sig['side'].upper()}</b>: {signal.ai_decision} ({signal.ai_confidence}% · riesgo {signal.ai_risk})\n"
+            await self.tg(f"🤖 <b>{ai_label()} · {symbol} {sig['side'].upper()}</b>: {signal.ai_decision} ({signal.ai_confidence}% · riesgo {signal.ai_risk})\n"
                           f"{signal.ai_reasoning[:300] or signal.note}", "ai")
         res = await self.db.signals.insert_one(signal.to_mongo())
         if approve:

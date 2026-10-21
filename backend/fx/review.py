@@ -3,7 +3,7 @@ import asyncio
 import logging
 from models import now_iso
 from performance import performance
-from ai_advisor import advise, FX_MARKET
+from ai_advisor import advise, FX_MARKET, label as ai_label
 import review
 from fx.models import FxSettingsUpdate
 from fx.symbols import AVAILABLE
@@ -52,7 +52,7 @@ async def advise_scope(engine, scope: str, optimizer_results: list = None) -> di
     ctx = await build_context(engine, settings, acc, scope == "plan")
     if scope == "optimizer":
         ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (optimizer_results or [])]
-    await engine.log("AI_EVAL", f"Claude analizando {'optimizador' if scope == 'optimizer' else 'plan'} y rendimiento real...")
+    await engine.log("AI_EVAL", f"{ai_label()} analizando {'optimizador' if scope == 'optimizer' else 'plan'} y rendimiento real...")
     res = await advise(scope, ctx, ai_policy(settings.risk_profile), FX_MARKET)
     applied, previous = await _apply(engine, res, before, settings)
     await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
@@ -110,7 +110,7 @@ async def run_global_optimization(engine, db) -> dict:
         wf = await _safe_walk_forward(engine, settings, initial, sym)
         results.append({**res, "timeframe": settings.timeframe, "applied": settings.symbol_params.get(sym), "walk_forward": wf,
                         "session_stats": bt["session_stats"], "rejected_lot": bt["rejected_lot"]})
-    job["step"] = "Claude analizando todos los datos"
+    job["step"] = f"{ai_label()} analizando todos los datos"
     ctx = await build_context(engine, settings, acc)
     ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe", "applied", "walk_forward", "session_stats", "rejected_lot")} for r in results]
     ctx["optimizador_explicacion"] = ("session_stats = operaciones del backtest (sin filtro de sesión) agrupadas por la sesión abierta al entrar; "
