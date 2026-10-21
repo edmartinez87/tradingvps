@@ -141,6 +141,13 @@
 - UI FX: pestaña "Plan de crecimiento" (`fx-tab-plan`, punto de alerta) con `GrowthPlan currency="USD"` e intro forex; columna Pips en la tabla por par (`plan-bt-<SYM>-pips`); Ajustes FX añade "Revisión IA automática" (descripción forex) y la tarjeta "Resumen semanal" en Telegram; `AccountSection currency`. Fix: GrowthPlan evita el doble POST de StrictMode y setState tras desmontar. Prompt del asesor pide nombres de estrategias legibles.
 - Tested iteration_19: backend 11/11 (`tests/test_iter19_fx_plan_review_weekly.py`) + regresión iter12/17; frontend 100 % (testing_agent) → 3 hallazgos LOW corregidos (etiqueta USDT en Cuenta paper FX, doble POST, nombres de estrategia). Dato real: Monte Carlo FX 1h sale negativo (−5.7 %/mes) → tarjeta «Según backtest» deshabilitada (correcto).
 
+## Implemented (2026-06, iteration 20 · limpieza técnica + fuente de IA global (Emergent ↔ Google Gemini))
+- Refactor sin cambio de contrato: `routers/bybit_routes.py` (`/bybit/test`, GET/POST `/mode`), `routers/ai_routes.py` (`/ai/auto-review`, GET/POST `/ai/optimize-all`, `/ai/advise`), `routers/analysis_routes.py` (`/plan`, `/plan/checkin`, `/optimize`, `/backtest`). server.py 521 → 351 líneas.
+- Tests antiguos saneados: `test_iter4_auth_config.py` (424 en vez de 502, alerta `news`, 3 crons, fixture de login por módulo, Gemini en vez de ai_api_key); `test_trading_bot.py`, `test_plan_performance.py`, `test_optimizer_checkin_ai.py` ahora autentican (sesión Bearer) y asumen cuenta $500 / 5 estrategias. Notas en `/app/memory/testing_notes.md` (ejecutar suites con `-n 0`, cuáles reinician la cuenta paper).
+- Fuente de IA global (compartida por ambos bots, `db.config`): `ai_source` emergent|gemini; `ai_provider`/`ai_model` para la clave universal de Emergent; `gemini_api_key` (cifrada Fernet, enmascarada) + `gemini_model` para Google AI Studio (llamada directa a Google vía litellm, sin pasar por Emergent). `ConfigStore.ai_runtime(override)` resuelve clave/proveedor/modelo; `patch_from` exige clave al elegir Gemini (422), `clear_gemini_api_key` borra la clave y vuelve a Emergent. `GET /api/config` expone `ai_sources`, `ai_models` (listas Emergent por proveedor), `gemini_models`, `gemini_key_url`, `gemini_configured`, `ai_active {provider, model, source, label}`. `POST /api/ai/test` (y `/api/fx/ai/test`) acepta el formulario sin guardar (`saved:false`). `ai_advisor.label()` ("Claude Sonnet 5.5", "Gemini 2.5 Flash") sustituye a "Claude" en logs/Telegram/pasos de jobs; `friendly_error()` traduce errores (clave inválida, 429 cuota, modelo no encontrado) en los 424 de IA de ambos bots. `status.ai` incluye `source` y `label`.
+- UI: `admin/AiSection.jsx` rediseñada (estado activo, dos tarjetas de fuente, proveedor + `ModelPicker` con lista legible + "Otro modelo (escribir)", API key de Gemini con enlace a Google AI Studio, Probar conexión sobre el formulario, Quitar clave de Gemini); subtítulo del header dinámico con el modelo activo (`header-subtitle`); los textos "Claude" de la UI pasaron a "la IA".
+- Tested iteration_20: backend `tests/test_iter20_ai_source_routers.py` 12/12 + iter4 29/29 + suites antiguas (33 + 19) OK; frontend 100 % (testing_agent). Nota: los tests antiguos reiniciaron la cuenta paper cripto del preview ($500, 0 operaciones) y el bot se volvió a iniciar.
+
 ## Fase 2 HotForex (pendiente)
 - P0: Prueba operativa del usuario con token real de MetaApi + cuenta demo HFM (MT4/MT5). Pendiente de que el usuario provea credenciales.
 
@@ -154,5 +161,5 @@
 - P2: Backup nocturno de Mongo en el VPS (script + cron en /app/deploy)
 - P3: Confirmación antes de "Revalidar ahora" cuando "Quitar sobreajustados" está activo (quita SL/TP sin diálogo)
 - P3: Persistir los run_id de los crons en Mongo (hoy lista en memoria; se pierde al reiniciar)
-- P3: Actualizar asserts obsoletos de tests/test_iter4_auth_config.py (502→424, alerta news, 3 crons)
-- P3: server.py ~540 líneas (routers cron/weekly/walk-forward ya separados); candidatos siguientes: bybit/mode, optimizer, ai
+- P3: server.py ~350 líneas (routers cron/weekly/walk-forward/bybit/ai/analysis separados); candidatos siguientes: klines/positions, fx/routes.py (~580 líneas)
+- P3: Alerta Telegram si la cuenta HFM se desconecta de MetaApi en modo REAL

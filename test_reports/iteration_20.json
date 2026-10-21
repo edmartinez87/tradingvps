@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 20 FRONTEND test of the global AI settings (Ajustes → Inteligencia artificial) plus a regression check after the router refactor. All 8 requested scenarios pass at 1920x1080. Crypto: the header-subtitle reads 'FUTUROS PERPETUOS USDT · CLAUDE SONNET 5.5'. The ai-active-label is correct, and the Emergent card is active (aria-pressed=true). The model list shows readable labels plus the id. Switching to OpenAI auto-selects gpt-5.6-terra, and 'Otro modelo (escribir)' shows ai-model-input. 'Probar conexión' in Emergent mode returns 200 and shows the reply 'Claude Sonnet 5.5 (clave Emergent): …' with the success toast; config was NOT persisted. Gemini: placeholder 'AIza…', the link points to aistudio.google.com/apikey with target _blank, and the default model is Gemini 3.1 Pro. Saving without a key gives a 422 toast 'Introduce la API key de Google Gemini…' and config is unchanged. Testing a bogus key gives a 424 toast 'Error IA: API key inválida o sin permisos…'. Saving gives the toast 'Configuración de IA guardada'; the label shows Gemini 2.5 Flash, the Quitar button appears, the key field shows the masked key (••••••••7890) in the label and placeholder, and the input is empty. After polling, the header says '· GEMINI 2.5 FLASH'. FX: the subtitle reads 'FOREX · METALES · GEMINI 2.5 FLASH' and Ajustes shows the same global config. ai-clear-gemini-button works: the toast appears, the label returns to Claude Sonnet 5.5 · Emergent, the Emergent card becomes active, the button disappears, and the FX subtitle returns to CLAUDE SONNET 5.5. Regression: the bot selector and the static texts of the crypto panel (BotPanel, Evaluación IA, Telegram, Revisión IA automática) contain no 'Claude'; the only matches are the dynamic subtitle and the Emergent card description, which is expected. Crypto Ajustes still shows Bybit · cuenta real and Modo de operación. GET /api/mode, /api/fx/mode, /api/plan/checkin and /api/config all return 200.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AiSection: after clear_gemini_api_key, the form's gemini_model and the stored config gemini_model stay at the last chosen value (gemini-2.5-flash). This is harmless because the source is emergent, but the default model is no longer gemini-3.1-pro-preview the next time the user picks Gemini.",
+    "AiSection initializes its form state from config only once, via useState. If config changes from another tab or bot, the form stays stale until remount. This is acceptable because the settings view remounts.",
+    "The frontend does not call /api/plan/checkin (grep found no usage). It was checked via curl instead and returns 200."
+  ],
+  "updated_files": ["/app/test_reports/iteration_20.json"],
+  "success_rate": {"backend": "N/A (skipped as requested)", "frontend": "100%"},
+  "seed_data_creation": "None. The Gemini bogus key was saved temporarily, then cleared from FX.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Final state is verified via GET /api/config: ai_source=emergent, anthropic/claude-sonnet-5-5, gemini_configured=false. gemini_model stays at gemini-2.5-flash from this test. The crypto bot is stopped, and Iniciar/Reiniciar were not touched. A bogus Gemini key returns 424 in under 1 s. Sonner toasts disappear in about 4 s, so poll for them right away. The localStorage token key is 'bot_token'. Bot cards use the testids bot-card-crypto and bot-card-fx.",
+  "test_credentials": "Panel password BlackCat2233@ (from /app/memory/test_credentials.md)"
+}
