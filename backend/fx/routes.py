@@ -42,7 +42,8 @@ def _status() -> dict:
     return {"running": engine.running, "scanning": engine.scanning, "provider": "yahoo", "last_scan": engine.last_scan,
             "next_scan_in": max(0, int(engine.next_scan_ts - time.time())) if engine.next_scan_ts else None,
             "mode": engine.mode_label, "env": engine.env, "market": "Forex · Metales", "telegram": notify.is_on(), "ai": ai_current(),
-            "exchange_error": engine.market.error, "broker_error": engine.broker_error if engine.live else None, "market_hours": market_status()}
+            "exchange_error": engine.market.error, "broker_error": engine.broker_error if engine.live else None, "broker_health": engine.broker_health(),
+            "market_hours": market_status()}
 
 
 async def _equity_curve(limit: int = 1440) -> list:

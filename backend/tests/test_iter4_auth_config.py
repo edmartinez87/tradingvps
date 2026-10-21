@@ -102,7 +102,7 @@ class TestConfig:
         assert d["ai_source"] == "emergent" and d["gemini_api_key"] == "" and d["gemini_configured"] is False
         assert d["ai_active"]["source"] == "emergent" and d["ai_active"]["label"] == "Claude Sonnet 5.5"
         assert d["telegram_enabled"] is False and d["telegram_ready"] is False
-        assert set(d["telegram_alerts"]) == {"orders", "ai", "daily", "plan", "review", "news"}
+        assert set(d["telegram_alerts"]) == {"orders", "ai", "daily", "plan", "review", "news", "system"}
         assert d["auto_review_enabled"] is True and d["auto_review_frequency"] == "weekly"
         assert d["auto_review_day"] == 0 and d["auto_review_apply"] is True
         assert d["ai_providers"] == ["anthropic", "openai", "gemini"] and d["ai_sources"] == ["emergent", "gemini"]
@@ -135,7 +135,7 @@ class TestConfig:
     def test_telegram_fields(self):
         d = self.put({"telegram_chat_id": "123456", "telegram_alerts": {"orders": False}}).json()
         assert d["telegram_chat_id"] == "123456"
-        assert d["telegram_alerts"] == {"orders": False, "ai": True, "daily": True, "plan": True, "review": True, "news": True}
+        assert d["telegram_alerts"] == {"orders": False, "ai": True, "daily": True, "plan": True, "review": True, "news": True, "system": True}
         d = self.put({"telegram_chat_id": "", "telegram_alerts": {"orders": True}}).json()
         assert d["telegram_chat_id"] == "" and d["telegram_alerts"]["orders"] is True
 

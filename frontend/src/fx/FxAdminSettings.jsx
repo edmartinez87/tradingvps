@@ -27,7 +27,7 @@ export default function FxAdminSettings({ account, refresh }) {
   const [config, setConfig] = useState(null);
 
   const load = useCallback(() => http.get("/config").then((r) => setConfig(r.data)).catch((e) => toast.error(errMsg(e))), []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id); }, [load]);
 
   const save = async (body, okMsg = "Ajustes guardados") => {
     try {

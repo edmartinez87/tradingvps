@@ -21,6 +21,8 @@ async def main(symbol: str, side: str, ai: bool):
     s = await eng.get_settings()
     await eng.market.fetch_tickers(s.symbols)
     s.ai_enabled = ai
+    if eng.live and eng.broker:
+        await eng._monitor_once()  # sync broker health so the HFM connection gate applies like in the running engine
     df = eng._df(await eng.market.fetch_klines(symbol, s.timeframe, 300))
     row = df.iloc[-2]
     atr, c = row["atr"], row["close"]

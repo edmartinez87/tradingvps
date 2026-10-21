@@ -11,7 +11,7 @@ ENCRYPTED_FIELDS = ("bybit_api_secret", "bybit_api_key", "gemini_api_key", "tele
 AI_PROVIDERS = ["anthropic", "openai", "gemini"]
 AI_SOURCES = ["emergent", "gemini"]
 BYBIT_ENVS = ["mainnet", "testnet", "demo"]
-DEFAULT_ALERTS = {"orders": True, "ai": True, "daily": True, "plan": True, "review": True, "news": True}
+DEFAULT_ALERTS = {"orders": True, "ai": True, "daily": True, "plan": True, "review": True, "news": True, "system": True}
 _fernet = Fernet(os.environ["CREDENTIAL_ENCRYPTION_KEY"].encode()) if os.environ.get("CREDENTIAL_ENCRYPTION_KEY") else None
 
 
@@ -125,6 +125,7 @@ class ConfigStore:
             doc = {"_id": "main", **AppConfig(password_hash=hash_password(os.environ["INITIAL_PASSWORD"])).model_dump()}
             await self.db.config.insert_one(doc)
         self.cfg = AppConfig.model_validate({k: (_dec(v) if k in ENCRYPTED_FIELDS else v) for k, v in doc.items()})
+        self.cfg.telegram_alerts = {**DEFAULT_ALERTS, **self.cfg.telegram_alerts}
         await self._apply()
 
     async def update(self, patch: dict):
@@ -177,6 +178,7 @@ class ConfigStore:
             patch[k] = v.strip() if isinstance(v, str) else v
         if body.clear_gemini_api_key:
             patch["gemini_api_key"] = ""
+            patch["gemini_model"] = AppConfig.model_fields["gemini_model"].default
             if patch.get("ai_source", self.cfg.ai_source) == "gemini":
                 patch["ai_source"] = "emergent"
         if body.clear_telegram_bot_token:

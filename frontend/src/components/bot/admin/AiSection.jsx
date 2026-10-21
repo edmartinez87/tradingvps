@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrainCircuit, Loader2, Plug, KeyRound, Sparkles, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -23,19 +23,24 @@ const SourceCard = ({ s, active, onClick }) => (
   </button>
 );
 
+const fromConfig = (c) => ({ ai_source: c.ai_source, ai_provider: c.ai_provider, ai_model: c.ai_model, gemini_model: c.gemini_model, gemini_api_key: "" });
+
 export default function AiSection({ config, onSave }) {
-  const [form, setForm] = useState({ ai_source: config.ai_source, ai_provider: config.ai_provider, ai_model: config.ai_model, gemini_model: config.gemini_model, gemini_api_key: "" });
+  const [form, setForm] = useState(fromConfig(config));
+  const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState("");
   const [reply, setReply] = useState(null);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k, v) => { setDirty(true); setForm((f) => ({ ...f, [k]: v })); };
   const gemini = form.ai_source === "gemini";
   const active = config.ai_active;
+  // Keep the form in sync with the saved config (other bot / tab / background job) while the user has no unsaved edits.
+  useEffect(() => { if (!dirty) setForm(fromConfig(config)); }, [dirty, config.ai_source, config.ai_provider, config.ai_model, config.gemini_model]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async (extra = {}) => {
     setBusy("save");
     const ok = await onSave({ ...form, ...extra }, "Configuración de IA guardada");
     setBusy("");
-    if (ok) setForm((f) => ({ ...f, gemini_api_key: "", ...(extra.clear_gemini_api_key ? { ai_source: "emergent" } : {}) }));
+    if (ok) setDirty(false);
   };
   const test = async () => {
     setBusy("test");
@@ -73,7 +78,7 @@ export default function AiSection({ config, onSave }) {
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Proveedor">
-            <Select value={form.ai_provider} onValueChange={(v) => setForm((f) => ({ ...f, ai_provider: v, ai_model: config.ai_models[v]?.[0] || f.ai_model }))}>
+            <Select value={form.ai_provider} onValueChange={(v) => { setDirty(true); setForm((f) => ({ ...f, ai_provider: v, ai_model: config.ai_models[v]?.[0] || f.ai_model })); }}>
               <SelectTrigger data-testid="ai-provider-select" className={INPUT}><SelectValue /></SelectTrigger>
               <SelectContent className="border-[#1E293B] bg-[#0D111A]">
                 {config.ai_providers.map((p) => <SelectItem key={p} value={p} className="font-mono text-xs">{PROVIDER_LABEL[p] || p}</SelectItem>)}

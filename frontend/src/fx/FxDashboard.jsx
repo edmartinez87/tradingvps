@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Layers, Loader2, Landmark } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { http, errMsg, setApiBase, SESSION_NAMES } from "@/lib/api";
+import { http, errMsg, setApiBase, SESSION_NAMES, fmtTime } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 import Header from "@/components/bot/Header";
 import KpiStrip from "@/components/bot/KpiStrip";
@@ -110,9 +110,11 @@ export default function FxDashboard({ onLogout }) {
             Yahoo Finance sin respuesta: {data.status.exchange_error} · mostrando los últimos datos locales
           </div>
         )}
-        {data.status.broker_error && (
+        {(data.status.broker_error || data.status.broker_health?.ok === false) && (
           <div data-testid="fx-broker-error-banner" className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 font-mono text-[11px] text-rose-200">
-            HFM / MetaApi sin respuesta: {data.status.broker_error} · equidad y posiciones reales pendientes de sincronizar
+            {data.status.broker_health?.down_since
+              ? <>Cuenta HFM sin conexión con MetaApi desde las {fmtTime(data.status.broker_health.down_since)} ({Math.max(1, Math.round(data.status.broker_health.down_sec / 60))} min) · {data.status.broker_health.error} · el bot no abrirá nuevas operaciones hasta reconectar{data.status.broker_health.alerted ? " · aviso enviado por Telegram" : ""}</>
+              : <>HFM / MetaApi sin respuesta: {data.status.broker_error} · equidad y posiciones reales pendientes de sincronizar</>}
           </div>
         )}
         <SessionsStrip hours={data.status.market_hours} allowed={data.settings.sessions_allowed} />

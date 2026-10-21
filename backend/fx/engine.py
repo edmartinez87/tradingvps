@@ -23,6 +23,10 @@ from plan import last30_stats
 logger = logging.getLogger("fx.engine")
 INITIAL_BALANCE = 500.0
 LIVE_GRACE_SEC = 20
+HFM_HEALTH_SEC = 60
+HFM_HEALTH_RETRY_SEC = 15
+HFM_REMIND_SEC = 6 * 3600
+HFM_OK_STATES, HFM_OK_CONN = ("DEPLOYED", ""), ("CONNECTED", "")
 BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado", "SESION": "sesión"}
 NEWS_STRATEGY = {"news_event": {"name": "Noticia macro", "rules": "Dato de alto impacto publicado con sorpresa clara frente a la previsión; Claude fija la dirección y la confianza, el precio debe confirmar en los primeros minutos. SL/TP por ATR 15m y cierre máximo por tiempo.", "basis": "Trading de noticias: el flujo posterior a sorpresas macro (tipos, NFP, IPC) tiende a persistir durante horas."}}
 FX_STRATEGY_INFO = {**STRATEGY_INFO, **NEWS_STRATEGY}
@@ -30,6 +34,19 @@ FX_STRATEGY_INFO = {**STRATEGY_INFO, **NEWS_STRATEGY}
 
 def today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def fmt_duration(sec: float) -> str:
+    sec = int(sec)
+    if sec < 90:
+        return f"{sec} s"
+    if sec < 3600:
+        return f"{sec // 60} min"
+    return f"{sec // 3600} h {(sec % 3600) // 60:02d} min"
+
+
+def _fresh_health() -> dict:
+    return {"ok": None, "state": "", "connection": "", "api_error": None, "error": None, "down_since": None, "alerted_at": None, "checked_at": 0.0}
 
 
 class PrefixedDB:
@@ -68,6 +85,8 @@ class FxEngine:
         self._broker_key = None
         self.broker_error = None
         self._external_warned = set()
+        self.store = None
+        self.hfm = _fresh_health()
 
     async def apply_config(self, cfg):
         self.cfg = cfg
@@ -79,6 +98,18 @@ class FxEngine:
             self.broker = FxLiveBroker(*key) if cfg.metaapi_token and cfg.metaapi_account_id else None
             self._broker_key = key
             self.broker_error = None
+            self.hfm = _fresh_health()
+        if not self.live:
+            self.hfm = _fresh_health()
+
+    def broker_health(self) -> dict | None:
+        if not (self.live and self.broker):
+            return None
+        h = self.hfm
+        return {"ok": h["ok"] is not False, "state": h["state"], "connection": h["connection"], "error": h["error"],
+                "down_since": datetime.fromtimestamp(h["down_since"], timezone.utc).isoformat() if h["down_since"] else None,
+                "down_sec": int(time.time() - h["down_since"]) if h["down_since"] else 0, "alerted": bool(h["alerted_at"]),
+                "alert_after_sec": self.cfg.hfm_alert_after_sec if self.cfg else None}
 
     @property
     def mode_label(self) -> str:
@@ -239,6 +270,7 @@ class FxEngine:
             except Exception as e:
                 self.broker_error = str(e)[:160]
                 logger.warning(f"hfm positions sync: {e}")
+            await self._hfm_health(ex is not None)
         local_ids = set()
         async for doc in self.db.positions.find():
             p = Position.from_mongo(doc)
@@ -274,6 +306,44 @@ class FxEngine:
                     self._external_warned.add(pid)
                     await self.log("RISK", f"{self.broker.our_symbol(xp['symbol'])}: posición externa detectada en HFM (no gestionada por el bot) · {xp['volume']:.2f} lotes")
         await self._update_account_metrics(settings)
+
+    async def _hfm_health(self, synced: bool):
+        """Watches the MetaApi account (terminal state + client API) in REAL mode; alerts once per outage, reminds every 6 h, confirms recovery."""
+        h, now = self.hfm, time.time()
+        if now - h["checked_at"] >= (HFM_HEALTH_SEC if h["ok"] is not False else HFM_HEALTH_RETRY_SEC):
+            h["checked_at"] = now
+            try:
+                acc = await self.broker.api.account(self.broker.account_id)
+                h.update(state=acc.get("state") or "", connection=acc.get("connectionStatus") or "", api_error=None)
+            except Exception as e:
+                h["api_error"] = str(e)[:160]
+                logger.warning(f"hfm account state: {e}")
+            if self.store and h["state"] and (h["state"], h["connection"]) != (self.cfg.hfm_state, self.cfg.hfm_connection):
+                await self.store.update({"hfm_state": h["state"], "hfm_connection": h["connection"]})
+        ok = synced and h["state"] in HFM_OK_STATES and h["connection"] in HFM_OK_CONN
+        h["ok"] = ok
+        if ok:
+            if h["alerted_at"]:
+                dur = fmt_duration(now - h["down_since"])
+                await self.log("INFO", f"Conexión con HFM restablecida · estuvo sin conexión {dur}")
+                await self.tg(f"✅ <b>Conexión con HFM restablecida</b> · estuvo sin conexión {dur}. El bot vuelve a operar con normalidad.", "system")
+            h.update(down_since=None, alerted_at=None, error=None)
+            return
+        h["error"] = (self.broker_error if not synced else None) or h["api_error"] or f"MetaApi: cuenta {h['state'] or '?'} · conexión {h['connection'] or '?'}"
+        if h["down_since"] is None:
+            h["down_since"] = now
+            return
+        first = h["alerted_at"] is None and now - h["down_since"] >= self.cfg.hfm_alert_after_sec
+        remind = h["alerted_at"] is not None and now - h["alerted_at"] >= HFM_REMIND_SEC
+        if not (first or remind):
+            return
+        h["alerted_at"] = now
+        dur = fmt_duration(now - h["down_since"])
+        n = await self.db.positions.count_documents({"live": True})
+        await self.log("ERROR", f"Cuenta HFM sin conexión con MetaApi desde hace {dur} · {h['error']}")
+        hint = "\nSi persiste, revisa la cuenta en Ajustes → HotForex (Probar conexión / Redesplegar)." if (h["state"] not in HFM_OK_STATES or "DISCONNECTED" in h["connection"]) else ""
+        await self.tg(f"🔌 <b>Cuenta HFM {'sigue ' if remind else ''}sin conexión con MetaApi</b> · {dur}\n{h['error']}\n"
+                      f"{n} posición(es) real(es) abiertas: siguen protegidas por su SL/TP en el bróker. El bot no abrirá nuevas operaciones hasta reconectar.{hint}", "system")
 
     async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: FxSettings, now: datetime):
         if not ex:
@@ -390,6 +460,9 @@ class FxEngine:
                 if not self.broker:
                     await self.log("ERROR", f"{symbol}: modo REAL sin cuenta HFM vinculada · orden no enviada")
                     return None, "modo REAL sin cuenta HFM vinculada"
+                if self.hfm["down_since"]:
+                    await self.log("RISK", f"{symbol}: orden no enviada · cuenta HFM sin conexión con MetaApi ({self.hfm['error']})")
+                    return None, "cuenta HFM sin conexión con MetaApi"
                 try:
                     info = await self.broker.info(max_age=0)
                     if not info.get("trade_allowed", True):
@@ -562,6 +635,8 @@ class FxEngine:
             return f"máximo de posiciones alcanzado ({settings.max_positions})", "BLOQUEADA", open_syms
         if acc["daily_paused"]:
             return "límite de pérdida diaria alcanzado", "BLOQUEADA", open_syms
+        if self.live and self.hfm["down_since"]:
+            return "cuenta HFM sin conexión con MetaApi", "BLOQUEADA", open_syms
         return None, None, open_syms
 
     async def _handle_signal(self, symbol, sig, settings: FxSettings, df, htf, htf_tf):

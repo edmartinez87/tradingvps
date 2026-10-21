@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
+from pymongo.errors import DuplicateKeyError
 
 import notify
 import wfcheck
@@ -18,9 +19,14 @@ from fx import weekly as fx_weekly
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cron")
-_seen: list = []
+RUN_ID_TTL_DAYS = 30
 CRYPTO = {"engine": engine, "db": db, "store": store, "review": run_auto_review, "weekly": weekly.send_weekly, "label": "", "prefix": ""}
 FX = {"engine": fx_engine, "db": fx_engine.db, "store": fx_store, "review": fx_review.run_auto_review, "weekly": fx_weekly.send, "label": " HotForex", "prefix": fx_weekly.PREFIX}
+
+
+async def init():
+    """Processed run_ids live in db.cron_runs (survive restarts); Mongo expires them after RUN_ID_TTL_DAYS."""
+    await db.cron_runs.create_index("at", expireAfterSeconds=RUN_ID_TTL_DAYS * 86400)
 
 
 def _auth(request: Request):
@@ -37,18 +43,19 @@ async def _run_id(request: Request) -> str:
         raise HTTPException(400, "Cuerpo inválido")
     if body is not None and not isinstance(body, dict):
         raise HTTPException(400, "Cuerpo inválido")
-    return request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
+    return str(request.headers.get("x-webhook-id") or (body or {}).get("run_id") or "")[:200]
 
 
 async def _accept(request: Request) -> bool:
-    """Auth + idempotency. Returns True when this run_id was already processed."""
+    """Auth + idempotency. Returns True when this run_id was already processed (persisted in Mongo)."""
     _auth(request)
     run_id = await _run_id(request)
-    if run_id and run_id in _seen:
+    if not run_id:
+        return False
+    try:
+        await db.cron_runs.insert_one({"_id": run_id, "path": request.url.path, "at": datetime.now(timezone.utc)})
+    except DuplicateKeyError:
         return True
-    if run_id:
-        _seen.append(run_id)
-        del _seen[:-200]
     return False
 
 

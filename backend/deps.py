@@ -26,6 +26,7 @@ from fx.news import FxNewsAgent  # noqa: E402
 
 fx_engine = FxEngine(db)
 fx_store = FxConfigStore(db)
+fx_engine.store = fx_store
 fx_news = FxNewsAgent(fx_engine.db, fx_engine)
 fx_engine.news = fx_news
 

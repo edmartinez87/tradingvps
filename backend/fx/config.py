@@ -30,6 +30,7 @@ class FxConfig(BaseModel):
     hfm_verified_equity: Optional[float] = None
     hfm_currency: str = ""
     hfm_leverage: Optional[int] = None
+    hfm_alert_after_sec: int = 60
     news_enabled: bool = True
     news_interval_min: int = 15
     news_countries: List[str] = list(CURRENCIES)
@@ -67,6 +68,7 @@ class FxConfigUpdate(BaseModel):
     mt_symbol_suffix: Optional[str] = Field(default=None, max_length=12)
     metaapi_region: Optional[str] = None
     metaapi_base_url: Optional[str] = Field(default=None, max_length=200)
+    hfm_alert_after_sec: Optional[int] = Field(default=None, ge=10, le=3600)
     news_enabled: Optional[bool] = None
     news_interval_min: Optional[int] = Field(default=None, ge=5, le=240)
     news_countries: Optional[List[str]] = None

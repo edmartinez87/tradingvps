@@ -1,6 +1,6 @@
 """Local MetaApi.cloud mock (provisioning + client API) for end-to-end testing of the HotForex REAL executor.
 Run: python3 scripts/metaapi_mock.py  (port 8012)  · token: mocktoken · accepts any MT login/server.
-Helpers: POST /mock/price/{symbol}?price=X · POST /mock/close/{position_id}?reason=sl|tp · GET /mock/state · POST /mock/reset
+Helpers: POST /mock/price/{symbol}?price=X · POST /mock/close/{position_id}?reason=sl|tp · POST /mock/connection?connected=false · GET /mock/state · POST /mock/reset
 """
 import sys
 import time
@@ -23,10 +23,14 @@ state = {}
 
 def reset():
     state.clear()
-    state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True})
+    state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True, "connected": True})
 
 
 reset()
+
+
+def _not_connected():
+    return JSONResponse({"id": 1, "error": "NotSynchronizedError", "message": "Account is not connected to the broker"}, status_code=404)
 
 
 def now_iso():
@@ -118,6 +122,8 @@ def _equity():
 async def account_information(acc_id: str):
     if acc_id not in state["accounts"]:
         return JSONResponse({"message": "Account not found"}, status_code=404)
+    if not state["connected"]:
+        return _not_connected()
     margin = round(sum(p["margin"] for p in state["positions"].values()), 2)
     eq = _equity()
     return {"platform": "mt5", "broker": "HF Markets (SV) Ltd", "currency": "USD", "server": state["accounts"][acc_id]["server"], "balance": round(state["balance"], 2),
@@ -127,6 +133,8 @@ async def account_information(acc_id: str):
 
 @app.get("/users/current/accounts/{acc_id}/positions")
 async def positions(acc_id: str):
+    if not state["connected"]:
+        return _not_connected()
     out = []
     for p in state["positions"].values():
         price = await price_of(p["symbol"])
@@ -168,6 +176,8 @@ def _close(p: dict, price: float, comment: str = "") -> dict:
 async def trade(acc_id: str, request: Request):
     body = await request.json()
     action = body.get("actionType")
+    if not state["connected"]:
+        return _not_connected()
     if not state["trade_allowed"]:
         return _retcode("TRADE_RETCODE_TRADE_DISABLED", 10027, "Trade disabled")
     if action in ("ORDER_TYPE_BUY", "ORDER_TYPE_SELL"):
@@ -244,10 +254,19 @@ async def set_trade_allowed(allowed: bool = True):
     return {"ok": True, "trade_allowed": allowed}
 
 
+@app.post("/mock/connection")
+async def set_connection(connected: bool = True):
+    """Simulates the terminal losing/recovering its broker connection (provisioning status + client API errors)."""
+    state["connected"] = connected
+    for acc in state["accounts"].values():
+        acc["connectionStatus"] = "CONNECTED" if connected else "DISCONNECTED_FROM_BROKER"
+    return {"ok": True, "connected": connected}
+
+
 @app.get("/mock/state")
 async def mock_state():
     return {"balance": round(state["balance"], 2), "equity": _equity(), "positions": list(state["positions"].values()), "accounts": list(state["accounts"].values()),
-            "deals": state["deals"], "prices": state["prices"], "trade_allowed": state["trade_allowed"]}
+            "deals": state["deals"], "prices": state["prices"], "trade_allowed": state["trade_allowed"], "connected": state["connected"]}
 
 
 @app.post("/mock/reset")

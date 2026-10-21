@@ -335,6 +335,7 @@ async def startup():
     await engine.init()
     await news.init()
     await migrations.run(engine, db)
+    await cron_routes.init()
     fx_store.listeners.append(fx_engine.apply_config)
     fx_store.listeners.append(fx_news.configure)
     await fx_store.load()
