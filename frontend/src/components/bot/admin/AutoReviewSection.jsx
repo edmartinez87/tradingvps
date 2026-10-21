@@ -16,7 +16,9 @@ const Toggle = ({ label, hint, checked, onChange, testId }) => (
   </label>
 );
 
-export default function AutoReviewSection({ config, onSave, onRan }) {
+const DEFAULT_DESC = "Claude revisa rendimiento real, chequeo del plan y backtests, y ajusta el bot dentro de los topes de seguridad (riesgo ≤ 1.5%, apalancamiento ≤ 5x, mínimo 2 pares). Se dispara a las 08:00 UTC del día programado y te avisa por Telegram.";
+
+export default function AutoReviewSection({ config, onSave, onRan, desc = DEFAULT_DESC }) {
   const [form, setForm] = useState({ auto_review_enabled: config.auto_review_enabled, auto_review_frequency: config.auto_review_frequency, auto_review_day: config.auto_review_day, auto_review_apply: config.auto_review_apply });
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState(null);
@@ -41,7 +43,7 @@ export default function AutoReviewSection({ config, onSave, onRan }) {
   const summary = result?.summary || config.auto_review_last_summary;
   return (
     <Panel testId="autoreview-section" title="Revisión IA automática" icon={CalendarClock} bodyClass="p-4 space-y-3">
-      <p className="text-[12px] leading-relaxed text-slate-400">Claude revisa rendimiento real, chequeo del plan y backtests, y ajusta el bot dentro de los topes de seguridad (riesgo ≤ 1.5%, apalancamiento ≤ 5x, mínimo 2 pares). Se dispara a las 08:00 UTC del día programado y te avisa por Telegram.</p>
+      <p className="text-[12px] leading-relaxed text-slate-400">{desc}</p>
       <Toggle label="Revisión automática activa" hint="Programada por el sistema a las 08:00 UTC" checked={form.auto_review_enabled} onChange={(v) => set("auto_review_enabled", v)} testId="autoreview-enabled-switch" />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Frecuencia">

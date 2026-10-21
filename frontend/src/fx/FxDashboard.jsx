@@ -18,6 +18,7 @@ import Optimizer from "@/components/bot/Optimizer";
 import AiSignals from "@/components/bot/AiSignals";
 import SettingsPanel from "@/components/bot/SettingsPanel";
 import Terminal from "@/components/bot/Terminal";
+import GrowthPlan from "@/components/bot/GrowthPlan";
 import { Panel } from "@/components/bot/Panel";
 import SessionsStrip from "./SessionsStrip";
 import FxNewsPanel from "./FxNewsPanel";
@@ -45,6 +46,7 @@ const AI_ALL_INTRO = (n) => `Corre el optimizador y el walk-forward en los ${n} 
 const SESSION_CHIPS = (meta) => [{ k: "sessions_allowed", label: "Sesiones para abrir posiciones", emptyLabel: "todas", options: meta?.sessions || [],
   hint: "El bot solo abre nuevas entradas cuando alguna de las sesiones marcadas está abierta (Londres y Nueva York concentran la liquidez). Sin selección opera en todo el horario forex. Las posiciones abiertas se gestionan igual en cualquier sesión. El backtest aplica el mismo filtro." }];
 const fmtLev = (v) => `1:${v}`;
+const PLAN_INTRO = "Plan de crecimiento compuesto para la cuenta forex: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios fijos son promedios mensuales realistas para un sistema forex con 1 % de riesgo por operación; el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias en lotes y pips (spread HFM, lote mínimo, sesiones y cierre de fin de semana como en el bot, sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot forex.";
 
 export default function FxDashboard({ onLogout }) {
   setApiBase("fx");
@@ -135,6 +137,12 @@ export default function FxDashboard({ onLogout }) {
                     Noticias y agenda
                     {newsAlert && <span data-testid="fx-tab-news-alert" className="pulse-dot absolute -right-1 -top-1 bg-rose-400" />}
                   </TabsTrigger>
+                  <TabsTrigger data-testid="fx-tab-plan" value="plan" className={`${TAB_CLS} relative`}>
+                    Plan de crecimiento
+                    {(data.checkin?.ready_to_advance || data.checkin?.warnings?.length > 0) && (
+                      <span data-testid="fx-tab-plan-alert" className={`pulse-dot absolute -right-1 -top-1 ${data.checkin.ready_to_advance ? "bg-emerald-400" : "bg-rose-400"}`} />
+                    )}
+                  </TabsTrigger>
                 </TabsList>
               </div>
               <TabsContent value="positions" className="mt-0">
@@ -151,6 +159,10 @@ export default function FxDashboard({ onLogout }) {
                   onSave={(body) => act(() => http.put("/settings", body), "Parámetros del bot actualizados")} />
               </TabsContent>
               <TabsContent value="news" className="mt-0"><FxNewsPanel summary={data.news} symbols={data.settings.symbols} currencyNames={meta?.currency_names} /></TabsContent>
+              <TabsContent value="plan" className="mt-0">
+                <GrowthPlan account={data.account} settings={data.settings} checkin={data.checkin} refresh={refresh} currency="USD" intro={PLAN_INTRO}
+                  onSave={(body) => act(() => http.put("/settings", body), "Plan actualizado")} />
+              </TabsContent>
             </Tabs>
           </Panel>
           <AiSignals signals={data.signals} />

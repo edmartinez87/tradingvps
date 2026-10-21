@@ -1,5 +1,5 @@
 """HotForex bot configuration (MetaApi/HFM credentials, forex news agent, news trading) stored in db.fx_config."""
-from typing import Optional, List
+from typing import Optional, List, Dict
 from pydantic import BaseModel, ConfigDict, Field
 from config import _enc, _dec, mask, _fernet
 from fx.symbols import CURRENCIES
@@ -49,6 +49,13 @@ class FxConfig(BaseModel):
     news_trade_tp_atr: float = 3.0
     news_trade_max_per_event: int = 2
     wf_auto_remove: bool = True
+    auto_review_enabled: bool = True
+    auto_review_frequency: str = "weekly"
+    auto_review_day: int = 0
+    auto_review_apply: bool = True
+    auto_review_last_at: Optional[str] = None
+    auto_review_last_summary: str = ""
+    auto_review_last_changes: Dict[str, dict] = {}
 
 
 class FxConfigUpdate(BaseModel):
@@ -79,6 +86,10 @@ class FxConfigUpdate(BaseModel):
     news_trade_tp_atr: Optional[float] = Field(default=None, ge=1, le=10)
     news_trade_max_per_event: Optional[int] = Field(default=None, ge=1, le=4)
     wf_auto_remove: Optional[bool] = None
+    auto_review_enabled: Optional[bool] = None
+    auto_review_frequency: Optional[str] = None
+    auto_review_day: Optional[int] = Field(default=None, ge=0, le=6)
+    auto_review_apply: Optional[bool] = None
     clear_hfm: bool = False
 
 
@@ -133,6 +144,8 @@ class FxConfigStore:
             raise ValueError("Plataforma inválida (mt4 o mt5)")
         if "metaapi_region" in patch and patch["metaapi_region"] not in REGIONS:
             raise ValueError("Región de MetaApi inválida")
+        if "auto_review_frequency" in patch and patch["auto_review_frequency"] not in ("daily", "weekly"):
+            raise ValueError("Frecuencia de revisión inválida (daily o weekly)")
         if "metaapi_base_url" in patch and patch["metaapi_base_url"] and not patch["metaapi_base_url"].startswith(("http://", "https://")):
             raise ValueError("El endpoint de MetaApi debe empezar por http:// o https://")
         if "mt_login" in patch and patch["mt_login"] and not patch["mt_login"].isdigit():

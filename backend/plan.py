@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import numpy as np
 from backtest import run_backtest
 from indicators import build_df
@@ -93,17 +93,24 @@ def monte_carlo(r_multiples: list, trades_per_month: float, risk_pct: float, sim
 
 
 async def backtest_stats(fetch_klines, settings, initial: float) -> dict:
-    per_symbol, agg, R, days = [], {}, [], 0.0
+    results = []
     for sym in settings.symbols:
         params = settings.symbol_params.get(sym) or {}
         df = build_df(await fetch_klines(sym, settings.timeframe, 1000, cache_sec=300), int(params.get("atr_period", 14)))
-        res = run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, sym, params,
-                           settings.signal_mode, settings.disabled_strategies)
+        results.append((sym, run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, sym, params,
+                                          settings.signal_mode, settings.disabled_strategies)))
+    return summarize(results, settings)
+
+
+def summarize(results: list, settings, extra_keys: tuple = ()) -> dict:
+    """[(symbol, backtest result)] → per-symbol / per-strategy tables, trades per month and Monte Carlo (shared by crypto and FX)."""
+    per_symbol, agg, R, days = [], {}, [], 0.0
+    for sym, res in results:
         R += res["r_multiples"]
         per_symbol.append({"symbol": sym, "return_pct": res["return_pct"], "trades": res["total_trades"],
                            "win_rate": res["win_rate"], "profit_factor": res["profit_factor"],
                            "expectancy_r": res["expectancy_r"], "max_drawdown": res["max_drawdown"],
-                           "rejected_lot": res["rejected_lot"]})
+                           "rejected_lot": res["rejected_lot"], **{k: res[k] for k in extra_keys}})
         for k, s in res["strategy_stats"].items():
             a = agg.setdefault(k, {"trades": 0, "wins": 0, "pnl": 0.0, "r_sum": 0.0, "gw": 0.0, "gl": 0.0})
             for f in a:
@@ -128,19 +135,19 @@ async def backtest_stats(fetch_klines, settings, initial: float) -> dict:
     }
 
 
-def build_plan(req: dict, bt: dict) -> dict:
+def build_plan(req: dict, bt: dict, scenarios: dict = SCENARIOS) -> dict:
     mc = bt.get("monte_carlo")
-    rates = {k: v["rate"] for k, v in SCENARIOS.items()}
+    rates = {k: v["rate"] for k, v in scenarios.items()}
     rates["backtest"] = round(mc["monthly_median"], 2) if mc else None
-    scenarios = []
+    out = []
     for key, rate in rates.items():
-        info = SCENARIOS.get(key, {"name": "Según backtest", "desc": "Mediana Monte Carlo de tus propias estrategias sobre los últimos datos reales"})
+        info = scenarios.get(key, {"name": "Según backtest", "desc": "Mediana Monte Carlo de tus propias estrategias sobre los últimos datos reales"})
         pr = project(req["initial_capital"], rate, req["target_monthly"], req["monthly_deposit"]) if rate is not None else project(req["initial_capital"], 0, req["target_monthly"])
-        scenarios.append({"key": key, "name": info["name"], "desc": info["desc"], "rate_pct": rate,
-                          "reachable": pr["reachable"], "months": pr["months"], "target_capital": pr["target_capital"],
-                          "income_at_target": pr["income_at_target"], "total_deposited": pr["total_deposited"]})
+        out.append({"key": key, "name": info["name"], "desc": info["desc"], "rate_pct": rate,
+                    "reachable": pr["reachable"], "months": pr["months"], "target_capital": pr["target_capital"],
+                    "income_at_target": pr["income_at_target"], "total_deposited": pr["total_deposited"]})
     sel = req["scenario"] if rates.get(req["scenario"]) is not None else "base"
-    return {"inputs": req, "scenarios": scenarios, "selected": sel,
+    return {"inputs": req, "scenarios": out, "selected": sel,
             "projection": project(req["initial_capital"], rates[sel], req["target_monthly"], req["monthly_deposit"]),
             "backtest": bt, "phase_info": PHASE_INFO, "withdraw_pct": WITHDRAW_PCT}
 
@@ -159,31 +166,45 @@ def _crit(label, value, target, kind="min", fmt="num"):
             "met": bool(met), "pct": round(max(0.0, min(100.0, float(pct))), 1)}
 
 
-def phase_criteria(key: str, s: dict, acc: dict, last30: dict, settings, target_capital: float, days: int) -> list:
+def phase_criteria(key: str, s: dict, acc: dict, last30: dict, settings, target_capital: float, days: int, currency: str = "USDT") -> list:
     pf = s["profit_factor"] if s["profit_factor"] is not None else (9.99 if s["realized_pnl"] > 0 else 0)
     initial = acc["initial_balance"]
     if key == "validacion":
         return [_crit("Operaciones cerradas", s["total_trades"], 60), _crit("Profit factor", pf, 1.3),
                 _crit("Drawdown máximo (%)", s["max_drawdown"], 10, "max", "pct"), _crit("Días operando", days, 28)]
     if key == "semilla":
-        return [_crit("Equidad (USDT)", s["equity"], round(2 * initial, 2), fmt="usd"),
+        return [_crit(f"Equidad ({currency})", s["equity"], round(2 * initial, 2), fmt="usd"),
                 _crit("Drawdown máximo (%)", s["max_drawdown"], 12, "max", "pct")]
     if key == "crecimiento":
-        return [_crit("Equidad (USDT)", s["equity"], round(max(GROWTH_CAP, 2 * initial), 2), fmt="usd"),
+        return [_crit(f"Equidad ({currency})", s["equity"], round(max(GROWTH_CAP, 2 * initial), 2), fmt="usd"),
                 _crit("Profit factor", pf, 1.3), _crit("Operaciones cerradas", s["total_trades"], 100)]
     if key == "consolidacion":
-        return [_crit("Equidad (USDT)", s["equity"], round(target_capital, 2), fmt="usd")]
-    return [_crit("Ganancia últimos 30 días (USDT)", last30["pnl"], settings.plan_target_monthly, fmt="usd"),
+        return [_crit(f"Equidad ({currency})", s["equity"], round(target_capital, 2), fmt="usd")]
+    return [_crit(f"Ganancia últimos 30 días ({currency})", last30["pnl"], settings.plan_target_monthly, fmt="usd"),
             _crit("Drawdown máximo (%)", s["max_drawdown"], 15, "max", "pct")]
 
 
-def build_checkin(s: dict, acc: dict, last30: dict, settings, rate_pct: float, days: int) -> dict:
+async def last30_stats(db, equity: float) -> dict:
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    agg = await db.trades.aggregate([{"$match": {"closed_at": {"$gte": since}}}, {"$group": {
+        "_id": None, "n": {"$sum": 1}, "pnl": {"$sum": "$pnl"},
+        "wins": {"$sum": {"$cond": [{"$gt": ["$pnl", 0]}, 1, 0]}},
+        "gw": {"$sum": {"$cond": [{"$gt": ["$pnl", 0]}, "$pnl", 0]}},
+        "gl": {"$sum": {"$cond": [{"$lte": ["$pnl", 0]}, "$pnl", 0]}},
+    }}]).to_list(1)
+    a = agg[0] if agg else {"n": 0, "pnl": 0.0, "wins": 0, "gw": 0.0, "gl": 0.0}
+    return {"trades": a["n"], "pnl": round(a["pnl"], 2), "win_rate": round(a["wins"] / a["n"] * 100, 1) if a["n"] else 0,
+            "profit_factor": round(a["gw"] / abs(a["gl"]), 2) if a["gl"] else None,
+            "return_pct": round(a["pnl"] / (equity - a["pnl"]) * 100, 2) if equity - a["pnl"] > 0 else 0}
+
+
+def build_checkin(s: dict, acc: dict, last30: dict, settings, rate_pct: float, days: int, currency: str = "USDT") -> dict:
     rate = rate_pct / 100 if rate_pct and rate_pct > 0 else SCENARIOS["base"]["rate"] / 100
     target_capital = settings.plan_target_monthly / (rate * PHASE_INFO["ingreso"]["risk"] * WITHDRAW_PCT / 100)
     cur = PHASE_ORDER[min(settings.plan_phase, len(PHASE_ORDER) - 1)]
     phases = []
     for i, key in enumerate(PHASE_ORDER):
-        crit = phase_criteria(key, s, acc, last30, settings, target_capital, days)
+        crit = phase_criteria(key, s, acc, last30, settings, target_capital, days, currency)
         status = "done" if i < settings.plan_phase else "current" if i == settings.plan_phase else "pending"
         phases.append({"key": key, "index": i, "name": PHASE_NAMES[key], "status": status, "criteria": crit,
                        "met": sum(c["met"] for c in crit), "total": len(crit),

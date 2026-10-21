@@ -16,6 +16,8 @@ from fx import risk
 from fx.ai import evaluate_signal
 from fx.backtest import build_fx_df
 from fx.live import FxLiveBroker
+from fx import plan as fx_plan
+from plan import last30_stats
 
 logger = logging.getLogger("fx.engine")
 INITIAL_BALANCE = 500.0
@@ -198,6 +200,14 @@ class FxEngine:
             "exchange_synced": info is not None, "currency": info["currency"] if info else "USD",
         }
 
+    async def checkin(self, settings: FxSettings = None, summary: dict = None) -> dict:
+        settings = settings or await self.get_settings()
+        s = summary or await self.account_summary()
+        acc = await self.db.account.find_one({"_id": "main"})
+        last30 = await last30_stats(self.db, s["equity"])
+        days = (datetime.now(timezone.utc) - datetime.fromisoformat(acc["created_at"])).days
+        return fx_plan.build_checkin(s, acc, last30, settings, days)
+
     # ---------- monitor ----------
     async def _monitor_loop(self):
         while True:
@@ -339,10 +349,14 @@ class FxEngine:
         if acc["day"] != today():
             upd.update(day=today(), day_start_equity=s["equity"], daily_paused=False)
             await self.log("INFO", f"Nuevo día de trading · equidad inicial ${s['equity']:,.2f}")
+            c = await self.checkin(settings, s)
+            await self.log("PLAN", c["message"] + (" · ".join([""] + c["warnings"]) if c["warnings"] else ""))
             await self.tg(f"📊 <b>Resumen diario</b>\nEquidad ${s['equity']:,.2f} ({s['total_return_pct']:+.2f}% total)\n"
                           f"PnL de ayer {s['daily_pnl']:+.2f} USD ({s['daily_pnl_pct']:+.2f}%)\n"
                           f"{s['total_trades']} ops · acierto {s['win_rate']}% · PF {s['profit_factor'] or '—'} · DD máx {s['max_drawdown']}%\n"
-                          f"{s['open_positions']} posiciones abiertas", "daily")
+                          f"{s['open_positions']} posiciones abiertas\n\n📋 {c['message']}", "daily")
+            if c["ready_to_advance"] or c["warnings"]:
+                await self.tg(f"📋 <b>Plan</b>: {c['message']}" + ("\n⚠️ " + "\n⚠️ ".join(c["warnings"]) if c["warnings"] else ""), "plan")
         elif not acc["daily_paused"] and s["daily_pnl_pct"] <= -settings.daily_loss_limit:
             upd["daily_paused"] = True
             await self.log("RISK", f"Límite de pérdida diaria ({settings.daily_loss_limit}%) alcanzado · nuevas entradas pausadas hasta mañana (UTC)")

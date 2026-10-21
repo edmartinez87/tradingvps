@@ -7,7 +7,9 @@ import { BTN_OUT } from "./SecuritySection";
 
 const strip = (html) => html.replace(/<\/?b>/g, "");
 
-export default function WeeklySummaryCard({ ready }) {
+const DEFAULT_DESC = "PnL de la semana, mejores y peores pares, valor del filtro IA (operaciones sombra) y estado del plan. Usa el aviso «Resumen diario y semanal».";
+
+export default function WeeklySummaryCard({ ready, desc = DEFAULT_DESC }) {
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState("");
   const load = async () => {
@@ -38,7 +40,7 @@ export default function WeeklySummaryCard({ ready }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-[200px] flex-1">
           <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-300"><CalendarRange className="h-3.5 w-3.5 text-amber-300" /> Resumen semanal · domingos 20:00 UTC</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">PnL de la semana, mejores y peores pares, valor del filtro IA (operaciones sombra) y estado del plan. Usa el aviso «Resumen diario y semanal».{preview?.last_sent_at && <> Último envío: {fmtDateTime(preview.last_sent_at)}.</>}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{desc}{preview?.last_sent_at && <> Último envío: {fmtDateTime(preview.last_sent_at)}.</>}</p>
         </div>
         <div className="flex gap-2">
           <Button data-testid="weekly-preview-button" variant="outline" size="sm" onClick={load} disabled={busy === "preview"} className={BTN_OUT}>

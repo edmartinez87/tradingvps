@@ -59,19 +59,21 @@ def _sym(k: str) -> str:
     return k.replace("USDT", "")
 
 
-def format_weekly(w: dict) -> str:
+def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
     wk, sh, pl = w["week"], w["shadow"], w["plan"]
     arrow = "📈" if w["week_pnl"] >= 0 else "📉"
     lines = [f"{arrow} <b>Resumen semanal · {w['mode']}</b>",
-             f"Equidad <b>${w['equity']:,.2f}</b> · semana {w['week_pnl']:+.2f} USDT ({w['week_return_pct']:+.2f}%) · total {w['total_return_pct']:+.2f}% · DD máx {w['max_drawdown']}%"]
+             f"Equidad <b>${w['equity']:,.2f}</b> · semana {w['week_pnl']:+.2f} {currency} ({w['week_return_pct']:+.2f}%) · total {w['total_return_pct']:+.2f}% · DD máx {w['max_drawdown']}%"]
     if wk["trades"]:
-        lines.append(f"{wk['trades']} operaciones · acierto {wk['win_rate']}% · PF {wk['profit_factor'] if wk['profit_factor'] is not None else '—'} · comisiones {wk['fees']:.2f} USDT")
+        lines.append(f"{wk['trades']} operaciones · acierto {wk['win_rate']}% · PF {wk['profit_factor'] if wk['profit_factor'] is not None else '—'} · comisiones {wk['fees']:.2f} {currency}")
     else:
         lines.append("Sin operaciones cerradas esta semana.")
+    if extra:
+        lines.append(extra)
     if w["best"]:
-        lines.append("\n<b>Mejores pares</b>\n" + "\n".join(f"🟢 {_sym(r['key'])} {r['pnl']:+.2f} USDT · {r['trades']} ops · {r['win_rate']}%" for r in w["best"]))
+        lines.append("\n<b>Mejores pares</b>\n" + "\n".join(f"🟢 {_sym(r['key'])} {r['pnl']:+.2f} {currency} · {r['trades']} ops · {r['win_rate']}%" for r in w["best"]))
     if w["worst"]:
-        lines.append("\n<b>Peores pares</b>\n" + "\n".join(f"🔴 {_sym(r['key'])} {r['pnl']:+.2f} USDT · {r['trades']} ops · {r['win_rate']}%" for r in w["worst"]))
+        lines.append("\n<b>Peores pares</b>\n" + "\n".join(f"🔴 {_sym(r['key'])} {r['pnl']:+.2f} {currency} · {r['trades']} ops · {r['win_rate']}%" for r in w["worst"]))
     if w["by_strategy"]:
         top, bottom = w["by_strategy"][0], w["by_strategy"][-1]
         strat = f"\n<b>Estrategias</b>: mejor {STRATEGY_NAMES.get(top['key'], top['key'])} {top['pnl']:+.2f}"
@@ -84,13 +86,13 @@ def format_weekly(w: dict) -> str:
         lines.append(f"\n<b>Filtro IA</b>: {sig['total']} señales · aprobadas {d.get('APROBADA', 0)} · rechazadas {d.get('RECHAZADA', 0)} · bloqueadas {d.get('BLOQUEADA', 0) + d.get('NOTICIAS', 0)}")
     if sh["trades"]:
         verb = "evitó pérdidas por" if sh["filter_value"] >= 0 else "dejó escapar"
-        lines.append(f"Valor del filtro: {verb} <b>{abs(sh['filter_value']):.2f} USDT</b> en {sh['trades']} operaciones sombra"
-                     + (f" (IA: {sh['ai_value']:+.2f} USDT en {sh['ai_trades']})" if sh["ai_trades"] else ""))
-    elif sig["total"]:
+        lines.append(f"Valor del filtro: {verb} <b>{abs(sh['filter_value']):.2f} {currency}</b> en {sh['trades']} operaciones sombra"
+                     + (f" (IA: {sh['ai_value']:+.2f} {currency} en {sh['ai_trades']})" if sh["ai_trades"] else ""))
+    elif sig["total"] and w.get("shadow_supported", True):
         lines.append("Valor del filtro: aún sin operaciones sombra cerradas esta semana.")
     lines.append(f"\n📋 <b>Plan</b> · {pl['message']}")
     l30 = pl["last_30d"]
-    lines.append(f"Últimos 30 días: {l30['pnl']:+.2f} USDT · {l30['trades']} ops · PF {l30['profit_factor'] if l30['profit_factor'] is not None else '—'} · día {pl['days_running']}")
+    lines.append(f"Últimos 30 días: {l30['pnl']:+.2f} {currency} · {l30['trades']} ops · PF {l30['profit_factor'] if l30['profit_factor'] is not None else '—'} · día {pl['days_running']}")
     for wn in pl["warnings"]:
         lines.append(f"⚠️ {wn}")
     if w["news"] and w["news"].get("ready"):
@@ -98,13 +100,14 @@ def format_weekly(w: dict) -> str:
     return "\n".join(lines)
 
 
-async def send_weekly(engine, db, force: bool = False) -> dict:
-    w = await build_weekly(engine, db)
-    text = format_weekly(w)
+async def send_weekly(engine, db, force: bool = False, *, build=None, fmt=format_weekly, prefix: str = "") -> dict:
+    w = await (build or build_weekly)(engine, db)
+    text = prefix + fmt(w)
     sent = bool(await notify.send(text) if force else await notify.notify(text, "daily"))
     if sent:
         await db.weekly.update_one({"_id": "latest"}, {"$set": {**w, "text": text, "sent_at": now_iso()}}, upsert=True)
-        await engine.log("PLAN", f"Resumen semanal enviado: {w['week_pnl']:+.2f} USDT ({w['week_return_pct']:+.2f}%) · {w['week']['trades']} ops · filtro {w['shadow']['filter_value']:+.2f} USDT")
+        await engine.log("PLAN", f"Resumen semanal enviado: {w['week_pnl']:+.2f} ({w['week_return_pct']:+.2f}%) · {w['week']['trades']} ops"
+                                 + (f" · filtro {w['shadow']['filter_value']:+.2f}" if w["shadow"]["trades"] else ""))
     else:
         await engine.log("INFO", "Resumen semanal generado pero no enviado (Telegram desactivado o aviso 'daily' apagado)")
     return {**w, "text": text, "sent": sent}

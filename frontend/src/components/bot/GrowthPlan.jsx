@@ -10,13 +10,14 @@ import PlanPhases from "./plan/PlanPhases";
 import PlanMonteCarlo from "./plan/PlanMonteCarlo";
 import PlanCheckin from "./plan/PlanCheckin";
 
-const FIELDS = [
-  { k: "initial_capital", label: "Capital inicial (USDT)", min: 50, step: 50 },
-  { k: "monthly_deposit", label: "Aporte mensual (USDT)", min: 0, step: 25 },
-  { k: "target_monthly", label: "Meta mensual (USDT)", min: 50, step: 100 },
+const FIELDS = (cur) => [
+  { k: "initial_capital", label: `Capital inicial (${cur})`, min: 50, step: 50 },
+  { k: "monthly_deposit", label: `Aporte mensual (${cur})`, min: 0, step: 25 },
+  { k: "target_monthly", label: `Meta mensual (${cur})`, min: 50, step: 100 },
 ];
+const DEFAULT_INTRO = "Plan de crecimiento compuesto: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios fijos son promedios mensuales realistas; el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias con datos reales (sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot.";
 
-export default function GrowthPlan({ account, settings, checkin, onSave, refresh }) {
+export default function GrowthPlan({ account, settings, checkin, onSave, refresh, currency = "USDT", intro = DEFAULT_INTRO }) {
   const [form, setForm] = useState({
     initial_capital: account.initial_balance, monthly_deposit: settings.plan_monthly_deposit,
     target_monthly: settings.plan_target_monthly, scenario: settings.plan_scenario,
@@ -48,11 +49,9 @@ export default function GrowthPlan({ account, settings, checkin, onSave, refresh
   return (
     <div data-testid="growth-plan-panel" className="space-y-5 p-4">
       {checkin && <PlanCheckin checkin={checkin} onRefresh={refresh} onAdvance={(phase, risk) => onSave({ plan_phase: phase, ...(risk ? { risk_per_trade: risk } : {}) })} />}
-      <p className="text-[12px] leading-relaxed text-slate-400">
-        Plan de crecimiento compuesto: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios fijos son promedios mensuales realistas; el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias con datos reales (sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot.
-      </p>
+      <p className="text-[12px] leading-relaxed text-slate-400">{intro}</p>
       <div className="flex flex-wrap items-end gap-3">
-        {FIELDS.map((f) => (
+        {FIELDS(currency).map((f) => (
           <div key={f.k} className="min-w-[150px] flex-1">
             <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">{f.label}</p>
             <Input data-testid={`plan-${f.k.replace(/_/g, "-")}-input`} type="number" min={f.min} step={f.step} value={form[f.k]}

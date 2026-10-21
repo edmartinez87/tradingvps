@@ -304,7 +304,7 @@ class TestWeeklyAPI:
         r = requests.post(f"{BASE_URL}/api/cron/weekly-summary", json={"run_id": rid},
                           headers={"Authorization": f"Bearer {SECRET}"}, timeout=20)
         assert time.time() - t < 2.5
-        assert r.status_code == 200 and r.json() == {"accepted": True, "scheduled": True}
+        assert r.status_code == 200 and r.json() == {"accepted": True, "scheduled": True, "scheduled_fx": True}
         r2 = requests.post(f"{BASE_URL}/api/cron/weekly-summary", json={"run_id": rid},
                            headers={"Authorization": f"Bearer {SECRET}"}, timeout=20)
         assert r2.json() == {"accepted": True, "duplicate": True}

@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import HTTPException, Request
 from bson import ObjectId
 
-from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, ModeRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
+from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, ModeRequest, PlanRequest, AdviseRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
 from strategies import MODE_INFO
 from indicators import build_df
 from performance import performance
@@ -26,6 +26,8 @@ from fx.profiles import PROFILES, detect_profile, profile_patch
 from fx.backtest import run_backtest
 from fx.optimizer import optimize, walk_forward, WF_CANDLES
 from fx import review as fx_review
+from fx import plan as fx_plan
+from fx import weekly as fx_weekly
 from fx.wfcheck import KIT as WF_KIT
 import wfcheck
 
@@ -141,6 +143,56 @@ async def ai_optimize_all_status():
     return fx_review.job_state()
 
 
+@router.post("/ai/advise")
+async def ai_advise(req: AdviseRequest):
+    if req.scope not in ("optimizer", "plan"):
+        raise HTTPException(400, "Ámbito inválido")
+    try:
+        return await fx_review.advise_scope(engine, req.scope, req.optimizer_results)
+    except Exception as e:
+        logger.exception("fx advise")
+        raise HTTPException(424, f"Error IA: {str(e)[:160]}")
+
+
+@router.post("/ai/auto-review")
+async def ai_auto_review_now():
+    try:
+        return await fx_review.run_auto_review(engine, engine.db, fx_store)
+    except Exception as e:
+        logger.exception("fx auto review")
+        raise HTTPException(424, f"Error IA: {str(e)[:200]}")
+
+
+@router.post("/plan")
+async def growth_plan(req: PlanRequest):
+    settings = await engine.get_settings()
+    if req.scenario not in fx_plan.SCENARIOS and req.scenario != "backtest":
+        req.scenario = "base"
+    if (settings.plan_scenario, settings.plan_target_monthly, settings.plan_monthly_deposit) != (req.scenario, req.target_monthly, req.monthly_deposit):
+        settings = await engine.update_settings({"plan_scenario": req.scenario, "plan_target_monthly": req.target_monthly, "plan_monthly_deposit": req.monthly_deposit})
+    return fx_plan.build_plan(req.model_dump(), await fx_plan.plan_stats(engine, settings, req.initial_capital))
+
+
+@router.get("/plan/checkin")
+async def plan_checkin():
+    return await engine.checkin()
+
+
+@router.get("/weekly-summary")
+async def weekly_summary_preview():
+    w = await fx_weekly.build(engine, engine.db)
+    last = await engine.db.weekly.find_one({"_id": "latest"}, {"_id": 0, "sent_at": 1})
+    return {**w, "text": fx_weekly.PREFIX + fx_weekly.fmt(w), "last_sent_at": (last or {}).get("sent_at")}
+
+
+@router.post("/weekly-summary/send")
+async def weekly_summary_send():
+    try:
+        return await fx_weekly.send(engine, engine.db, force=True)
+    except Exception as e:
+        raise HTTPException(424, str(e)[:200])
+
+
 @router.get("/dashboard")
 async def dashboard():
     settings = await engine.get_settings()
@@ -157,7 +209,7 @@ async def dashboard():
                           **engine.analysis.get(sym, {})})
     return {"status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(), "positions": positions, "trades": trades,
             "signals": signals, "logs": logs, "watchlist": watchlist, "equity": await _equity_curve(), "profile_active": detect_profile(settings), "news": news.summary(),
-            "optimize_job": {k: fx_review.job[k] for k in ("status", "step")},
+            "checkin": await engine.checkin(settings), "optimize_job": {k: fx_review.job[k] for k in ("status", "step")},
             "hfm": {"configured": fx_store.public()["hfm_configured"], "state": fx_store.cfg.hfm_state, "connection": fx_store.cfg.hfm_connection,
                     "verified_at": fx_store.cfg.hfm_verified_at, "trade_allowed": fx_store.cfg.hfm_trade_allowed, "live": engine.live}}
 

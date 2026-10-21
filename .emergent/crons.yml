@@ -1,6 +1,6 @@
 crons:
   - name: ai-review-daily
-    description: "Dispara la revisión IA automática del bot a las 08:00 UTC; el backend decide si toca según la frecuencia configurada"
+    description: "Dispara la revisión IA automática de ambos bots (Bybit y HotForex) a las 08:00 UTC; cada backend decide si toca según su frecuencia configurada"
     cron: "0 8 * * *"
     endpoint: "{{BASE_URL}}/api/cron/ai-review"
     method: POST
@@ -14,7 +14,7 @@ crons:
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
   - name: weekly-summary
-    description: "Envía cada domingo 20:00 UTC el resumen semanal por Telegram: PnL, mejores y peores pares, valor del filtro IA y plan"
+    description: "Envía cada domingo 20:00 UTC el resumen semanal por Telegram de ambos bots (Bybit y HotForex): PnL, pips, mejores y peores pares, filtro IA y plan"
     cron: "0 20 * * 0"
     endpoint: "{{BASE_URL}}/api/cron/weekly-summary"
     method: POST

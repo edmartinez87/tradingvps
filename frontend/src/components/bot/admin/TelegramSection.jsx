@@ -18,7 +18,7 @@ const ALERTS = [
   ["news", "Alertas de noticias graves y eventos macro"],
 ];
 
-export default function TelegramSection({ config, onSave, showWeekly = true }) {
+export default function TelegramSection({ config, onSave, showWeekly = true, weeklyDesc }) {
   const [form, setForm] = useState({ telegram_enabled: config.telegram_enabled, telegram_bot_token: "", telegram_chat_id: config.telegram_chat_id, telegram_alerts: config.telegram_alerts });
   const [chats, setChats] = useState(null);
   const [busy, setBusy] = useState("");
@@ -98,7 +98,7 @@ export default function TelegramSection({ config, onSave, showWeekly = true }) {
           {busy === "test" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />} Enviar prueba
         </Button>
       </div>
-      {showWeekly && <WeeklySummaryCard ready={!!config.telegram_ready} />}
+      {showWeekly && <WeeklySummaryCard ready={!!config.telegram_ready} desc={weeklyDesc} />}
     </Panel>
   );
 }

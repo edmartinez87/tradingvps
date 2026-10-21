@@ -13,10 +13,14 @@ import weekly
 from review import run_auto_review
 from deps import engine, db, store, fx_engine, fx_store
 from fx.wfcheck import KIT as FX_WF_KIT
+from fx import review as fx_review
+from fx import weekly as fx_weekly
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cron")
 _seen: list = []
+CRYPTO = {"engine": engine, "db": db, "store": store, "review": run_auto_review, "weekly": weekly.send_weekly, "label": "", "prefix": ""}
+FX = {"engine": fx_engine, "db": fx_engine.db, "store": fx_store, "review": fx_review.run_auto_review, "weekly": fx_weekly.send, "label": " HotForex", "prefix": fx_weekly.PREFIX}
 
 
 def _auth(request: Request):
@@ -48,39 +52,47 @@ async def _accept(request: Request) -> bool:
     return False
 
 
-async def _safe_auto_review():
+async def _safe_auto_review(bot: dict):
     try:
-        await run_auto_review(engine, db, store)
+        await bot["review"](bot["engine"], bot["db"], bot["store"])
     except Exception as e:
         logger.exception("scheduled auto review")
-        await engine.log("ERROR", f"Revisión IA automática falló: {str(e)[:160]}")
-        await notify.notify(f"⚠️ <b>Revisión IA automática falló</b>\n{str(e)[:300]}", "review")
+        await bot["engine"].log("ERROR", f"Revisión IA automática falló: {str(e)[:160]}")
+        await notify.notify(f"{bot['prefix']}⚠️ <b>Revisión IA automática{bot['label']} falló</b>\n{str(e)[:300]}", "review")
 
 
-async def _safe_weekly():
+async def _safe_weekly(bot: dict):
+    eng, d = bot["engine"], bot["db"]
     try:
-        last = await db.weekly.find_one({"_id": "latest"}, {"_id": 0, "sent_at": 1})
+        last = await d.weekly.find_one({"_id": "latest"}, {"_id": 0, "sent_at": 1})
         if last and last.get("sent_at") and (datetime.now(timezone.utc) - datetime.fromisoformat(last["sent_at"])).days < 6:
-            await engine.log("INFO", f"Resumen semanal omitido: ya se envió el {last['sent_at'][:10]}")
+            await eng.log("INFO", f"Resumen semanal omitido: ya se envió el {last['sent_at'][:10]}")
             return
-        await weekly.send_weekly(engine, db)
+        await bot["weekly"](eng, d)
     except Exception as e:
         logger.exception("weekly summary")
-        await engine.log("ERROR", f"Resumen semanal falló: {str(e)[:160]}")
+        await eng.log("ERROR", f"Resumen semanal falló: {str(e)[:160]}")
 
 
-@router.post("/ai-review")
-async def cron_ai_review(request: Request):
-    if await _accept(request):
-        return {"accepted": True, "duplicate": True}
-    cfg = store.cfg
+def _review_due(cfg) -> bool:
     now = datetime.now(timezone.utc)
     due = cfg.auto_review_enabled and (cfg.auto_review_frequency == "daily" or (now.weekday() + 1) % 7 == cfg.auto_review_day)
     if due and cfg.auto_review_last_at:
         due = (now - datetime.fromisoformat(cfg.auto_review_last_at)).total_seconds() > 20 * 3600
+    return bool(due)
+
+
+@router.post("/ai-review")
+async def cron_ai_review(request: Request):
+    """Daily 08:00 UTC trigger for both bots; each one decides if a review is due (frequency/day, > 20 h since the last)."""
+    if await _accept(request):
+        return {"accepted": True, "duplicate": True}
+    due, due_fx = _review_due(store.cfg), _review_due(fx_store.cfg)
     if due:
-        asyncio.create_task(_safe_auto_review())
-    return {"accepted": True, "scheduled": bool(due)}
+        asyncio.create_task(_safe_auto_review(CRYPTO))
+    if due_fx:
+        asyncio.create_task(_safe_auto_review(FX))
+    return {"accepted": True, "scheduled": due, "scheduled_fx": due_fx}
 
 
 @router.post("/walk-forward")
@@ -95,7 +107,9 @@ async def cron_walk_forward(request: Request):
 
 @router.post("/weekly-summary")
 async def cron_weekly_summary(request: Request):
+    """Sunday 20:00 UTC: weekly Telegram summary of both bots."""
     if await _accept(request):
         return {"accepted": True, "duplicate": True}
-    asyncio.create_task(_safe_weekly())
-    return {"accepted": True, "scheduled": True}
+    asyncio.create_task(_safe_weekly(CRYPTO))
+    asyncio.create_task(_safe_weekly(FX))
+    return {"accepted": True, "scheduled": True, "scheduled_fx": True}

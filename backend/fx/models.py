@@ -28,6 +28,10 @@ class FxSettings(BaseModel):
     min_lot_max_risk: float = 4.0
     sessions_allowed: List[str] = []
     risk_profile: int = 2
+    plan_scenario: str = "base"
+    plan_target_monthly: float = 1000.0
+    plan_monthly_deposit: float = 0.0
+    plan_phase: int = 0
     bot_running: bool = False
 
     @field_validator("sessions_allowed")
@@ -103,6 +107,10 @@ class FxSettingsUpdate(BaseModel):
     close_before_weekend: Optional[bool] = None
     min_lot_max_risk: Optional[float] = Field(default=None, ge=0, le=10)
     sessions_allowed: Optional[List[str]] = None
+    plan_scenario: Optional[str] = None
+    plan_target_monthly: Optional[float] = Field(default=None, ge=50, le=10_000_000)
+    plan_monthly_deposit: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    plan_phase: Optional[int] = Field(default=None, ge=0, le=4)
 
 
 class HfmTestRequest(BaseModel):

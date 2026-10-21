@@ -11,17 +11,19 @@ from fx.market import market_status, SESSION_NAMES
 from fx.profiles import ai_policy, PROFILES
 from fx.optimizer import optimize, walk_forward, WF_CANDLES
 from fx.backtest import run_backtest
+from fx.plan import plan_stats
 
 logger = logging.getLogger("fx.review")
 ALLOWED_AI_KEYS = review.ALLOWED_AI_KEYS | {"sessions_allowed"}
 job: dict = {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None, "step": ""}
 
 
-async def build_context(engine, settings, acc: dict) -> dict:
+async def build_context(engine, settings, acc: dict, with_backtest: bool = False) -> dict:
     pol = ai_policy(settings.risk_profile)
-    ctx = {"mercado": "forex y metales (HFM, paper trading)", "settings_actuales": settings.model_dump(exclude={"bot_running"}), "cuenta": acc,
+    ctx = {"mercado": "forex y metales (HFM, paper trading)" if not engine.live else "forex y metales (HFM, cuenta REAL vía MetaApi)",
+           "settings_actuales": settings.model_dump(exclude={"bot_running"}), "cuenta": acc,
            "perfil_riesgo": {"nivel": pol["level"], "nombre": pol["name"], "topes_ia": pol["caps"]},
-           "rendimiento_real": await performance(engine.db),
+           "rendimiento_real": await performance(engine.db), "chequeo_plan": await engine.checkin(settings, acc),
            "sesiones": {"ahora": market_status()["sessions"], "permitidas": settings.sessions_allowed or "todas", "ids": SESSION_NAMES}}
     ctx["rendimiento_real"].pop("shadow", None)
     if engine.news and engine.news.latest:
@@ -31,7 +33,50 @@ async def build_context(engine, settings, acc: dict) -> dict:
         ctx["walk_forward_pares_aplicados"] = {"revisado": wf_latest["ran_at"], "pares": {s: {k: r[k] for k in ("verdict", "wfe", "oos", "previous_verdict")}
                                                                                        for s, r in wf_latest["results"].items()},
                                                "_explicacion": "Revalidación walk-forward de los pares con symbol_params aplicados; SOBREAJUSTADO/NO_RENTABLE = quitar sus symbol_params."}
+    if with_backtest:
+        bt = await plan_stats(engine, settings, acc["initial_balance"])
+        ctx["backtest"] = {k: bt[k] for k in ("per_symbol", "by_strategy", "monte_carlo", "trades_per_month", "days", "total_pips", "rejected_lot")}
+        ctx["backtest"]["_explicacion"] = "Backtest por par en lotes con spread HFM; total_pips = pips netos de spread; rejected_lot = señales sin operar por lote mínimo."
     return ctx
+
+
+def _apply(engine, res, before, settings):
+    pol = ai_policy(settings.risk_profile)
+    return review.apply_ai_changes(engine, res, before, settings, policy=pol, available=AVAILABLE, model=FxSettingsUpdate, allowed=ALLOWED_AI_KEYS)
+
+
+async def advise_scope(engine, scope: str, optimizer_results: list = None) -> dict:
+    settings = await engine.get_settings()
+    before = settings.model_dump(exclude={"bot_running"})
+    acc = await engine.account_summary()
+    ctx = await build_context(engine, settings, acc, scope == "plan")
+    if scope == "optimizer":
+        ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (optimizer_results or [])]
+    await engine.log("AI_EVAL", f"Claude analizando {'optimizador' if scope == 'optimizer' else 'plan'} y rendimiento real...")
+    res = await advise(scope, ctx, ai_policy(settings.risk_profile), FX_MARKET)
+    applied, previous = await _apply(engine, res, before, settings)
+    await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
+    return {**res, "applied": applied, "previous": previous}
+
+
+async def run_auto_review(engine, db, store) -> dict:
+    settings = await engine.get_settings()
+    acc = await engine.account_summary()
+    before = settings.model_dump(exclude={"bot_running"})
+    await engine.log("AI_EVAL", "Revisión IA automática iniciada...")
+    ctx = await build_context(engine, settings, acc, True)
+    res = await advise("revision_automatica_programada", ctx, ai_policy(settings.risk_profile), FX_MARKET)
+    applied, previous = ({}, {})
+    if store.cfg.auto_review_apply:
+        applied, previous = await _apply(engine, res, before, settings)
+    await store.update({"auto_review_last_at": now_iso(), "auto_review_last_summary": res["summary"], "auto_review_last_changes": applied})
+    await engine.log("AI_EVAL", f"Revisión automática: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
+    await engine.tg(f"🧠 <b>Revisión IA automática</b> (perfil {PROFILES[settings.risk_profile]['name']})\n{res['summary']}\n\n"
+                    + (f"<b>Cambios aplicados</b>\n{review.changes_text(applied)}" if applied
+                       else ("<b>Sin cambios</b> en la configuración" if store.cfg.auto_review_apply else "<b>Modo solo aviso</b>: no se aplicó nada"))
+                    + (("\n\n" + "\n".join(f"– {n}" for n in res["notes"])) if res["notes"] else "")
+                    + review._footer(acc), "review")
+    return {**res, "applied": applied, "previous": previous, "ran_at": store.cfg.auto_review_last_at}
 
 
 async def _safe_walk_forward(engine, settings, initial: float, sym: str):
@@ -71,8 +116,7 @@ async def run_global_optimization(engine, db) -> dict:
     ctx["optimizador_explicacion"] = ("session_stats = operaciones del backtest (sin filtro de sesión) agrupadas por la sesión abierta al entrar; "
                                       "rejected_lot = señales sin operar porque el lote mínimo 0.01 arriesgaba más que min_lot_max_risk.")
     res = await advise("optimizacion_global_boton_usuario", ctx, ai_policy(settings.risk_profile), FX_MARKET)
-    applied, previous = await review.apply_ai_changes(engine, res, before, settings, policy=ai_policy(settings.risk_profile), available=AVAILABLE,
-                                                      model=FxSettingsUpdate, allowed=ALLOWED_AI_KEYS)
+    applied, previous = await _apply(engine, res, before, settings)
     await engine.log("AI_EVAL", f"Optimización global: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     await engine.tg(f"🎯 <b>Optimización global con IA</b> (perfil {PROFILES[settings.risk_profile]['name']})\n{res['summary']}\n\n"
                     + (f"<b>Cambios aplicados</b>\n{review.changes_text(applied)}" if applied else "<b>Sin cambios</b> en la configuración")

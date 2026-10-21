@@ -10,11 +10,13 @@ const Metric = ({ label, value, cls = "text-slate-100", testId }) => (
 const tone = (v) => (v > 0 ? "text-emerald-400" : v < 0 ? "text-rose-400" : "text-slate-100");
 const pf = (v) => (v == null ? "∞" : v);
 
-const Table = ({ title, rows, keyField, render = (k) => k, testId }) => (
+const Table = ({ title, rows, keyField, render = (k) => k, testId }) => {
+  const pips = keyField === "symbol" && rows.some((r) => r.total_pips != null);
+  return (
   <div data-testid={testId} className="overflow-hidden rounded-sm border border-[#1E293B]">
     <p className="border-b border-[#1E293B] bg-[#0D111A] px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">{title}</p>
     <table className="w-full text-sm">
-      <thead><tr><TH>{keyField === "symbol" ? "Par" : "Estrategia"}</TH><TH right>Ops</TH><TH right>Acierto</TH><TH right>PF</TH><TH right>Expect. (R)</TH><TH right>{keyField === "symbol" ? "Retorno" : "PnL"}</TH></tr></thead>
+      <thead><tr><TH>{keyField === "symbol" ? "Par" : "Estrategia"}</TH><TH right>Ops</TH><TH right>Acierto</TH><TH right>PF</TH><TH right>Expect. (R)</TH>{pips && <TH right>Pips</TH>}<TH right>{keyField === "symbol" ? "Retorno" : "PnL"}</TH></tr></thead>
       <tbody className="num text-[12px]">
         {rows.map((r) => (
           <tr key={r[keyField]} data-testid={`plan-bt-${r[keyField]}`} className="border-t border-[#1E293B]/60">
@@ -23,13 +25,15 @@ const Table = ({ title, rows, keyField, render = (k) => k, testId }) => (
             <TD right>{r.win_rate}%</TD>
             <TD right className={r.profit_factor == null || r.profit_factor >= 1 ? "text-emerald-400" : "text-rose-400"}>{pf(r.profit_factor)}</TD>
             <TD right className={tone(r.expectancy_r)}>{r.expectancy_r > 0 ? "+" : ""}{r.expectancy_r}</TD>
+            {pips && <TD right className={tone(r.total_pips)}><span data-testid={`plan-bt-${r[keyField]}-pips`}>{r.total_pips > 0 ? "+" : ""}{r.total_pips}</span></TD>}
             <TD right className={`font-semibold ${tone(keyField === "symbol" ? r.return_pct : r.pnl)}`}>{keyField === "symbol" ? fmtPct(r.return_pct) : fmtSignedUsd(r.pnl)}</TD>
           </tr>
         ))}
       </tbody>
     </table>
   </div>
-);
+  );
+};
 
 export default function PlanMonteCarlo({ backtest: bt }) {
   const mc = bt.monte_carlo;

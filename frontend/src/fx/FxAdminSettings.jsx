@@ -9,7 +9,11 @@ import AccountSection from "@/components/bot/admin/AccountSection";
 import HfmSection from "./HfmSection";
 import FxNewsSection from "./FxNewsSection";
 import LiveModeSection from "@/components/bot/admin/LiveModeSection";
+import AutoReviewSection from "@/components/bot/admin/AutoReviewSection";
 import { fmtDateTime } from "@/lib/api";
+
+const AUTO_REVIEW_DESC = "Claude revisa el rendimiento real del bot forex, el chequeo del plan y los backtests en lotes y pips, y ajusta pares, estrategias, sesiones y SL/TP dentro de los topes de tu perfil de riesgo forex (riesgo ≤ 1.5 %, apalancamiento ≤ 1:100 o el del perfil, mínimo 2 pares). Se dispara a las 08:00 UTC del día programado, independiente de la revisión del bot cripto, y te avisa por Telegram.";
+const WEEKLY_DESC = "PnL y pips netos de la semana, mejores y peores pares, decisiones del filtro IA y estado del plan de crecimiento forex. Usa el aviso «Resumen diario y semanal».";
 
 const HFM_LIVE_LABELS = {
   exchange: "HFM",
@@ -43,15 +47,16 @@ export default function FxAdminSettings({ account, refresh }) {
     <div data-testid="fx-admin-settings" className="space-y-4">
       <div>
         <h2 className="font-display text-base font-bold uppercase tracking-[0.12em] text-slate-100 md:text-lg">Ajustes · HotForex AI Trading</h2>
-        <p className="text-[12px] text-slate-500">Cuenta real de HFM (vía MetaApi) y cambio de modo, agente de noticias y trading por noticias, cuenta paper. La clave de acceso, la IA y Telegram son compartidos con el bot de criptomonedas. La estrategia y el riesgo se configuran desde el panel principal.</p>
+        <p className="text-[12px] text-slate-500">Cuenta real de HFM (vía MetaApi) y cambio de modo, agente de noticias y trading por noticias, revisión IA automática, resumen semanal y cuenta paper. La clave de acceso, la IA y Telegram son compartidos con el bot de criptomonedas. La estrategia y el riesgo se configuran desde el panel principal.</p>
       </div>
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <HfmSection config={config} onSave={save} onRefresh={load} />
         <LiveModeSection config={config} refresh={() => { load(); refresh?.(); }} labels={HFM_LIVE_LABELS} />
         <FxNewsSection config={config} onSave={save} />
+        <AutoReviewSection config={config} onSave={save} onRan={load} desc={AUTO_REVIEW_DESC} />
         <SecuritySection />
         <AiSection config={config} onSave={save} />
-        <TelegramSection config={config} onSave={save} showWeekly={false} />
+        <TelegramSection config={config} onSave={save} weeklyDesc={WEEKLY_DESC} />
         <AccountSection account={account} refresh={refresh} />
       </div>
     </div>
