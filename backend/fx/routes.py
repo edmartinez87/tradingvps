@@ -13,7 +13,7 @@ from performance import performance
 from config import ConfigUpdate
 from ai_advisor import current as ai_current, friendly_error
 import notify
-from deps import store, fx_engine as engine, fx_store, fx_news as news, protected_router
+from deps import store, fx_engine as engine, fx_store, fx_news as news, protected_router, ai_usage
 from routers.shared_routes import add_shared_routes
 from fx.models import FxSettingsUpdate, HfmTestRequest, FxBacktestRequest, FxProfileRequest, FX_TIMEFRAMES
 from fx.config import FxConfigUpdate
@@ -41,7 +41,7 @@ SESSION_LIST = [{"id": s[0], "name": s[1]} for s in SESSIONS]
 def _status() -> dict:
     return {"running": engine.running, "scanning": engine.scanning, "provider": "yahoo", "last_scan": engine.last_scan,
             "next_scan_in": max(0, int(engine.next_scan_ts - time.time())) if engine.next_scan_ts else None,
-            "mode": engine.mode_label, "env": engine.env, "market": "Forex · Metales", "telegram": notify.is_on(), "ai": ai_current(),
+            "mode": engine.mode_label, "env": engine.env, "market": "Forex · Metales", "telegram": notify.is_on(), "ai": ai_current(), "ai_usage": ai_usage.snapshot("fx"),
             "exchange_error": engine.market.error, "broker_error": engine.broker_error if engine.live else None, "broker_health": engine.broker_health(),
             "market_hours": market_status()}
 
@@ -370,7 +370,7 @@ async def get_news():
 @router.post("/news/refresh")
 async def refresh_news():
     try:
-        await news.refresh()
+        await news.refresh(force=True)
     except Exception as e:
         logger.exception("fx news refresh")
         raise HTTPException(424, f"No se pudo actualizar las noticias: {str(e)[:160]}")

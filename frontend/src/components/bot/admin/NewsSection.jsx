@@ -34,7 +34,7 @@ export default function NewsSection({ config, onSave }) {
         Ese contexto entra en la evaluación de cada señal y, si lo activas, pausa nuevas entradas alrededor de eventos de alto impacto o noticias críticas y reduce el tamaño cuando el riesgo es alto.
       </p>
       <Toggle label="Agente activo" hint="Analiza noticias de forma periódica (coste IA pequeño por ciclo)" checked={form.news_enabled} onChange={(v) => set("news_enabled", v)} testId="news-enabled-switch" />
-      <Field label="Intervalo de análisis (min)">
+      <Field label="Intervalo de análisis (min)" hint="Las fuentes se comprueban con esta cadencia; la IA solo vuelve a analizar si hay titulares o eventos nuevos. Con el bot detenido el agente baja a 1 vez por hora.">
         <Input data-testid="news-interval-input" type="number" min={5} max={240} value={form.news_interval_min} onChange={(e) => num("news_interval_min", e.target.value, 5, 240)} className={`${INPUT} num`} />
       </Field>
       <Toggle label="Pausar entradas en eventos macro de alto impacto" hint="FOMC, CPI, NFP… (impacto ALTO en el calendario USD)" checked={form.news_block_events} onChange={(v) => set("news_block_events", v)} testId="news-block-events-switch" />

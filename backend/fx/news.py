@@ -8,8 +8,8 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import quote_plus
 import httpx
 from models import now_iso
-from ai_advisor import _chat, _ask
-from news import parse_feed, _parse_json, _age_min, _risk, CALENDAR_URL, HISTORY_DAYS, ALERT_TTL_MIN
+from ai_advisor import _chat, _ask, record_usage
+from news import parse_feed, _parse_json, _age_min, _risk, CALENDAR_URL, HISTORY_DAYS, ALERT_TTL_MIN, IDLE_INTERVAL_MIN, NewsAgent
 from fx import ai as fx_ai
 from fx.symbols import CURRENCIES, CURRENCY_NAMES, relevant_pairs, pairs_for_currency, currencies
 
@@ -37,6 +37,10 @@ def _words(title: str) -> list:
 
 
 class FxNewsAgent:
+    KIND = "fx-news"
+    interval_min = NewsAgent.interval_min
+    fingerprint = staticmethod(NewsAgent.fingerprint)
+
     def __init__(self, db, engine):
         self.db, self.engine = db, engine
         self.cfg = None
@@ -65,7 +69,7 @@ class FxNewsAgent:
         while True:
             try:
                 if self.cfg and self.cfg.news_enabled:
-                    if not self.latest or _age_min(self.latest["updated_at"]) >= self.cfg.news_interval_min:
+                    if not self.latest or _age_min(self.latest["updated_at"]) >= self.interval_min():
                         await self.refresh()
                     if self.cfg.news_trading_enabled:
                         await self.news_trading_tick()
@@ -160,16 +164,25 @@ class FxNewsAgent:
             "alerts": alerts,
         }
 
-    async def refresh(self) -> dict:
+    async def refresh(self, force: bool = False) -> dict:
         settings = await self.engine.get_settings()
         headlines, events = await asyncio.gather(self.fetch_headlines(), self.fetch_events())
         for h in headlines:
             h["symbols"] = relevant_pairs(f"{h['title']} {h['summary']}", settings.symbols)
+        fp = self.fingerprint(headlines, events, settings.symbols)
+        if not force and self.latest and self.latest.get("fingerprint") == fp and self.latest.get("market"):
+            doc = {**self.latest, "events": events, "headlines": headlines[:45], "updated_at": now_iso(), "skipped_ai": self.latest.get("skipped_ai", 0) + 1}
+            await self.db.news.update_one({"_id": "latest"}, {"$set": {k: doc[k] for k in ("events", "headlines", "updated_at", "skipped_ai")}})
+            self.latest = doc
+            await record_usage(self.KIND, skipped=True)
+            logger.info(f"{self.KIND}: sin cambios en titulares/calendario · análisis IA omitido")
+            return doc
         analysis = await self.analyze(headlines, events, settings.symbols)
         first_seen = {a["key"]: a["at"] for a in (self.latest or {}).get("alerts", [])}
         for a in analysis["alerts"]:
             a["at"] = first_seen.get(a["key"], a["at"])
-        doc = {**analysis, "events": events, "headlines": headlines[:45], "updated_at": now_iso(), "symbols": settings.symbols}
+        now = now_iso()
+        doc = {**analysis, "events": events, "headlines": headlines[:45], "updated_at": now, "analysis_at": now, "fingerprint": fp, "skipped_ai": 0, "symbols": settings.symbols}
         await self.db.news.update_one({"_id": "latest"}, {"$set": doc}, upsert=True)
         await self.db.news_history.insert_one({"at": doc["updated_at"], "market": doc["market"], "alerts": [a["title"] for a in doc["alerts"]]})
         await self.db.news_history.delete_many({"at": {"$lt": (datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)).isoformat()}})
@@ -248,7 +261,8 @@ class FxNewsAgent:
         upcoming = [e for e in self.latest.get("events", []) if e["impact"] == "ALTO" and datetime.fromisoformat(e["time"]) > now]
         blocked = next((b for s in self.latest.get("symbols", []) if (b := self._event_block(s))), None)
         return {"enabled": enabled, "ready": True, "risk": self.latest["market"]["risk"], "sentiment": self.latest["market"]["sentiment"],
-                "updated_at": self.latest["updated_at"], "blocked": blocked, "critical": [a["symbol"] for a in self._active_critical()],
+                "updated_at": self.latest["updated_at"], "analysis_at": self.latest.get("analysis_at"), "interval_min": self.interval_min() if self.cfg else None,
+                "blocked": blocked, "critical": [a["symbol"] for a in self._active_critical()],
                 "next_event": upcoming[0] if upcoming else None, "alerts": len(self.latest.get("alerts", [])), "news_trading": trading,
                 "currencies": {k: v["bias"] for k, v in self.latest.get("currencies", {}).items()}}
 

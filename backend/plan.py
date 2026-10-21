@@ -6,9 +6,9 @@ from indicators import build_df
 WITHDRAW_PCT = 80
 GROWTH_CAP = 5000.0
 SCENARIOS = {
-    "conservador": {"name": "Conservador", "rate": 2.5, "desc": "≈34% anual · lo que sostienen los fondos sistemáticos consistentes"},
-    "base": {"name": "Base", "rate": 4.0, "desc": "≈60% anual · bot con profit factor > 1.3 operando a 3x"},
-    "optimista": {"name": "Optimista", "rate": 6.0, "desc": "≈100% anual · solo en rachas de tendencia fuerte, no sostenible"},
+    "conservador": {"name": "Prudente", "rate": 2.5, "desc": "≈34% anual · lo que sostienen los fondos sistemáticos consistentes"},
+    "base": {"name": "Realista", "rate": 4.0, "desc": "≈60% anual · bot con profit factor > 1.3 operando a 3x"},
+    "optimista": {"name": "Ambicioso", "rate": 6.0, "desc": "≈100% anual · solo en rachas de tendencia fuerte, no sostenible"},
 }
 PHASE_INFO = {
     "semilla": {"name": "Capital semilla", "risk": 1.0,

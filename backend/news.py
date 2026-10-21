@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 import httpx
 from models import now_iso
-from ai_advisor import _chat, _ask
+from ai_advisor import _chat, _ask, record_usage
 import notify
 
 logger = logging.getLogger("news")
@@ -18,6 +18,7 @@ CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 ATOM = "{http://www.w3.org/2005/Atom}"
 RISKS = ("BAJO", "MEDIO", "ALTO")
 HISTORY_DAYS = 30
+IDLE_INTERVAL_MIN = 60
 ALERT_TTL_MIN = 24 * 60
 COIN_WORDS = {"BTCUSDT": ["bitcoin", "btc"], "ETHUSDT": ["ethereum", "ether ", " eth"], "SOLUSDT": ["solana", " sol "], "XRPUSDT": ["xrp", "ripple"],
               "AVAXUSDT": ["avalanche", "avax"], "LINKUSDT": ["chainlink", " link "], "BNBUSDT": ["bnb", "binance"], "DOGEUSDT": ["doge"],
@@ -92,6 +93,8 @@ def relevant(headline: dict, symbols: list) -> list:
 
 
 class NewsAgent:
+    KIND = "news"
+
     def __init__(self, db, engine):
         self.db, self.engine = db, engine
         self.cfg = None
@@ -116,8 +119,7 @@ class NewsAgent:
         while True:
             try:
                 if self.cfg and self.cfg.news_enabled:
-                    due = not self.latest or _age_min(self.latest["updated_at"]) >= self.cfg.news_interval_min
-                    if due:
+                    if not self.latest or _age_min(self.latest["updated_at"]) >= self.interval_min():
                         await self.refresh()
             except asyncio.CancelledError:
                 raise
@@ -125,6 +127,16 @@ class NewsAgent:
                 logger.exception("news loop")
                 await self.engine.log("ERROR", f"Agente de noticias: {str(e)[:140]}")
             await asyncio.sleep(60)
+
+    def interval_min(self) -> int:
+        """Configured cadence while the bot runs; with the bot stopped the agent slows down to IDLE_INTERVAL_MIN (resumes within a minute of starting)."""
+        return self.cfg.news_interval_min if self.engine.running else max(self.cfg.news_interval_min, IDLE_INTERVAL_MIN)
+
+    @staticmethod
+    def fingerprint(headlines: list, events: list, symbols: list) -> str:
+        keys = sorted(re.sub(r"[^a-z0-9]", "", h["title"].lower())[:60] for h in headlines[:45])
+        ev = sorted(f"{e['title']}|{e.get('country', '')}|{e['time']}|{e.get('forecast', '')}|{e.get('actual', '')}" for e in events)
+        return hashlib.sha1("\n".join(keys + ev + sorted(symbols)).encode()).hexdigest()
 
     async def fetch_headlines(self) -> list:
         async def one(source, url):
@@ -202,16 +214,26 @@ class NewsAgent:
             "alerts": alerts,
         }
 
-    async def refresh(self) -> dict:
+    async def refresh(self, force: bool = False) -> dict:
         settings = await self.engine.get_settings()
         headlines, events = await asyncio.gather(self.fetch_headlines(), self.fetch_events())
         for h in headlines:
             h["symbols"] = relevant(h, settings.symbols)
+        fp = self.fingerprint(headlines, events, settings.symbols)
+        if not force and self.latest and self.latest.get("fingerprint") == fp and self.latest.get("market"):
+            # Nothing new since the last analysis → keep the AI verdict, refresh sources/timestamp only (no LLM call).
+            doc = {**self.latest, "events": events, "headlines": headlines[:40], "updated_at": now_iso(), "skipped_ai": self.latest.get("skipped_ai", 0) + 1}
+            await self.db.news.update_one({"_id": "latest"}, {"$set": {k: doc[k] for k in ("events", "headlines", "updated_at", "skipped_ai")}})
+            self.latest = doc
+            await record_usage(self.KIND, skipped=True)
+            logger.info(f"{self.KIND}: sin cambios en titulares/calendario · análisis IA omitido")
+            return doc
         analysis = await self.analyze(headlines, events, settings.symbols)
         first_seen = {a["key"]: a["at"] for a in (self.latest or {}).get("alerts", [])}
         for a in analysis["alerts"]:
             a["at"] = first_seen.get(a["key"], a["at"])
-        doc = {**analysis, "events": events, "headlines": headlines[:40], "updated_at": now_iso(), "symbols": settings.symbols}
+        now = now_iso()
+        doc = {**analysis, "events": events, "headlines": headlines[:40], "updated_at": now, "analysis_at": now, "fingerprint": fp, "skipped_ai": 0, "symbols": settings.symbols}
         await self.db.news.update_one({"_id": "latest"}, {"$set": doc}, upsert=True)
         await self.db.news_history.insert_one({"at": doc["updated_at"], "market": doc["market"], "alerts": [a["title"] for a in doc["alerts"]]})
         await self.db.news_history.delete_many({"at": {"$lt": (datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)).isoformat()}})
@@ -283,7 +305,8 @@ class NewsAgent:
         now = datetime.now(timezone.utc)
         upcoming = [e for e in self.latest.get("events", []) if e["impact"] == "ALTO" and datetime.fromisoformat(e["time"]) > now]
         return {"enabled": bool(self.cfg and self.cfg.news_enabled), "ready": True, "risk": self.latest["market"]["risk"],
-                "sentiment": self.latest["market"]["sentiment"], "updated_at": self.latest["updated_at"], "blocked": self._event_block(),
+                "sentiment": self.latest["market"]["sentiment"], "updated_at": self.latest["updated_at"], "analysis_at": self.latest.get("analysis_at"),
+                "interval_min": self.interval_min() if self.cfg else None, "blocked": self._event_block(),
                 "critical": [a["symbol"] for a in self._active_critical()],
                 "next_event": upcoming[0] if upcoming else None, "alerts": len(self.latest.get("alerts", []))}
 

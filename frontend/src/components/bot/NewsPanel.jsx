@@ -66,7 +66,10 @@ export default function NewsPanel({ summary, symbols = [] }) {
             <span className="font-display text-[14px] font-bold uppercase tracking-wider">Riesgo de mercado: <span data-testid="news-market-risk">{m.risk}</span></span>
           </div>
           <Sentiment value={m.sentiment} testId="news-market-sentiment" />
-          <span className="font-mono text-[10px] text-slate-400">Actualizado {fmtTime(data.updated_at)}</span>
+          <span data-testid="news-updated" className="font-mono text-[10px] text-slate-400" title={data.analysis_at && data.analysis_at !== data.updated_at ? "Las fuentes se comprueban en cada ciclo; la IA solo vuelve a analizar cuando hay titulares o eventos nuevos" : undefined}>
+            {data.analysis_at && data.analysis_at !== data.updated_at ? <>IA {fmtTime(data.analysis_at)} · fuentes {fmtTime(data.updated_at)}</> : <>Actualizado {fmtTime(data.updated_at)}</>}
+            {summary?.interval_min ? <span className="text-slate-600"> · cada {summary.interval_min} min</span> : null}
+          </span>
         </div>
         <p data-testid="news-market-summary" className="mt-2 text-[12.5px] leading-relaxed text-slate-200">{m.summary}</p>
         {summary?.blocked && (

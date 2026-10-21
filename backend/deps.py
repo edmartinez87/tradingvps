@@ -11,6 +11,8 @@ from engine import TradingEngine  # noqa: E402
 from config import ConfigStore  # noqa: E402
 from news import NewsAgent  # noqa: E402
 from auth import make_require_auth  # noqa: E402
+from ai_usage import AiUsage  # noqa: E402
+import ai_advisor  # noqa: E402
 
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
@@ -19,6 +21,8 @@ store = ConfigStore(db)
 news = NewsAgent(db, engine)
 engine.news = news
 require_auth = make_require_auth(lambda: store.cfg.token_version)
+ai_usage = AiUsage(db)
+ai_advisor.set_usage_hook(ai_usage.record)
 
 from fx.engine import FxEngine  # noqa: E402
 from fx.config import FxConfigStore  # noqa: E402

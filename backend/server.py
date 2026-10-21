@@ -26,7 +26,7 @@ from review import job_state  # noqa: E402
 from profiles import PROFILES, detect_profile, profile_patch  # noqa: E402
 import migrations  # noqa: E402
 import funding  # noqa: E402
-from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news  # noqa: E402
+from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news, ai_usage  # noqa: E402
 from routers import cron_routes, weekly_routes, walk_forward_routes, bybit_routes, ai_routes, analysis_routes  # noqa: E402
 from routers.shared_routes import add_shared_routes  # noqa: E402
 from fx import routes as fx_routes  # noqa: E402
@@ -51,7 +51,7 @@ def _status() -> dict:
         "last_scan": engine.last_scan,
         "next_scan_in": max(0, int(engine.next_scan_ts - time.time())) if engine.next_scan_ts else None,
         "mode": engine.mode_label, "env": engine.env, "market": "USDT Perpetual", "telegram": notify.is_on(), "ai": ai_current(),
-        "exchange_error": engine.exchange_error,
+        "ai_usage": ai_usage.snapshot("crypto"), "exchange_error": engine.exchange_error,
     }
 
 
@@ -296,7 +296,7 @@ async def get_news():
 @api.post("/news/refresh")
 async def refresh_news():
     try:
-        await news.refresh()
+        await news.refresh(force=True)
     except Exception as e:
         logger.exception("news refresh")
         raise HTTPException(424, f"No se pudo actualizar las noticias: {str(e)[:160]}")
@@ -332,6 +332,7 @@ async def startup():
     store.listeners.append(engine.apply_config)
     store.listeners.append(news.configure)
     await store.load()
+    await ai_usage.load()
     await engine.init()
     await news.init()
     await migrations.run(engine, db)

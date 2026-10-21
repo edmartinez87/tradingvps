@@ -15,7 +15,7 @@ const FIELDS = (cur) => [
   { k: "monthly_deposit", label: `Aporte mensual (${cur})`, min: 0, step: 25 },
   { k: "target_monthly", label: `Meta mensual (${cur})`, min: 50, step: 100 },
 ];
-const DEFAULT_INTRO = "Plan de crecimiento compuesto: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios fijos son promedios mensuales realistas; el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias con datos reales (sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot.";
+const DEFAULT_INTRO = "Plan de crecimiento compuesto: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios Prudente / Realista / Ambicioso son rentabilidades mensuales supuestas para la proyección (no tienen relación con el perfil de riesgo del bot); el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias con datos reales (sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot.";
 
 export default function GrowthPlan({ account, settings, checkin, onSave, refresh, currency = "USDT", intro = DEFAULT_INTRO }) {
   const [form, setForm] = useState({

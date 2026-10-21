@@ -58,7 +58,7 @@ export default function FxNewsSection({ config, onSave }) {
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <Num k="news_interval_min" label="Intervalo (min)" step={5} min={5} max={240} form={form} set={set} />
+        <Num k="news_interval_min" label="Intervalo (min)" hint="La IA solo reanaliza si hay titulares/eventos nuevos; con el bot detenido, 1 vez por hora." step={5} min={5} max={240} form={form} set={set} />
         <Num k="news_event_before_min" label="Min. antes del evento" step={5} min={0} max={240} form={form} set={set} />
         <Num k="news_event_after_min" label="Min. después" step={5} min={0} max={240} form={form} set={set} />
       </div>

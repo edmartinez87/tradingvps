@@ -50,8 +50,26 @@ def friendly_error(e: Exception) -> str:
 
 def _chat(system: str, prefix: str, cfg: dict = None) -> LlmChat:
     c = cfg or _cfg
-    return LlmChat(api_key=c["api_key"], session_id=f"{prefix}-{uuid.uuid4()}", system_message=system) \
-        .with_model(c["provider"], c["model"])
+    chat = LlmChat(api_key=c["api_key"], session_id=f"{prefix}-{uuid.uuid4()}", system_message=system).with_model(c["provider"], c["model"])
+    chat._kind = prefix
+    return chat
+
+
+_usage_hook = None
+
+
+def set_usage_hook(fn):
+    """fn(kind: str, skipped: bool) async — called after every LLM call (and for skipped news analyses)."""
+    global _usage_hook
+    _usage_hook = fn
+
+
+async def record_usage(kind: str, skipped: bool = False):
+    if _usage_hook:
+        try:
+            await _usage_hook(kind, skipped)
+        except Exception as e:
+            logger.warning(f"ai usage: {e}")
 
 
 async def _ask(chat: LlmChat, prompt: str) -> str:
@@ -61,6 +79,7 @@ async def _ask(chat: LlmChat, prompt: str) -> str:
             text += ev.content
         elif isinstance(ev, StreamDone):
             break
+    await record_usage(getattr(chat, "_kind", "other"))
     return text
 
 
@@ -181,7 +200,7 @@ def _clip(text: str, limit: int) -> str:
 
 async def advise(scope: str, context: dict, policy: dict = None, market: dict = CRYPTO_MARKET) -> dict:
     prompt = f"ÁMBITO: {scope}\nCONTEXTO (JSON):\n{json.dumps(context, ensure_ascii=False, default=str)}\n\nDecide los cambios de configuración."
-    text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY, market), "advisor"), prompt)
+    text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY, market), "fx-advisor" if market is FX_MARKET else "advisor"), prompt)
     match = re.search(r"\{.*\}", text, re.S)
     if not match:
         raise ValueError(f"Respuesta IA no válida: {text[:200]}")

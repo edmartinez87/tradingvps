@@ -9,6 +9,10 @@ export const fmtMonths = (m) => {
 
 export default function PlanScenarios({ scenarios, selected, onSelect, target }) {
   return (
+    <div className="space-y-2">
+      <p data-testid="plan-scenarios-note" className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
+        Escenario de rentabilidad mensual supuesta · independiente del perfil de riesgo del bot (solo cambia la proyección, no cómo opera)
+      </p>
     <div data-testid="plan-scenarios" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {scenarios.map((s) => {
         const active = s.key === selected;
@@ -18,7 +22,7 @@ export default function PlanScenarios({ scenarios, selected, onSelect, target })
             className={`rounded-md border p-3 text-left transition-colors ${active ? "border-amber-500 bg-amber-500/5" : "border-[#1E293B] bg-[#0D111A] hover:border-slate-600"} ${dead ? "cursor-not-allowed opacity-60" : ""}`}>
             <div className="flex items-baseline justify-between gap-2">
               <p className={`font-display text-[13px] font-semibold uppercase tracking-wider ${active ? "text-amber-400" : "text-slate-200"}`}>{s.name}</p>
-              <p data-testid={`plan-scenario-${s.key}-rate`} className="num text-base font-semibold text-slate-100">{s.rate_pct == null ? "—" : `${s.rate_pct}%`}<span className="text-[10px] text-slate-500">/mes</span></p>
+              <p data-testid={`plan-scenario-${s.key}-rate`} className="num text-base font-semibold text-slate-100">{s.rate_pct == null ? "—" : `${s.rate_pct}%`}<span className="text-[10px] text-slate-500"> mensual</span></p>
             </div>
             <p className="mt-1 text-[11px] leading-snug text-slate-500">{s.desc}</p>
             <div className="mt-3 space-y-1 border-t border-[#1E293B] pt-2 font-mono text-[11px]">
@@ -29,6 +33,7 @@ export default function PlanScenarios({ scenarios, selected, onSelect, target })
           </button>
         );
       })}
+    </div>
     </div>
   );
 }

@@ -46,7 +46,7 @@ const AI_ALL_INTRO = (n) => `Corre el optimizador y el walk-forward en los ${n} 
 const SESSION_CHIPS = (meta) => [{ k: "sessions_allowed", label: "Sesiones para abrir posiciones", emptyLabel: "todas", options: meta?.sessions || [],
   hint: "El bot solo abre nuevas entradas cuando alguna de las sesiones marcadas está abierta (Londres y Nueva York concentran la liquidez). Sin selección opera en todo el horario forex. Las posiciones abiertas se gestionan igual en cualquier sesión. El backtest aplica el mismo filtro." }];
 const fmtLev = (v) => `1:${v}`;
-const PLAN_INTRO = "Plan de crecimiento compuesto para la cuenta forex: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios fijos son promedios mensuales realistas para un sistema forex con 1 % de riesgo por operación; el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias en lotes y pips (spread HFM, lote mínimo, sesiones y cierre de fin de semana como en el bot, sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot forex.";
+const PLAN_INTRO = "Plan de crecimiento compuesto para la cuenta forex: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios Prudente / Realista / Ambicioso son rentabilidades mensuales supuestas para la proyección (no tienen relación con el perfil de riesgo del bot); el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias en lotes y pips (spread HFM, lote mínimo, sesiones y cierre de fin de semana como en el bot, sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot forex.";
 
 export default function FxDashboard({ onLogout }) {
   setApiBase("fx");
@@ -167,7 +167,7 @@ export default function FxDashboard({ onLogout }) {
               </TabsContent>
             </Tabs>
           </Panel>
-          <AiSignals signals={data.signals} />
+          <AiSignals signals={data.signals} ai={data.status.ai} usage={data.status.ai_usage} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active} leverageMax={500} maxPositions={12} extraToggles={EXTRA_TOGGLES} extraNums={EXTRA_NUMS}

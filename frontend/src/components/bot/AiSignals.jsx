@@ -51,10 +51,23 @@ function SignalCard({ s }) {
   );
 }
 
-export default function AiSignals({ signals }) {
+const UsageChip = ({ usage, ai }) => {
+  if (!usage) return null;
+  const parts = [`${usage.signals} señales`, `${usage.news} noticias`, ...(usage.news_trades ? [`${usage.news_trades} op. noticias`] : []), `${usage.reviews} revisiones`];
+  const title = `Llamadas a la IA de hoy (UTC) de este bot: ${parts.join(" · ")}${usage.skipped_news ? ` · ${usage.skipped_news} análisis de noticias ahorrados (sin titulares nuevos)` : ""} · ambos bots: ${usage.total_all}`;
+  return (
+    <span data-testid="ai-usage-chip" title={title} className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider">
+      <span className="rounded-sm border border-[#1E293B] bg-[#0D111A] px-1.5 py-0.5 text-slate-300">IA hoy <span className="num text-amber-300">{usage.total}</span>
+        {usage.skipped_news ? <span className="text-emerald-400"> · {usage.skipped_news} ahorradas</span> : null}</span>
+      {ai?.label && <span className="rounded-sm border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-purple-300">{ai.label}</span>}
+    </span>
+  );
+};
+
+export default function AiSignals({ signals, ai, usage }) {
   return (
     <Panel testId="ai-signals-panel" title="Evaluación IA" icon={Sparkles} className="lg:col-span-4" bodyClass="max-h-[480px] overflow-y-auto thin-scroll" delay={260}
-      actions={<span className="rounded-sm border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-purple-300">Sonnet</span>}>
+      actions={<UsageChip usage={usage} ai={ai} />}>
       {signals.length ? signals.map((s) => <SignalCard key={s.id} s={s} />) : (
         <Empty testId="ai-signals-empty" text="Cuando el bot detecte una señal, la IA la evaluará aquí con su razonamiento." />
       )}
