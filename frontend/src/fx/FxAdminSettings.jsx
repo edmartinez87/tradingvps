@@ -57,7 +57,7 @@ export default function FxAdminSettings({ account, refresh }) {
         <SecuritySection />
         <AiSection config={config} onSave={save} />
         <TelegramSection config={config} onSave={save} weeklyDesc={WEEKLY_DESC} />
-        <AccountSection account={account} refresh={refresh} />
+        <AccountSection account={account} refresh={refresh} currency="USD" />
       </div>
     </div>
   );

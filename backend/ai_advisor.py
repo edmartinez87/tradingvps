@@ -131,7 +131,8 @@ def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
         "(5) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
         + market["extra_rule"] +
         "Redacta summary y notes para el usuario final: frases completas y breves (máximo 2 por nota), en español claro y sin claves internas "
-        "(di «SL/TP optimizados» en vez de symbol_params, «sesiones permitidas» en vez de sessions_allowed, «sobreajustado» en vez de SOBREAJUSTADO). "
+        "(di «SL/TP optimizados» en vez de symbol_params, «sesiones permitidas» en vez de sessions_allowed, «sobreajustado» en vez de SOBREAJUSTADO; "
+        "nombra las estrategias como Tendencia EMA, Reversión a la media, Turtle, Supertrend y Pullback EMA21 en vez de sus claves). "
         "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
         '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), disabled_strategies (lista), risk_per_trade, '
         f'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{{sl_atr,tp_atr,atr_period}}){market["extra_keys"]}>}},'

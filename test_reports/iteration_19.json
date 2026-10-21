@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 19, frontend only, 1920x1080. HotForex adds a 'Plan de crecimiento' tab, an 'Ejecutar ahora' AI review section in Ajustes and a weekly summary card. All three work end to end. Plan tab (fx-tab-plan after fx-tab-news): the check-in block shows 'Fase actual: Validación en paper · 1 de 4 criterios cumplidos.' with 5 phase chips and 4 criteria. The intro mentions 'lotes y pips' and the labels read (USD). The 4 scenarios are conservador 1.5%, base 3%, optimista 5% and backtest -5.68%/mes. The backtest card is disabled and shows 'Sistema no rentable', which is expected. Also checked: the projection metrics, the 5-row phases table, 8 mc-* metrics, the per-pair table with a PIPS column (12 pair rows, 12 plan-bt-<SYM>-pips cells) and the 4-row strategies table. Clicking conservador sent POST /api/fx/plan {scenario:'conservador'}, gave it the amber border and changed plan-months from 9a9m to 21a11m. Target 800 / deposit 25 + Calcular sent the right body, and GET /api/fx/settings then showed conservador/800/25 while crypto /api/settings was unchanged. Restored to base/1000/0. plan-ai-button called only POST /api/fx/ai/advise {scope:'plan'}, never /api/ai/advise. It returned a non-empty plan-ai-summary and the toast 'Claude revisó el análisis · sin cambios necesarios'. FX Ajustes grid order matches the spec. The auto-review description mentions forex and 1:100. Turning apply off and choosing Diaria hid the day select. Guardar sent PUT /api/fx/config {frequency:'daily', apply:false} with the toast 'Revisión automática guardada'. The API confirmed it and crypto /api/config was unchanged. 'Ejecutar ahora' showed 'Claude revisando...', called POST /api/fx/ai/auto-review, gave the toast 'Revisión ejecutada · sin cambios' and updated autoreview-last to 21/10 19:20 with a new summary. Restored to weekly/Domingo/apply on. The weekly-summary-card sits inside telegram-section and its description mentions 'pips netos' and 'forex'. weekly-send-button is disabled because Telegram is not configured. The preview called GET /api/fx/weekly-summary and returned text starting with '🏦 HotForex AI' that contains 'Resumen semanal' and USD, with no USDT. 'Pips netos' did not appear because there are 0 FX trades, so that line was not exercised. Crypto regression: the plan labels read (USDT) and there is no Pips column (0 pips cells). The crypto auto-review section mentions 5x and not forex. Crypto weekly preview has no 🏦 and contains USDT. All FX tabs switch fine and there were no page errors. Final state: FX plan base/1000/0, FX auto-review weekly + apply on, FX bot stopped (running:false). Crypto settings are unchanged; the crypto bot was already running before these tests and was not touched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AccountSection (shared) in FX Ajustes → Cuenta paper", "issue": "In the forex settings the field label still says 'Nuevo capital inicial (USDT)'. It should say USD, like the rest of the FX plan. The label is hardcoded at AccountSection.jsx line 40; add a currency prop and pass 'USD' from FxAdminSettings.", "selector": "[data-testid='account-section']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Opening the Plan tab (both bots)", "issue": "When the tab mounts, GrowthPlan sends POST /api/fx/plan twice. The cause is React.StrictMode running effects twice in development. This only happens in dev, but each call is a heavy backtest + Monte Carlo run (about 6-10 s). Consider an abort/ref guard.", "affected_selectors": ["[data-testid='growth-plan-panel']"]}
+    ],
+    "design_issues": [
+      {"screen": "Plan tab → plan-ai-result notes", "issues": ["Claude's notes show raw strategy keys (breakout_turtle, mean_reversion, trend_ema) instead of the Spanish labels. This is cosmetic; the prompt could ask Claude to use the STRATEGY_LABELS names."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "LOW: change AccountSection to take a currency prop and show 'USD' in FX Ajustes → Cuenta paper.",
+    "LOW (optional): stop the duplicate first POST /plan under StrictMode.",
+    "LOW (optional): have Claude use human-readable strategy names in its advise/auto-review notes."
+  ],
+  "critical_code_review_comments": [
+    "AccountSection.jsx hardcodes 'USDT' and is shared with the FX bot.",
+    "GrowthPlan useEffect(run, []) has no guard against StrictMode running it twice or the component unmounting mid-request, so setRes can run after unmount.",
+    "The shared http client switches baseURL per bot (setApiBase), and the FX calls hit /api/fx/* correctly in every flow tested."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend only)", "frontend": "100% of requested flows (1 low-severity label issue)"},
+  "seed_data_creation": "None. The FX auto-review run updated auto_review_last_at/summary (expected).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login: BlackCat2233@. FX plan state: base/1000/0. FX auto-review: weekly, day 0, apply on. Telegram is not configured, so weekly-send stays disabled. The FX backtest Monte Carlo median is negative (-5.68%/mes), so the backtest scenario card is disabled, which is expected. FX has 0 trades, so the 'Pips netos' line in the weekly preview has not been exercised in the UI. FX Ajustes HFM shows a stored token and login 12345678 left over from earlier mock tests."
+}

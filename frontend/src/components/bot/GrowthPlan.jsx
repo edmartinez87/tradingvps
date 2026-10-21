@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -24,21 +24,31 @@ export default function GrowthPlan({ account, settings, checkin, onSave, refresh
   });
   const [res, setRes] = useState(null);
   const [loading, setLoading] = useState(false);
+  const alive = useRef(true);
+  const started = useRef(false);
 
   const run = useCallback(async (body) => {
     setLoading(true);
     try {
       const { data } = await http.post("/plan", body);
+      if (!alive.current) return;
       setRes(data);
       refresh?.();
     } catch (e) {
-      toast.error(`Plan falló: ${errMsg(e)}`);
+      if (alive.current) toast.error(`Plan falló: ${errMsg(e)}`);
     } finally {
-      setLoading(false);
+      if (alive.current) setLoading(false);
     }
   }, [refresh]);
 
-  useEffect(() => { run(form); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    alive.current = true;
+    if (!started.current) {
+      started.current = true;
+      run(form);
+    }
+    return () => { alive.current = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectScenario = (scenario) => {
     const next = { ...form, scenario };

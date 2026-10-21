@@ -11,7 +11,7 @@ import { Panel } from "../Panel";
 import { http, errMsg, fmtUsd } from "@/lib/api";
 import { Field, INPUT } from "./SecuritySection";
 
-export default function AccountSection({ account, refresh }) {
+export default function AccountSection({ account, refresh, currency = "USDT" }) {
   const [initial, setInitial] = useState(account.initial_balance);
   const [loading, setLoading] = useState(false);
 
@@ -37,7 +37,7 @@ export default function AccountSection({ account, refresh }) {
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[160px] flex-1">
-          <Field label="Nuevo capital inicial (USDT)" hint="El plan de crecimiento usa este valor como punto de partida.">
+          <Field label={`Nuevo capital inicial (${currency})`} hint="El plan de crecimiento usa este valor como punto de partida.">
             <Input data-testid="account-initial-input" type="number" min={10} step={50} value={initial} onChange={(e) => setInitial(e.target.value)} className={INPUT} />
           </Field>
         </div>
