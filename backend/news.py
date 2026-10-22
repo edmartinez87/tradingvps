@@ -1,5 +1,5 @@
 import re
-import json
+import time
 import asyncio
 import logging
 import hashlib
@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 import httpx
 from models import now_iso
+from llm_json import parse_llm_json
 from ai_advisor import _chat, _ask, record_usage
 import notify
 
@@ -18,6 +19,7 @@ CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 ATOM = "{http://www.w3.org/2005/Atom}"
 RISKS = ("BAJO", "MEDIO", "ALTO")
 HISTORY_DAYS = 30
+RETRY_AFTER_FAIL_SEC = 300  # after a failed analysis (invalid AI answer, feed down) wait before spending more AI calls
 IDLE_INTERVAL_MIN = 60
 ALERT_TTL_MIN = 24 * 60
 COIN_WORDS = {"BTCUSDT": ["bitcoin", "btc"], "ETHUSDT": ["ethereum", "ether ", " eth"], "SOLUSDT": ["solana", " sol "], "XRPUSDT": ["xrp", "ripple"],
@@ -66,16 +68,7 @@ def parse_feed(source: str, xml: str) -> list:
 
 
 def _parse_json(text: str):
-    m = re.search(r"\{.*\}", text or "", re.S)
-    if not m:
-        return None
-    raw = m.group(0)
-    for candidate in (raw, re.sub(r"(?<=[^\\])\n", " ", raw)):
-        try:
-            return json.loads(candidate)
-        except ValueError:
-            continue
-    return None
+    return parse_llm_json(text)
 
 
 def _age_min(iso: str) -> int:
@@ -102,6 +95,7 @@ class NewsAgent:
         self.task = None
         self._seen_alerts = set()
         self._last_risk = None
+        self._retry_at = 0.0
         self.client = httpx.AsyncClient(timeout=12, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; CryptoBot/1.0)"})
 
     async def configure(self, cfg):
@@ -121,19 +115,20 @@ class NewsAgent:
         await asyncio.sleep(15)
         while True:
             try:
-                if self.cfg and self.cfg.news_enabled:
+                if self.cfg and self.cfg.news_enabled and time.time() >= self._retry_at:
                     if not self.latest or _age_min(self.latest["updated_at"]) >= self.interval_min():
                         await self.refresh()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 logger.exception("news loop")
-                await self.engine.log("ERROR", f"Agente de noticias: {str(e)[:140]}")
+                self._retry_at = time.time() + RETRY_AFTER_FAIL_SEC
+                await self.engine.log("ERROR", f"Agente de noticias: {str(e)[:140]} · se mantiene el análisis anterior · nuevo intento en {RETRY_AFTER_FAIL_SEC // 60} min")
             await asyncio.sleep(60)
 
     def interval_min(self) -> int:
         """Configured cadence while the bot runs; with the bot stopped the agent slows down to IDLE_INTERVAL_MIN (resumes within a minute of starting)."""
-        return self.cfg.news_interval_min if self.engine.running else max(self.cfg.news_interval_min, IDLE_INTERVAL_MIN)
+        return self.cfg.news_interval_min if getattr(self.engine, "running", False) else max(self.cfg.news_interval_min, IDLE_INTERVAL_MIN)
 
     @staticmethod
     def fingerprint(headlines: list, events: list, symbols: list) -> str:
@@ -198,6 +193,7 @@ class NewsAgent:
                                     "sin comillas dobles dentro de los textos.")
             data = _parse_json(text)
         if data is None:
+            logger.warning(f"news: respuesta IA no válida ({len(text or '')} caracteres): {text!r}")
             raise ValueError(f"Respuesta IA no válida: {text[:160]}")
         market = data.get("market") or {}
         pairs = {k: v for k, v in (data.get("pairs") or {}).items() if k in symbols and isinstance(v, dict)}

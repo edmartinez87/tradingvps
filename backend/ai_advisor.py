@@ -5,6 +5,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+from llm_json import parse_llm_json
 import funding
 
 logger = logging.getLogger("ai")
@@ -150,13 +151,14 @@ async def record_usage(kind: str, skipped: bool = False):
 
 
 async def _ask(chat: LlmChat, prompt: str) -> str:
-    text = ""
+    text, done = "", None
     probe = getattr(chat, "_probe", False)
     try:
         async for ev in chat.stream_message(UserMessage(text=prompt)):
             if isinstance(ev, TextDelta):
                 text += ev.content
             elif isinstance(ev, StreamDone):
+                done = ev
                 break
     except Exception as e:
         if not probe:
@@ -165,7 +167,21 @@ async def _ask(chat: LlmChat, prompt: str) -> str:
     if not probe:
         await _mark_ok()
     await record_usage(getattr(chat, "_kind", "other"))
+    if done is not None and done.finish_reason == "length":
+        logger.warning(f"LLM {getattr(chat, '_kind', '?')}: respuesta cortada por el límite de tokens de salida "
+                       f"({done.usage.output_tokens} tokens, {len(text)} caracteres de texto)")
+    elif done is None:
+        logger.warning(f"LLM {getattr(chat, '_kind', '?')}: el stream terminó sin cierre ({len(text)} caracteres recibidos)")
     return text
+
+
+def parse_json(text: str, what: str = "IA") -> dict:
+    """Tolerant JSON extraction; the full invalid answer goes to the server log (the panel only shows the first characters)."""
+    data = parse_llm_json(text)
+    if data is None:
+        logger.warning(f"{what}: respuesta no válida ({len(text or '')} caracteres): {text!r}")
+        raise ValueError(f"Respuesta IA no válida: {(text or '')[:200]}")
+    return data
 
 
 async def ping(cfg: dict = None) -> str:
@@ -221,10 +237,7 @@ def _build_prompt(symbol, timeframe, sig, ctx) -> str:
 
 async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> dict:
     text = await _ask(_chat(SYSTEM, "signal"), _build_prompt(symbol, timeframe, sig, ctx))
-    match = re.search(r"\{.*\}", text, re.S)
-    if not match:
-        raise ValueError(f"Respuesta IA no válida: {text[:200]}")
-    data = json.loads(match.group(0))
+    data = parse_json(text, "evaluación de señal")
     decision = str(data.get("decision", "RECHAZAR")).upper()
     return {
         "decision": "APROBADA" if decision.startswith("APROB") else "RECHAZADA",
@@ -296,10 +309,7 @@ def _clip(text: str, limit: int) -> str:
 async def advise(scope: str, context: dict, policy: dict = None, market: dict = CRYPTO_MARKET) -> dict:
     prompt = f"ÁMBITO: {scope}\nCONTEXTO (JSON):\n{json.dumps(context, ensure_ascii=False, default=str)}\n\nDecide los cambios de configuración."
     text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY, market), "fx-advisor" if market is FX_MARKET else "advisor"), prompt)
-    match = re.search(r"\{.*\}", text, re.S)
-    if not match:
-        raise ValueError(f"Respuesta IA no válida: {text[:200]}")
-    data = json.loads(match.group(0))
+    data = parse_json(text, "revisión IA")
     changes = data.get("changes") or {}
     revert = data.get("revert") or []
     return {

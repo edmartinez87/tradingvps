@@ -1,8 +1,7 @@
 """Claude prompts for the HotForex bot: signal validation (forex/metals context) and macro news-event trading assessment."""
-import re
 import json
 import logging
-from ai_advisor import _chat, _ask, _news_lines
+from ai_advisor import _chat, _ask, _news_lines, parse_json
 from fx.symbols import SPECS, pips
 
 logger = logging.getLogger("fx.ai")
@@ -37,14 +36,7 @@ NEWS_SYSTEM = (
 
 
 def _parse(text: str) -> dict:
-    m = re.search(r"\{.*\}", text or "", re.S)
-    if not m:
-        raise ValueError(f"Respuesta IA no válida: {(text or '')[:200]}")
-    raw = m.group(0)
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return json.loads(re.sub(r"(?<=[^\\])\n", " ", raw))
+    return parse_json(text, "evaluación de señal FX")
 
 
 def _weight_line(weight) -> str:

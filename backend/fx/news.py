@@ -1,6 +1,7 @@
 """Forex & metals news agent: RSS headlines + ForexFactory calendar (configurable currencies) → Claude → currency bias, pair risk, alerts,
 event gate, and news trading (post-release data extraction → directional trades when confidence is high)."""
 import re
+import time
 import asyncio
 import hashlib
 import logging
@@ -9,7 +10,7 @@ from urllib.parse import quote_plus
 import httpx
 from models import now_iso
 from ai_advisor import _chat, _ask, record_usage
-from news import parse_feed, _parse_json, _age_min, _risk, CALENDAR_URL, HISTORY_DAYS, ALERT_TTL_MIN, IDLE_INTERVAL_MIN, NewsAgent
+from news import parse_feed, _parse_json, _age_min, _risk, CALENDAR_URL, HISTORY_DAYS, ALERT_TTL_MIN, RETRY_AFTER_FAIL_SEC, NewsAgent
 from fx import ai as fx_ai
 from fx.symbols import CURRENCIES, CURRENCY_NAMES, relevant_pairs, pairs_for_currency, currencies
 
@@ -48,6 +49,7 @@ class FxNewsAgent:
         self.task = None
         self._seen_alerts = set()
         self._last_risk = None
+        self._retry_at = 0.0
         self._processed = set()
         self._pending_since = {}
         self.client = httpx.AsyncClient(timeout=12, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; FxBot/1.0)"})
@@ -72,7 +74,7 @@ class FxNewsAgent:
         await asyncio.sleep(20)
         while True:
             try:
-                if self.cfg and self.cfg.news_enabled:
+                if self.cfg and self.cfg.news_enabled and time.time() >= self._retry_at:
                     if not self.latest or _age_min(self.latest["updated_at"]) >= self.interval_min():
                         await self.refresh()
                     if self.cfg.news_trading_enabled:
@@ -81,7 +83,8 @@ class FxNewsAgent:
                 raise
             except Exception as e:
                 logger.exception("fx news loop")
-                await self.engine.log("ERROR", f"Agente de noticias forex: {str(e)[:140]}")
+                self._retry_at = time.time() + RETRY_AFTER_FAIL_SEC
+                await self.engine.log("ERROR", f"Agente de noticias forex: {str(e)[:140]} · se mantiene el análisis anterior · nuevo intento en {RETRY_AFTER_FAIL_SEC // 60} min")
             await asyncio.sleep(45)
 
     # ---------- sources ----------
@@ -145,6 +148,7 @@ class FxNewsAgent:
             text = await _ask(chat, "Tu respuesta anterior no era JSON válido. Repite la respuesta como un único objeto JSON válido, sin texto adicional, sin comillas dobles dentro de los textos.")
             data = _parse_json(text)
         if data is None:
+            logger.warning(f"fx news: respuesta IA no válida ({len(text or '')} caracteres): {text!r}")
             raise ValueError(f"Respuesta IA no válida: {text[:160]}")
         market = data.get("market") or {}
         cur = {}
