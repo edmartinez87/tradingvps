@@ -63,7 +63,9 @@ async def timeline(engine, limit: int = 40) -> dict:
                     "window_days": round(dur.total_seconds() / 86400, 1), "ongoing": i == 0, "after": after, "before": before,
                     "equity_end": equity_end, "equity_delta_pct": round((equity_end - ev["equity"]) / ev["equity"] * 100, 2) if ev["equity"] else 0,
                     "verdict": verdict(before, after)})
-    verdicts = [e["verdict"] for e in out if e["ai"]]
-    return {"events": out, "total": await db.changes.count_documents({}), "ai_changes": len(verdicts),
-            "ai_better": verdicts.count("MEJOR"), "ai_worse": verdicts.count("PEOR"), "ai_pending": verdicts.count("PENDIENTE"),
+    verdicts = [e["verdict"] for e in out]
+    ai_verdicts = [e["verdict"] for e in out if e["ai"]]
+    return {"events": out, "total": await db.changes.count_documents({}), "ai_changes": len(ai_verdicts),
+            "better": verdicts.count("MEJOR"), "worse": verdicts.count("PEOR"), "pending": verdicts.count("PENDIENTE"),
+            "ai_better": ai_verdicts.count("MEJOR"), "ai_worse": ai_verdicts.count("PEOR"), "ai_pending": ai_verdicts.count("PENDIENTE"),
             "first_at": events[-1]["ts"] if events else None, "equity": acc["equity"], "min_trades": MIN_TRADES}

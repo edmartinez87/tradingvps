@@ -13,29 +13,30 @@ const VERDICT = {
   PENDIENTE: { label: "Pendiente de datos", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
 };
 
-const Metric = ({ label, before, after, fmt = (v) => v, cls }) => (
+const Metric = ({ label, before, after, fmt = (v) => v, cls, bTrades = 1, aTrades = 1 }) => (
   <div className="flex items-baseline justify-between gap-2 font-mono text-[11px]">
     <span className="text-slate-500">{label}</span>
-    <span><span className="text-slate-500">{fmt(before)}</span><span className="mx-1 text-slate-600">→</span><span className={`font-semibold ${cls ? cls(after) : "text-slate-200"}`}>{fmt(after)}</span></span>
+    <span><span className="text-slate-500">{bTrades ? fmt(before) : "—"}</span><span className="mx-1 text-slate-600">→</span><span className={`font-semibold ${aTrades && cls ? cls(after) : "text-slate-200"}`}>{aTrades ? fmt(after) : "—"}</span></span>
   </div>
 );
 
 const Window = ({ ev, minTrades }) => {
   const v = VERDICT[ev.verdict];
   const pf = (x) => (x == null ? "—" : x);
+  const n = { bTrades: ev.before.trades, aTrades: ev.after.trades };
   return (
     <div data-testid="evolution-window" className="rounded-sm border border-[#1E293B] bg-[#07090E] p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
-          Rendimiento después · {ev.window_days} días{ev.ongoing ? " · en curso" : ""} · {ev.after.trades} ops
+          Rendimiento después · {ev.window_days} días{ev.ongoing ? " · en curso" : ""} · {ev.after.trades} ops (antes: {ev.before.trades} ops)
         </p>
         <span data-testid="evolution-verdict" className={`rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider ${v.cls}`}>{v.label}</span>
       </div>
       <div className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
-        <Metric label="PnL" before={ev.before.pnl} after={ev.after.pnl} fmt={fmtSignedUsd} cls={pnlClass} />
-        <Metric label="PnL medio/op" before={ev.before.avg_pnl} after={ev.after.avg_pnl} fmt={fmtSignedUsd} cls={pnlClass} />
-        <Metric label="Acierto" before={ev.before.win_rate} after={ev.after.win_rate} fmt={(x) => `${x}%`} />
-        <Metric label="Profit factor" before={ev.before.profit_factor} after={ev.after.profit_factor} fmt={pf} cls={(x) => (x == null ? "text-slate-400" : x >= 1 ? "text-emerald-400" : "text-rose-400")} />
+        <Metric label="PnL" before={ev.before.pnl} after={ev.after.pnl} fmt={fmtSignedUsd} cls={pnlClass} {...n} />
+        <Metric label="PnL medio/op" before={ev.before.avg_pnl} after={ev.after.avg_pnl} fmt={fmtSignedUsd} cls={pnlClass} {...n} />
+        <Metric label="Acierto" before={ev.before.win_rate} after={ev.after.win_rate} fmt={(x) => `${x}%`} {...n} />
+        <Metric label="Profit factor" before={ev.before.profit_factor} after={ev.after.profit_factor} fmt={pf} cls={(x) => (x == null ? "text-slate-400" : x >= 1 ? "text-emerald-400" : "text-rose-400")} {...n} />
       </div>
       <p className="mt-2 font-mono text-[10px] text-slate-500">
         Equidad {fmtUsd(ev.equity)} → {fmtUsd(ev.equity_end)} ({ev.equity_delta_pct > 0 ? "+" : ""}{ev.equity_delta_pct}%)
@@ -98,8 +99,8 @@ export default function EvolutionPanel({ intro }) {
       ) : (
         <>
           <div className="flex flex-wrap gap-2">
-            {[["Cambios registrados", data.total, "evolution-total"], ["Aplicados por la IA", data.ai_changes, "evolution-ai"], ["Mejoraron", data.ai_better, "evolution-better", "text-emerald-400"],
-              ["Empeoraron", data.ai_worse, "evolution-worse", "text-rose-400"], ["Pendientes de datos", data.ai_pending, "evolution-pending", "text-amber-300"]].map(([l, v, id, cls]) => (
+            {[["Cambios registrados", data.total, "evolution-total"], ["Aplicados por la IA", data.ai_changes, "evolution-ai"], ["Mejoraron", data.better, "evolution-better", "text-emerald-400"],
+              ["Empeoraron", data.worse, "evolution-worse", "text-rose-400"], ["Pendientes de datos", data.pending, "evolution-pending", "text-amber-300"]].map(([l, v, id, cls]) => (
               <div key={id} data-testid={id} className="min-w-[140px] flex-1 rounded-sm border border-[#1E293B] bg-[#0D111A] px-3 py-2.5">
                 <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">{l}</p>
                 <p className={`num mt-1 text-base font-semibold ${cls || "text-slate-100"}`}>{v}</p>
@@ -110,7 +111,7 @@ export default function EvolutionPanel({ intro }) {
             <p data-testid="evolution-empty" className="flex items-center gap-2 text-[12px] text-slate-500"><GitBranch className="h-4 w-4" /> Todavía no hay cambios registrados: aparecerán aquí en cuanto la IA, el walk-forward o tú modifiquéis la configuración.</p>
           ) : (
             <ol data-testid="evolution-timeline" className="relative space-y-3 border-l border-[#1E293B] pl-0 [&>li]:ml-[-1px]">
-              {data.events.map((ev) => <Event key={ev.ts} ev={ev} minTrades={data.min_trades} />)}
+              {data.events.map((ev, i) => <Event key={`${ev.ts}-${i}`} ev={ev} minTrades={data.min_trades} />)}
             </ol>
           )}
         </>

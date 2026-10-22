@@ -134,6 +134,7 @@ class TestEvolutionUnit:
         assert ai["equity_end"] == 1010.0 and ai["equity_delta_pct"] == pytest.approx(6.32, abs=0.01) and ai["ai"] is True and ai["source_label"] == "Revisión IA automática"
         assert man["before"]["trades"] == 1 and man["after"]["trades"] == 6 and man["window_days"] == pytest.approx(10, abs=0.1)
         assert tl["ai_better"] == 1 and tl["ai_worse"] == 0 and tl["ai_pending"] == 0
+        assert tl["better"] == 2 and tl["worse"] == 0 and tl["pending"] == 1  # manual (6 ops, +2) + AI improved; walk-forward pending
 
 
 class TestEvolutionApi:
@@ -151,7 +152,8 @@ class TestEvolutionApi:
             ev = tl["events"][0]
             assert ev["source"] == "manual" and ev["source_label"] == "Ajuste manual" and ev["changes"] == {key: {"antes": orig[key], "despues": val}}
             assert ev["ongoing"] is True and ev["verdict"] == "PENDIENTE" and "equity" in ev and ev["after"]["trades"] == 0 and "window_days" in ev
-            assert set(tl) >= {"events", "total", "ai_changes", "ai_better", "ai_worse", "ai_pending", "first_at", "equity", "min_trades"}
+            assert set(tl) >= {"events", "total", "ai_changes", "better", "worse", "pending", "ai_better", "ai_worse", "ai_pending", "first_at", "equity", "min_trades"}
+            assert tl["pending"] >= 1
         finally:
             s.put(f"{base}/settings", json={key: orig[key]}, timeout=30)
 

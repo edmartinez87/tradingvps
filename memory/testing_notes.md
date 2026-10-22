@@ -18,3 +18,7 @@
 ## Iteración 21
 - `tests/test_iter21_hfm_alert_cron_ai.py` (-n 0): usa el mock MetaApi (:8012) y `POST /mock/connection`, pasa el bot FX a REAL con `hfm_alert_after_sec=15` y lo devuelve a paper; el último test reinicia el backend con supervisorctl (ejecutarlo al final, no en paralelo con otras suites).
 - `test_iter18` puede fallar esporádicamente en test_08 si el escaneo real del bot abre una posición en GBPUSD/USDJPY mientras el bot está activo en REAL (carrera con el mercado, no regresión); repetir la suite.
+
+## Iteración 25
+- `tests/test_trading_bot.py` (suite heredada) DETIENE el bot cripto, reinicia estadísticas y deja el perfil Conservador: no ejecutarla sobre la cuenta del usuario sin restaurar después (bot/start).
+- `tests/test_iter25_evolution_backup.py` limpia al final los eventos de evolución que crea (`changes`, `fx_changes`).

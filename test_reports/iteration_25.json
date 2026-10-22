@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only testing of iteration 25, the Evolution panel, on both bots. Login worked. CRYPTO (/bybit): tab-evolution is the last tab. The empty state showed correctly (5 cards at 0, the evolution-empty text, the evolution-refresh button). A manual change of max positions 3→2 + Save showed the toast 'Configuración guardada'. After Refresh: total=1, evolution-event-manual 'Ajuste manual' with date/time, 'Máx. posiciones: 3 → 2' (old value line-through, new value emerald), evolution-window 'Rendimiento después · 0 días · en curso · 0 ops', verdict 'Pendiente de datos', PnL/PnL medio/Acierto/Profit factor before→after, the line 'Equidad $500.00 → $500.00 (0%) · se necesitan ≥ 5 operaciones…'. Restored to 3 (2nd event). Risk profile Conservador→Moderado (level 1, no confirmation dialog) → evolution-event-profile 'Perfil de riesgo' with summary 'Perfil de riesgo aplicado: Moderado' and 6 changes (Pares, Riesgo/op, Máx. posiciones, Límite diario, Confianza IA, Perfil). Restored to Conservador (4th event). Changing the plan target monthly (1000→1200→1000) and clicking plan scenarios did NOT create events (total stayed at 4). FX (/hotforex): fx-tab-evolution starts empty. Max positions 5→4 → evolution-event-manual 'Máx. posiciones: 5 → 4'. Restored to 5 (total=2). Regression: the Posiciones, Historial, Rendimiento, Noticias and Plan tabs load with content on both bots. 0 console errors and 0 API 4xx/5xx responses.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "EvolutionPanel window metrics", "issues": ["With 0 trades, 'Acierto' shows '0% → 0%' while Profit factor shows '—'. Use '—' consistently when trades=0 (cosmetic)."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "EvolutionPanel: <Event key={ev.ts}> — two changes recorded in the same timestamp (e.g. a batch with an identical ts) would collide. Prefer a stable id from the backend.",
+    "The save toast text is 'Configuración guardada', not 'Configuración actualizada' as stated in the review request (cosmetic, no bug).",
+    "Summary cards Mejoraron/Empeoraron/Pendientes count only AI changes (manual and profile events are not counted). This is consistent with the labels, but could confuse users when there are only manual events (Pendientes=0 while each event shows 'Pendiente de datos')."
+  ],
+  "updated_files": ["/app/test_reports/iteration_25.json"],
+  "success_rate": {"backend": "N/A (skipped as requested)", "frontend": "100%"},
+  "seed_data_creation": "Evolution events created by tests: CRYPTO 4 (2 manual: max_positions 3→2 and 2→3; 2 profile: Conservador→Moderado and Moderado→Conservador). FX 2 (manual: max_positions 5→4 and 4→5). Final state verified via API: crypto max_positions=3, risk_profile=0, risk 1%, 6 symbols, plan base/1000, bot_running=true. FX max_positions=5, risk_profile=2, plan base/1000, bot_running=false.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "db.changes (crypto) has 4 events and fx_changes has 2 from iteration-25 testing. Settings testids: settings-max-positions-input, settings-save-button, risk-profile-step-N, risk-profile-apply-button (levels >=3 open risk-profile-dialog). Plan: plan-target-monthly-input, plan-run-button, plan-scenario-<key>."
+}
