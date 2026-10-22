@@ -5,7 +5,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from pymongo.errors import DuplicateKeyError
 
 import notify
@@ -120,3 +120,41 @@ async def cron_weekly_summary(request: Request):
     asyncio.create_task(_safe_weekly(CRYPTO))
     asyncio.create_task(_safe_weekly(FX))
     return {"accepted": True, "scheduled": True, "scheduled_fx": True}
+
+
+
+TELEGRAM_MAX_MB = 49
+
+
+@router.post("/backup")
+async def cron_backup(request: Request, file: UploadFile = File(...)):
+    """deploy/backup.sh uploads the nightly mongodump archive here (weekly) so the backend can forward it to Telegram as a document."""
+    _auth(request)
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Archivo vacío")
+    size_mb = round(len(data) / 1048576, 2)
+    name = (file.filename or "backup.archive.gz")[:120]
+    rec = {"_id": "backup", "last_at": datetime.now(timezone.utc).isoformat(), "filename": name, "size_mb": size_mb, "sent": False, "error": None}
+    if not notify.is_on("system"):
+        rec["error"] = "Telegram desactivado o aviso 'system' apagado"
+        await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
+        return {"sent": False, "size_mb": size_mb, "reason": rec["error"]}
+    if size_mb > TELEGRAM_MAX_MB:
+        rec["error"] = f"{size_mb} MB supera el límite de Telegram ({TELEGRAM_MAX_MB} MB)"
+        await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
+        await notify.notify(f"🗄 <b>Copia de seguridad</b> {name} generada ({size_mb} MB) pero supera el límite de Telegram; queda guardada en el VPS (deploy/backups/).", "system")
+        raise HTTPException(413, rec["error"])
+    caption = (f"🗄 <b>Copia de seguridad semanal</b> · {name} · {size_mb} MB\n"
+               "Restaurar en el VPS: <code>cd deploy && bash restore.sh &lt;archivo&gt;</code>")
+    try:
+        await notify.send_document(data, name, caption)
+    except Exception as e:
+        rec["error"] = str(e)[:200]
+        await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
+        raise HTTPException(424, f"Telegram: {rec['error']}")
+    rec["sent"] = True
+    await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
+    for bot in (CRYPTO, FX):
+        await bot["engine"].log("INFO", f"Copia de seguridad {name} ({size_mb} MB) enviada por Telegram")
+    return {"sent": True, "size_mb": size_mb}

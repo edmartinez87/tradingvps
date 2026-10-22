@@ -18,6 +18,7 @@ from market import TF_SECONDS  # noqa: E402
 from indicators import build_df  # noqa: E402
 from strategies import STRATEGY_INFO, MODE_INFO  # noqa: E402
 from performance import performance  # noqa: E402
+import evolution  # noqa: E402
 from ai_advisor import current as ai_current  # noqa: E402
 from auth import verify_password, create_token, client_ip, check_locked, register_failure, clear_failures  # noqa: E402
 from config import ConfigUpdate  # noqa: E402
@@ -116,7 +117,7 @@ async def set_profile(req: ProfileRequest):
         raise HTTPException(409, "Detén el bot antes de pasar a un perfil agresivo en modo REAL")
     p = PROFILES[req.level]
     before = PROFILES[settings.risk_profile]["name"] if detect_profile(settings) is not None else "Personalizado"
-    s = await engine.update_settings(profile_patch(req.level))
+    s = await engine.update_settings(profile_patch(req.level), "profile", f"Perfil de riesgo aplicado: {PROFILES[req.level]['name']}")
     st = p["settings"]
     await engine.log("INFO", f"Perfil de riesgo: {before} → {p['name']} · {len(st['symbols'])} pares · {st['timeframe']} · riesgo {st['risk_per_trade']}% · {st['leverage']}x")
     await notify.notify(
@@ -286,6 +287,11 @@ async def reset_account(body: ResetRequest = None):
 @api.get("/performance")
 async def get_performance():
     return await performance(db)
+
+
+@api.get("/evolution")
+async def get_evolution():
+    return await evolution.timeline(engine)
 
 
 @api.get("/news")

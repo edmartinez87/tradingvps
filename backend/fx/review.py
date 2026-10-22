@@ -48,9 +48,9 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
     return ctx
 
 
-def _apply(engine, res, before, settings):
+def _apply(engine, res, before, settings, source: str = "optimize_all"):
     pol = ai_policy(settings.risk_profile)
-    return review.apply_ai_changes(engine, res, before, settings, policy=pol, available=AVAILABLE, model=FxSettingsUpdate, allowed=ALLOWED_AI_KEYS)
+    return review.apply_ai_changes(engine, res, before, settings, policy=pol, available=AVAILABLE, model=FxSettingsUpdate, allowed=ALLOWED_AI_KEYS, source=source)
 
 
 async def advise_scope(engine, scope: str, optimizer_results: list = None) -> dict:
@@ -62,7 +62,7 @@ async def advise_scope(engine, scope: str, optimizer_results: list = None) -> di
         ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (optimizer_results or [])]
     await engine.log("AI_EVAL", f"{ai_label()} analizando {'optimizador' if scope == 'optimizer' else 'plan'} y rendimiento real...")
     res = await advise(scope, ctx, ai_policy(settings.risk_profile), FX_MARKET)
-    applied, previous = await _apply(engine, res, before, settings)
+    applied, previous = await _apply(engine, res, before, settings, scope)
     await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     return {**res, "applied": applied, "previous": previous}
 
@@ -76,7 +76,7 @@ async def run_auto_review(engine, db, store) -> dict:
     res = await advise("revision_automatica_programada", ctx, ai_policy(settings.risk_profile), FX_MARKET)
     applied, previous = ({}, {})
     if store.cfg.auto_review_apply:
-        applied, previous = await _apply(engine, res, before, settings)
+        applied, previous = await _apply(engine, res, before, settings, "auto_review")
     await store.update({"auto_review_last_at": now_iso(), "auto_review_last_summary": res["summary"], "auto_review_last_changes": applied})
     await engine.log("AI_EVAL", f"Revisión automática: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     await engine.tg(f"🧠 <b>Revisión IA automática</b> (perfil {PROFILES[settings.risk_profile]['name']})\n{res['summary']}\n\n"

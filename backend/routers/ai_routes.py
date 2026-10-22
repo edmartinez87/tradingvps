@@ -49,6 +49,6 @@ async def ai_advise(req: AdviseRequest):
     except Exception as e:
         logger.exception("advise")
         raise HTTPException(424, f"Error IA: {friendly_error(e)}")
-    applied, previous = await apply_ai_changes(engine, res, before, settings)
+    applied, previous = await apply_ai_changes(engine, res, before, settings, source=req.scope)
     await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     return {**res, "applied": applied, "previous": previous}

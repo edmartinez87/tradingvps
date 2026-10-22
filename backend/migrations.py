@@ -7,7 +7,7 @@ async def _activo(engine):
     s = await engine.get_settings()
     if s.risk_profile != 3:
         return
-    await engine.update_settings(profile_patch(2))
+    await engine.update_settings(profile_patch(2), "system", "Migración inicial: perfil Activo")
     await engine.log("INFO", "Perfil de riesgo bajado de Agresivo a Activo (ajuste acordado tras la actualización)")
     await tg("🎚 <b>Perfil de riesgo</b>: Agresivo → <b>Activo</b> (10 pares · 1h · criterios relajados · 1.5%/op · 5 posiciones · 5x), ajuste acordado tras la actualización.", "review")
 

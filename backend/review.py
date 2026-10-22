@@ -60,7 +60,7 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
 
 
 async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy: dict = None, available=AVAILABLE_SYMBOLS,
-                           model=SettingsUpdate, allowed=ALLOWED_AI_KEYS):
+                           model=SettingsUpdate, allowed=ALLOWED_AI_KEYS, source: str = "optimize_all"):
     patch = {k: v for k, v in res["changes"].items() if k in allowed}
     for k, cap in (policy or ai_policy(settings.risk_profile))["caps"].items():
         if k in patch:
@@ -79,7 +79,7 @@ async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy:
     applied = {}
     if patch:
         try:
-            after = (await engine.update_settings(model.model_validate(patch).model_dump())).model_dump(exclude={"bot_running"})
+            after = (await engine.update_settings(model.model_validate(patch).model_dump(), source, res.get("summary", ""))).model_dump(exclude={"bot_running"})
             applied = {k: {"antes": before[k], "despues": after[k]} for k in patch if before.get(k) != after.get(k)}
         except Exception as e:
             res["notes"].append(f"Cambios propuestos no válidos y descartados: {str(e)[:120]}")
@@ -117,7 +117,7 @@ async def run_auto_review(engine, db, store) -> dict:
     res = await advise("revision_automatica_programada", ctx, ai_policy(settings.risk_profile))
     applied, previous = ({}, {})
     if store.cfg.auto_review_apply:
-        applied, previous = await apply_ai_changes(engine, res, before, settings)
+        applied, previous = await apply_ai_changes(engine, res, before, settings, source="auto_review")
     await store.update({"auto_review_last_at": now_iso(), "auto_review_last_summary": res["summary"], "auto_review_last_changes": applied})
     await engine.log("AI_EVAL", f"Revisión automática: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     msg = (f"🧠 <b>Revisión IA automática</b>\n{res['summary']}\n\n"

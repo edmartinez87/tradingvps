@@ -38,6 +38,20 @@ async def notify(text: str, kind: str):
         return False
 
 
+async def send_document(data: bytes, filename: str, caption: str = "") -> bool:
+    """Uploads a file to the configured chat (Telegram bots accept up to 50 MB)."""
+    token, chat_id = _cfg["token"], _cfg["chat_id"]
+    if not token or not chat_id:
+        raise RuntimeError("Telegram no configurado: faltan token o chat ID")
+    async with httpx.AsyncClient(timeout=120) as c:
+        r = await c.post(TG.format(token=token, method="sendDocument"), data={"chat_id": chat_id, "caption": caption[:1000], "parse_mode": "HTML"},
+                         files={"document": (filename, data, "application/octet-stream")})
+    out = r.json()
+    if not out.get("ok"):
+        raise RuntimeError(out.get("description", "Error de Telegram"))
+    return True
+
+
 async def get_chats(token: str) -> list:
     async with httpx.AsyncClient(timeout=12) as c:
         r = await c.get(TG.format(token=token, method="getUpdates"), params={"limit": 100})

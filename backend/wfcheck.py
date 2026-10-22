@@ -67,7 +67,8 @@ async def run_check(engine, db, store, source: str = "auto", kit=CRYPTO) -> dict
         current = (await engine.get_settings()).symbol_params
         removed = {s: settings.symbol_params[s] for s in bad if current.get(s) == settings.symbol_params[s]}
         if removed:
-            await engine.update_settings({"symbol_params": {k: v for k, v in current.items() if k not in removed}})
+            await engine.update_settings({"symbol_params": {k: v for k, v in current.items() if k not in removed}}, "walk_forward",
+                                         "Walk-forward: parámetros SL/TP sobreajustados o no rentables retirados de " + ", ".join(removed))
             for s in removed:
                 results[s]["removed"] = True
             await engine.log("PLAN", "Walk-forward: SL/TP optimizados quitados por sobreajuste → valores por defecto en "

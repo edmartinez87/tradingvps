@@ -53,12 +53,13 @@ fi
 echo "==> [4/6] Construyendo e iniciando contenedores (la primera vez tarda 5-10 min)"
 docker compose up -d --build
 
-echo "==> [5/6] Crons: revisión IA (08:00 UTC), walk-forward semanal (lunes 07:00 UTC) y resumen semanal (domingo 20:00 UTC)"
-chmod +x cron-ai-review.sh cron-walk-forward.sh cron-weekly-summary.sh update.sh
+echo "==> [5/6] Crons: revisión IA (08:00 UTC), walk-forward semanal (lunes 07:00 UTC), resumen semanal (domingo 20:00 UTC) y copia de seguridad nocturna (03:00 UTC; los domingos también por Telegram)"
+chmod +x cron-ai-review.sh cron-walk-forward.sh cron-weekly-summary.sh backup.sh restore.sh update.sh
 CRON_LINE="0 8 * * * /bin/bash $(pwd)/cron-ai-review.sh >> /var/log/cryptobot-cron.log 2>&1"
 WF_LINE="0 7 * * 1 /bin/bash $(pwd)/cron-walk-forward.sh >> /var/log/cryptobot-cron.log 2>&1"
 WK_LINE="0 20 * * 0 /bin/bash $(pwd)/cron-weekly-summary.sh >> /var/log/cryptobot-cron.log 2>&1"
-( crontab -l 2>/dev/null | grep -v 'cron-ai-review.sh' | grep -v 'cron-walk-forward.sh' | grep -v 'cron-weekly-summary.sh' || true; echo "$CRON_LINE"; echo "$WF_LINE"; echo "$WK_LINE" ) | crontab -
+BK_LINE="0 3 * * * /bin/bash $(pwd)/backup.sh >> /var/log/cryptobot-cron.log 2>&1"
+( crontab -l 2>/dev/null | grep -v 'cron-ai-review.sh' | grep -v 'cron-walk-forward.sh' | grep -v 'cron-weekly-summary.sh' | grep -v 'backup.sh' || true; echo "$CRON_LINE"; echo "$WF_LINE"; echo "$WK_LINE"; echo "$BK_LINE" ) | crontab -
 
 echo "==> [6/6] Firewall"
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active'; then

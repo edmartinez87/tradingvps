@@ -11,6 +11,7 @@ from strategies import MODE_INFO
 from indicators import build_df
 from performance import performance
 from fx.shadow import shadow_stats as fx_shadow_stats
+import evolution
 from config import ConfigUpdate
 from ai_advisor import current as ai_current, friendly_error
 import notify
@@ -66,7 +67,7 @@ async def set_profile(req: FxProfileRequest):
     settings = await engine.get_settings()
     p = PROFILES[req.level]
     before = PROFILES[settings.risk_profile]["name"] if detect_profile(settings) is not None else "Personalizado"
-    s = await engine.update_settings(profile_patch(req.level))
+    s = await engine.update_settings(profile_patch(req.level), "profile", f"Perfil de riesgo aplicado: {PROFILES[req.level]['name']}")
     st = p["settings"]
     await engine.log("INFO", f"Perfil de riesgo: {before} → {p['name']} · {len(st['symbols'])} pares · {st['timeframe']} · riesgo {st['risk_per_trade']}% · 1:{st['leverage']}")
     await engine.tg(
@@ -355,6 +356,11 @@ async def reset_account(body: ResetRequest = None):
 @router.get("/performance")
 async def get_performance():
     return await performance(engine.db, fx_shadow_stats)
+
+
+@router.get("/evolution")
+async def get_evolution():
+    return await evolution.timeline(engine)
 
 
 @router.delete("/logs")

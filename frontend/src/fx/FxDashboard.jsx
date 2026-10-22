@@ -16,6 +16,7 @@ import Performance from "@/components/bot/Performance";
 import Backtest from "@/components/bot/Backtest";
 import Optimizer from "@/components/bot/Optimizer";
 import AiSignals from "@/components/bot/AiSignals";
+import EvolutionPanel from "@/components/bot/EvolutionPanel";
 import { AiHealthBanner } from "@/components/bot/AiHealthBanner";
 import SettingsPanel from "@/components/bot/SettingsPanel";
 import Terminal from "@/components/bot/Terminal";
@@ -147,8 +148,10 @@ export default function FxDashboard({ onLogout }) {
                       <span data-testid="fx-tab-plan-alert" className={`pulse-dot absolute -right-1 -top-1 ${data.checkin.ready_to_advance ? "bg-emerald-400" : "bg-rose-400"}`} />
                     )}
                   </TabsTrigger>
+                  <TabsTrigger data-testid="fx-tab-evolution" value="evolution" className={TAB_CLS}>Evolución</TabsTrigger>
                 </TabsList>
               </div>
+              <TabsContent value="evolution" className="mt-0"><EvolutionPanel /></TabsContent>
               <TabsContent value="positions" className="mt-0">
                 <PositionsTable positions={data.positions} onClose={(id) => act(() => http.post(`/positions/${id}/close`), "Posición cerrada")}
                   onCloseAll={() => act(() => http.post("/positions/close-all"), "Cierre de emergencia ejecutado")} />

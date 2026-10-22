@@ -4,17 +4,21 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { http, errMsg, STRATEGY_LABELS, SESSION_NAMES } from "@/lib/api";
 
-const LABELS = {
+export const LABELS = {
   symbols: "Pares", strategy: "Estrategia", disabled_strategies: "Estrategias apagadas", risk_per_trade: "Riesgo/op (%)", max_positions: "Máx. posiciones",
   leverage: "Apalancamiento", ai_min_confidence: "Confianza mínima IA", trailing_enabled: "Trailing", htf_filter: "Filtro TF superior", symbol_params: "Parámetros SL/TP",
-  sessions_allowed: "Sesiones permitidas",
+  sessions_allowed: "Sesiones permitidas", timeframe: "Temporalidad", signal_mode: "Criterios de entrada", daily_loss_limit: "Límite de pérdida diaria (%)",
+  ai_enabled: "Filtro IA", scan_interval_sec: "Intervalo de escaneo (s)", close_before_weekend: "Cierre antes del fin de semana", min_lot_max_risk: "Tope riesgo lote mínimo (%)",
+  risk_profile: "Perfil de riesgo", auto_review_enabled: "Revisión IA automática", auto_review_apply: "Aplicar cambios de la revisión",
 };
-const fmtVal = (k, v) => {
+export const fmtVal = (k, v) => {
   if (v == null) return "—";
   if (typeof v === "boolean") return v ? "Sí" : "No";
   if (k === "strategy") return STRATEGY_LABELS[v] || v;
   if (k === "disabled_strategies") return v.map((s) => STRATEGY_LABELS[s] || s).join(", ") || "ninguna";
   if (k === "sessions_allowed") return v.map((s) => SESSION_NAMES[s] || s).join(", ") || "todas";
+  if (k === "signal_mode") return { strict: "Estrictos", relaxed: "Relajados", aggressive: "Agresivos" }[v] || v;
+  if (k === "risk_profile") return ["Conservador", "Moderado", "Activo", "Agresivo", "Máximo"][v] ?? v;
   if (Array.isArray(v)) return v.map((s) => s.replace("USDT", "")).join(", ") || "ninguno";
   if (typeof v === "object") return Object.entries(v).map(([s, p]) => `${s.replace("USDT", "")}: SL ${p.sl_atr}× TP ${p.tp_atr}× ATR ${p.atr_period}`).join(" · ") || "ninguno";
   return String(v);

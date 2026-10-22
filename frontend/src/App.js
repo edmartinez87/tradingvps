@@ -23,6 +23,7 @@ import GrowthPlan from "@/components/bot/GrowthPlan";
 import Optimizer from "@/components/bot/Optimizer";
 import NewsPanel from "@/components/bot/NewsPanel";
 import AiSignals from "@/components/bot/AiSignals";
+import EvolutionPanel from "@/components/bot/EvolutionPanel";
 import { AiHealthBanner } from "@/components/bot/AiHealthBanner";
 import SettingsPanel from "@/components/bot/SettingsPanel";
 import Terminal from "@/components/bot/Terminal";
@@ -121,8 +122,10 @@ function Dashboard({ onLogout }) {
                       <span data-testid="tab-plan-alert" className={`pulse-dot absolute -right-1 -top-1 ${data.checkin.ready_to_advance ? "bg-emerald-400" : "bg-rose-400"}`} />
                     )}
                   </TabsTrigger>
+                  <TabsTrigger data-testid="tab-evolution" value="evolution" className={TAB_CLS}>Evolución</TabsTrigger>
                 </TabsList>
               </div>
+              <TabsContent value="evolution" className="mt-0"><EvolutionPanel /></TabsContent>
               <TabsContent value="positions" className="mt-0">
                 <PositionsTable positions={data.positions} onClose={(id) => act(() => http.post(`/positions/${id}/close`), "Posición cerrada")}
                   onCloseAll={() => act(() => http.post("/positions/close-all"), "Cierre de emergencia ejecutado")} />
