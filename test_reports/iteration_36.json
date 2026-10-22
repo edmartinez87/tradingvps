@@ -1,0 +1,21 @@
+{
+  "summary": "HFM odd metal names fix (Zero: XAUUSD→GOLDb, XAGUSD→XAGUSD.b) verified end-to-end. Base pytest: test_iter37_hfm_suffix + test_iter38_hfm_suffix_extra 17/17, test_iter18_fx_live 11/11. New scenario suite test_iter42_hfm_odd_metal_names.py 7/7: detect-suffix 'b'; /hfm/symbols missing/disabled/errors empty, resolved == {XAUUSD:GOLDb, XAGUSD:XAGUSD.b}, XAUUSD ok/broker_symbol GOLDb/resolved true, EURUSD EURUSDb resolved false; config mt_symbol_map persisted, hfm_symbols_bad []; mode check 'symbols' ok; log 'nombres resueltos en la cuenta: XAUUSD → GOLDb'; /hfm/test returns resolved; Premium → suffix '' resolved {} map {}; back to Zero resolves again; PUT suffix 'r' clears map; NZDJPY truly missing → ok/quoted/transient false + 'ningún nombre conocido' (no invented name); REAL (market open, Thu 23:41 UTC): mode live 200, inject XAUUSD executed True, mock position GOLDb, /fx/positions shows XAUUSD, no 'posición externa detectada' after 9 s, close-all ok, trade XAUUSD in history. Frontend (Playwright): Probar conexión → hfm-suffix-detected 'Zero', hfm-symbols-result green '12 pares activos cotizan y son operables … sufijo «b»', hfm-symbols-resolved 'XAUUSD → GOLDb, XAGUSD → XAGUSD.b', rows 'XAUUSD → GOLDb · bid / ask · mín 0.01', 'EURUSDb · …'; Comprobar símbolos shows the same; Modo de operación item 'Pares operables en HFM…' green (livemode-check-symbols, 'sufijo «b» · cuenta Zero'); FAQ 'Trade is disabled' mentions GOLDb and 'XAUUSD → GOLDb'. Cleanup done (paper, clear_hfm, base_url/suffix empty, mock reset). Crypto bot untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [{"screen": "Ajustes → HFM SymbolsCheck grid", "issues": ["Resolved rows ('XAUUSD → GOLDb · 4040.25 / 4040.55 · mín 0.01') are longer than the 3-col grid cell and wrap '· mín 0.01' onto a second line at 1920px; cosmetic only"]}]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter42_hfm_odd_metal_names.py", "/app/backend/tests/test_iter37_hfm_suffix.py", "/app/backend/tests/test_iter38_hfm_suffix_extra.py", "/app/backend/tests/test_iter18_fx_live.py", "/app/test_reports/pytest/iter36_odd_metals.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "fx/live.py resolve_symbol sort key: suffix preference uses `_norm(n)[len(symbol)-1:]`; for alias roots shorter than the symbol (GOLDb → 'GOLDB'[5:] == '') the suffix is never detected, so alias candidates are only ordered by length (e.g. ['GOLD','GOLDb','GOLDc','GOLDr','GOLDx','XAUUSD'] for suffix b). Works today thanks to the tradeMode FULL filter, but with >6 candidates (cands[:6]) the tradable one could be cut off. Suggest computing the tail relative to the matched alias length (len(alias)) instead of len(symbol)-1.",
+    "Optional: our_symbol() is O(n) over symbol_map per position; fine for 12 pairs."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter42_hfm_odd_metal_names.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None persistent; one live XAUUSD trade (mock GOLDb) added to fx trade history during REAL test, then mode reset to paper with reset_stats.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run `cd /app/backend && REACT_APP_BACKEND_URL=<preview> python3 -m pytest tests/test_iter42_hfm_odd_metal_names.py -n 0` for the odd-metal-name scenario (test_07 needs forex market open; fixture cleans up). Mock :8012 group switch: POST /mock/account-group?suffix=b|''. Playwright: Ajustes is a header button on /hotforex; Documentación → docs-tab-faq."
+}
