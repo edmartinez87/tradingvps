@@ -16,6 +16,7 @@ from live import LiveBroker
 from shadow import open_shadow, monitor_shadows
 import evolution
 import funding
+import cashflow
 
 BLOCK_BY = {"NOTICIAS": "noticias", "FUNDING": "funding", "BLOQUEADA": "riesgo"}
 
@@ -50,6 +51,8 @@ class TradingEngine:
         self._external_warned = set()
         self.news = None
         self.cfg = None
+        self._last_equity = None
+        self._cash_checked = 0.0
 
     async def apply_config(self, cfg):
         self.cfg = cfg
@@ -89,7 +92,7 @@ class TradingEngine:
         await self.db.account.replace_one({"_id": "main"}, {
             "_id": "main", "initial_balance": initial, "balance": initial,
             "peak_equity": initial, "max_drawdown": 0.0, "day": today(),
-            "day_start_equity": initial, "daily_paused": False, "created_at": now_iso(),
+            "day_start_equity": initial, "daily_paused": False, "created_at": now_iso(), "net_deposits": 0.0,
         }, upsert=True)
 
     async def get_settings(self) -> Settings:
@@ -126,7 +129,7 @@ class TradingEngine:
     async def reset_account(self, initial: float = None):
         initial = initial or INITIAL_BALANCE
         async with self.lock:
-            for col in ("positions", "trades", "signals", "equity", "shadow_positions", "shadow_trades"):
+            for col in ("positions", "trades", "signals", "equity", "shadow_positions", "shadow_trades", "cash_flows"):
                 await self.db[col].delete_many({})
             await self._new_account(initial)
         await self.log("INFO", f"Estadísticas reiniciadas · capital inicial ${initial:,.2f} USDT · modo {self.mode_label}")
@@ -170,8 +173,8 @@ class TradingEngine:
             "win_rate": round(st["wins"] / st["n"] * 100, 1) if st["n"] else 0,
             "realized_pnl": round(st["realized"], 2),
             "profit_factor": round(st["gw"] / abs(st["gl"]), 2) if st["gl"] else None,
-            "total_return_pct": round((equity - acc["initial_balance"]) / acc["initial_balance"] * 100, 2) if acc["initial_balance"] else 0,
-            "max_drawdown": round(acc["max_drawdown"], 2), "peak_equity": round(acc["peak_equity"], 2),
+            **cashflow.fields(acc, equity),
+            "max_drawdown": round(acc["max_drawdown"], 2),
             "open_positions": len(positions), "mode": self.mode_label, "exchange_error": self.exchange_error,
             "exchange_synced": bool(w),
         }
@@ -313,7 +316,11 @@ class TradingEngine:
 
     async def _update_account_metrics(self, settings: Settings):
         s = await self.account_summary()
+        if self.live and self.broker and await cashflow.poll(self, "bybit", force=cashflow.jumped(self._last_equity, s["equity"])):
+            s = await self.account_summary()
+        self._last_equity = s["equity"]
         acc = await self.db.account.find_one({"_id": "main"})
+        nd = float(acc.get("net_deposits") or 0.0)
         upd = {}
         if acc["day"] != today():
             upd.update(day=today(), day_start_equity=s["equity"], daily_paused=False)
@@ -330,13 +337,14 @@ class TradingEngine:
             upd["daily_paused"] = True
             await self.log("RISK", f"Límite de pérdida diaria ({settings.daily_loss_limit}%) alcanzado · nuevas entradas pausadas hasta mañana (UTC)")
             await tg(f"🛑 <b>Límite de pérdida diaria alcanzado</b> ({s['daily_pnl_pct']:+.2f}%). Nuevas entradas pausadas hasta mañana (UTC).", "orders")
-        peak = max(acc["peak_equity"], s["equity"])
-        dd = (peak - s["equity"]) / peak * 100 if peak else 0
+        adj = s["equity"] - nd
+        peak = max(acc["peak_equity"], adj)
+        dd = (peak - adj) / peak * 100 if peak > 0 else 0
         upd.update(peak_equity=peak, max_drawdown=max(acc["max_drawdown"], dd))
         await self.db.account.update_one({"_id": "main"}, {"$set": upd})
         if time.time() - self._last_snapshot >= 60:
             self._last_snapshot = time.time()
-            await self.db.equity.insert_one({"ts": now_iso(), "equity": s["equity"], "balance": s["balance"]})
+            await self.db.equity.insert_one({"ts": now_iso(), "equity": s["equity"], "balance": s["balance"], "net_deposits": round(nd, 2)})
 
     async def open_position(self, symbol: str, sig: dict, settings: Settings, signal_id: str, risk_factor: float = 1.0, risk_reason: str = "noticias"):
         risk_pct = settings.risk_per_trade * risk_factor

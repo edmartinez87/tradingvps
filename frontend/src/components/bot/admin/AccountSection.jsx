@@ -8,12 +8,14 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Panel } from "../Panel";
-import { http, errMsg, fmtUsd } from "@/lib/api";
+import { http, errMsg, fmtUsd, fmtSignedUsd, pnlClass } from "@/lib/api";
 import { Field, INPUT } from "./SecuritySection";
+import CashFlowsCard from "./CashFlowsCard";
 
 export default function AccountSection({ account, refresh, currency = "USDT" }) {
   const [initial, setInitial] = useState(account.initial_balance);
   const [loading, setLoading] = useState(false);
+  const live = account.mode === "REAL";
 
   const reset = async () => {
     setLoading(true);
@@ -29,12 +31,18 @@ export default function AccountSection({ account, refresh, currency = "USDT" }) 
   };
 
   return (
-    <Panel testId="account-section" title="Cuenta paper" icon={Wallet} bodyClass="p-4 space-y-3">
-      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-[#1E293B] bg-[#1E293B]">
-        {[["Capital inicial", fmtUsd(account.initial_balance, 0)], ["Equidad", fmtUsd(account.equity)], ["Operaciones", account.total_trades]].map(([l, v]) => (
-          <div key={l} className="bg-[#0D111A] px-3 py-2.5"><p className="font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">{l}</p><p className="num mt-1 text-sm font-semibold text-slate-100">{v}</p></div>
+    <Panel testId="account-section" title={live ? "Cuenta y aportes" : "Cuenta paper"} icon={Wallet} bodyClass="p-4 space-y-3">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[#1E293B] bg-[#1E293B] sm:grid-cols-4">
+        {[["Capital inicial", fmtUsd(account.initial_balance, 0), null, "account-initial"], ["Aportes netos", fmtSignedUsd(account.net_deposits ?? 0), account.net_deposits ?? 0, "account-net-deposits"],
+          ["Equidad", fmtUsd(account.equity), null, "account-equity"], ["Operaciones", account.total_trades, null, "account-trades"]].map(([l, v, tone, tid]) => (
+          <div key={l} data-testid={tid} className="bg-[#0D111A] px-3 py-2.5"><p className="font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">{l}</p><p className={`num mt-1 text-sm font-semibold ${tone != null && tone !== 0 ? pnlClass(tone) : "text-slate-100"}`}>{v}</p></div>
         ))}
       </div>
+      <p data-testid="account-return-note" className="text-[11px] text-slate-500">
+        Retorno total <span className={pnlClass(account.total_return_pct)}>{account.total_return_pct > 0 ? "+" : ""}{Number(account.total_return_pct).toFixed(2)}%</span> = PnL <span className={pnlClass(account.total_pnl ?? 0)}>{fmtSignedUsd(account.total_pnl ?? account.equity - account.initial_balance)}</span> sobre el capital aportado {fmtUsd(account.capital ?? account.initial_balance)} (inicial + aportes netos). Los depósitos y retiros no cuentan como ganancia ni pérdida.
+      </p>
+      <CashFlowsCard account={account} refresh={refresh} currency={currency} />
+      {!live && (
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[160px] flex-1">
           <Field label={`Nuevo capital inicial (${currency})`} hint="El plan de crecimiento usa este valor como punto de partida.">
@@ -59,6 +67,7 @@ export default function AccountSection({ account, refresh, currency = "USDT" }) 
           </AlertDialogContent>
         </AlertDialog>
       </div>
+      )}
     </Panel>
   );
 }

@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 API_KEY, API_SECRET = "mockkey", "mocksecret"
 EQUITY = 1000.0
-state = {"wallet": EQUITY, "positions": {}, "orders": {}, "closed": [], "leverage": {}, "prices": {}}
+state = {"wallet": EQUITY, "positions": {}, "orders": {}, "closed": [], "leverage": {}, "prices": {}, "translog": []}
 app = FastAPI()
 INSTRUMENTS = {"BTCUSDT": ("0.001", "0.001", "0.1"), "ETHUSDT": ("0.01", "0.01", "0.01"), "SOLUSDT": ("0.1", "0.1", "0.01"),
                "XRPUSDT": ("1", "1", "0.0001"), "AVAXUSDT": ("0.1", "0.1", "0.001"), "LINKUSDT": ("0.1", "0.1", "0.001")}
@@ -165,6 +165,23 @@ async def closed_pnl(symbol: str = None, startTime: int = None, limit: int = 20,
 
 
 # --- test helpers (not part of Bybit) ---
+@app.get("/v5/account/transaction-log")
+async def transaction_log(accountType: str = "UNIFIED", currency: str = None, startTime: int = None, endTime: int = None, limit: int = 20, cursor: str = None):
+    rows = [r for r in state["translog"] if (not startTime or int(r["transactionTime"]) >= startTime) and (not endTime or int(r["transactionTime"]) <= endTime)]
+    return ok({"list": list(reversed(rows))[:limit], "nextPageCursor": ""})
+
+
+@app.post("/mock/deposit")
+async def mock_deposit(amount: float):
+    """Simulates a transfer into (amount > 0) or out of (amount < 0) the unified wallet."""
+    state["wallet"] += amount
+    ts = int(time.time() * 1000)
+    state["translog"].append({"id": f"{ts}_TRANSFER", "symbol": "", "category": "", "side": "None", "transactionTime": str(ts),
+                              "type": "TRANSFER_IN" if amount > 0 else "TRANSFER_OUT", "currency": "USDT", "change": f"{amount:.4f}",
+                              "cashFlow": f"{amount:.4f}", "funding": "", "fee": "0", "cashBalance": f"{state['wallet']:.4f}"})
+    return {"ok": True, "wallet": state["wallet"]}
+
+
 @app.post("/mock/price/{symbol}")
 async def set_price(symbol: str, price: float):
     state["prices"][symbol] = price
@@ -188,7 +205,7 @@ async def mock_state():
 
 @app.post("/mock/reset")
 async def mock_reset():
-    state.update(wallet=EQUITY, positions={}, orders={}, closed=[], leverage={}, prices={})
+    state.update(wallet=EQUITY, positions={}, orders={}, closed=[], leverage={}, prices={}, translog=[])
     return {"ok": True}
 
 

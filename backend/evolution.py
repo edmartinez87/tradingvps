@@ -20,7 +20,7 @@ async def record(engine, source: str, changes: dict, summary: str = "", extra: d
         return None
     acc = await engine.account_summary()
     doc = {"ts": now_iso(), "source": source if source in SOURCES else "manual", "summary": (summary or "")[:600], "changes": changes,
-           "equity": acc["equity"], "total_trades": acc["total_trades"], "mode": acc["mode"], **(extra or {})}
+           "equity": acc["equity"], "net_deposits": acc.get("net_deposits", 0.0), "total_trades": acc["total_trades"], "mode": acc["mode"], **(extra or {})}
     await engine.db.changes.insert_one(doc)
     return doc
 
@@ -89,9 +89,11 @@ async def timeline(engine, limit: int = 40) -> dict:
         after = _agg([t for t in trades if ev["ts"] <= t["closed_at"] < end])
         before = _agg([t for t in trades if before_start <= t["closed_at"] < ev["ts"]])
         equity_end = events[i - 1]["equity"] if i > 0 else acc["equity"]
+        nd_end = (events[i - 1].get("net_deposits") or 0.0) if i > 0 else (acc.get("net_deposits") or 0.0)
+        delta = (equity_end - nd_end) - (ev["equity"] - (ev.get("net_deposits") or 0.0))
         out.append({**ev, "source_label": SOURCES.get(ev["source"], ev["source"]), "ai": ev["source"] in AI_SOURCES, "window_end": end,
                     "window_days": round(dur.total_seconds() / 86400, 1), "ongoing": i == 0, "after": after, "before": before,
-                    "equity_end": equity_end, "equity_delta_pct": round((equity_end - ev["equity"]) / ev["equity"] * 100, 2) if ev["equity"] else 0,
+                    "equity_end": equity_end, "equity_delta_pct": round(delta / ev["equity"] * 100, 2) if ev["equity"] else 0,
                     "verdict": verdict(before, after), "reverted_at": ev.get("reverted_at"), "revert_of": ev.get("revert_of"),
                     "revertible": not ev.get("reverted_at") and any(c.get("antes") is not None for c in ev["changes"].values())})
     verdicts = [e["verdict"] for e in out]

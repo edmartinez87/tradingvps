@@ -120,6 +120,10 @@ class MetaApi:
     async def deals_by_position(self, account_id: str, position_id: str, region: str = None) -> list:
         return await self._call("GET", f"{self._acc(account_id, region)}/history-deals/position/{position_id}") or []
 
+    async def deals_by_time(self, account_id: str, start_iso: str, end_iso: str, region: str = None, limit: int = 1000) -> list:
+        return await self._call("GET", f"{self._acc(account_id, region)}/history-deals/time/{quote(start_iso, safe='')}/{quote(end_iso, safe='')}",
+                                params={"limit": limit}) or []
+
     async def orders_by_position(self, account_id: str, position_id: str, region: str = None) -> list:
         return await self._call("GET", f"{self._acc(account_id, region)}/history-orders/position/{position_id}") or []
 

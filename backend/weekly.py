@@ -35,16 +35,18 @@ async def build_weekly(engine, db) -> dict:
     trades = await db.trades.find({"closed_at": {"$gte": since}}, {"_id": 0, "symbol": 1, "pnl": 1, "fees": 1, "strategy": 1, "reason": 1, "side": 1}).to_list(5000)
     shadows = await db.shadow_trades.find({"closed_at": {"$gte": since}}, {"_id": 0, "pnl": 1, "kind": 1}).to_list(5000)
     signals = {r["_id"]: r["n"] async for r in db.signals.aggregate([{"$match": {"created_at": {"$gte": since}}}, {"$group": {"_id": "$ai_decision", "n": {"$sum": 1}}}])}
-    snap = await db.equity.find_one({"ts": {"$lte": since}}, {"_id": 0, "equity": 1}, sort=[("ts", -1)]) \
-        or await db.equity.find_one({"ts": {"$gte": since}}, {"_id": 0, "equity": 1}, sort=[("ts", 1)])
+    snap = await db.equity.find_one({"ts": {"$lte": since}}, {"_id": 0, "equity": 1, "net_deposits": 1}, sort=[("ts", -1)]) \
+        or await db.equity.find_one({"ts": {"$gte": since}}, {"_id": 0, "equity": 1, "net_deposits": 1}, sort=[("ts", 1)])
     start_equity = snap["equity"] if snap else s["initial_balance"]
+    flows = s["net_deposits"] - (float(snap.get("net_deposits") or 0) if snap else 0.0)
+    week_pnl = s["equity"] - start_equity - flows
     by_symbol = _by(trades, "symbol")
     ai_shadow = [r for r in shadows if r["kind"] in AI_KINDS]
     checkin = await engine.checkin(settings, s)
     return {
         "from": since, "to": now_iso(), "mode": s["mode"],
-        "equity": s["equity"], "start_equity": round(start_equity, 2), "week_pnl": round(s["equity"] - start_equity, 2),
-        "week_return_pct": round((s["equity"] - start_equity) / start_equity * 100, 2) if start_equity else 0,
+        "equity": s["equity"], "start_equity": round(start_equity, 2), "week_pnl": round(week_pnl, 2), "week_flows": round(flows, 2),
+        "week_return_pct": round(week_pnl / start_equity * 100, 2) if start_equity else 0,
         "total_return_pct": s["total_return_pct"], "max_drawdown": s["max_drawdown"], "open_positions": s["open_positions"],
         "week": _agg(trades), "by_symbol": by_symbol, "by_strategy": _by(trades, "strategy"),
         "best": [r for r in by_symbol if r["pnl"] > 0][:3], "worst": [r for r in reversed(by_symbol) if r["pnl"] < 0][:3],
@@ -107,6 +109,8 @@ def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
         lines.append(f"{wk['trades']} operaciones · acierto {wk['win_rate']}% · PF {wk['profit_factor'] if wk['profit_factor'] is not None else '—'} · comisiones {wk['fees']:.2f} {currency}")
     else:
         lines.append("Sin operaciones cerradas esta semana.")
+    if w.get("week_flows"):
+        lines.append(f"💰 Aportes netos de la semana {w['week_flows']:+.2f} {currency} (excluidos del PnL)")
     if extra:
         lines.append(extra)
     if w["best"]:

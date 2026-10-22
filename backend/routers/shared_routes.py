@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 import notify
+import cashflow
 from auth import hash_password, verify_password, create_token
 from ai_advisor import ping as ai_ping, current as ai_current, friendly_error
 from deps import store
@@ -26,10 +27,32 @@ class AiTestRequest(BaseModel):
     gemini_api_key: Optional[str] = Field(default=None, max_length=200)
 
 
-def add_shared_routes(router, engine, label: str):
+class CashFlowRequest(BaseModel):
+    amount: float = Field(ge=-10_000_000, le=10_000_000)
+    note: str = Field(default="", max_length=120)
+
+
+def add_shared_routes(router, engine, label: str, currency: str = "USDT"):
     @router.get("/auth/me")
     async def auth_me():
         return {"ok": True}
+
+    @router.get("/account/cashflows")
+    async def cashflows():
+        acc = await engine.account_summary()
+        return {"net_deposits": acc["net_deposits"], "capital": acc["capital"], "total_pnl": acc["total_pnl"], "mode": acc["mode"],
+                "currency": currency, "items": await cashflow.history(engine)}
+
+    @router.post("/account/cashflow")
+    async def add_cashflow(body: CashFlowRequest):
+        if abs(body.amount) < 0.01:
+            raise HTTPException(422, "Indica un importe distinto de cero")
+        try:
+            flow = await cashflow.manual(engine, body.amount, body.note.strip(), currency)
+        except ValueError as e:
+            raise HTTPException(409 if engine.live else 422, str(e))
+        flow = {"id": str(flow.pop("_id")), **flow}
+        return {"flow": flow, "account": await engine.account_summary()}
 
     @router.post("/auth/password")
     async def change_password(body: PasswordChange):

@@ -160,3 +160,9 @@ class BybitClient:
         return [{"order_id": r.get("orderId"), "side": r.get("side"), "qty": f(r.get("qty")), "entry": f(r.get("avgEntryPrice")),
                  "exit": f(r.get("avgExitPrice")), "pnl": f(r.get("closedPnl")), "fee": f(r.get("openFee")) + f(r.get("closeFee")),
                  "time": int(r.get("updatedTime") or r.get("createdTime") or 0)} for r in res.get("list") or []]
+
+    async def transaction_log(self, start_ms: int, end_ms: int, cursor: str = None, limit: int = 50) -> dict:
+        """Unified-account transaction log (window ≤ 7 days). Returns {"list": [...], "cursor": next}."""
+        res = await self.call("GET", "/v5/account/transaction-log", {"accountType": "UNIFIED", "currency": "USDT", "startTime": start_ms,
+                                                                       "endTime": end_ms, "limit": limit, "cursor": cursor or None})
+        return {"list": res.get("list") or [], "cursor": res.get("nextPageCursor") or ""}

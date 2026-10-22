@@ -23,7 +23,8 @@ state = {}
 
 def reset():
     state.clear()
-    state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True, "connected": True})
+    state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True, "connected": True,
+                  "balance_deals": []})
 
 
 reset()
@@ -226,6 +227,15 @@ async def deals(acc_id: str, pid: str):
     return state["deals"].get(pid, [])
 
 
+@app.get("/users/current/accounts/{acc_id}/history-deals/time/{start}/{end}")
+async def deals_by_time(acc_id: str, start: str, end: str, limit: int = 1000):
+    if not state["connected"]:
+        return _not_connected()
+    rows = state["balance_deals"] + [d for ds in state["deals"].values() for d in ds]
+    rows = [d for d in rows if start <= d["time"].replace("+00:00", "Z") <= end]
+    return sorted(rows, key=lambda d: d["time"])[:limit]
+
+
 @app.get("/users/current/accounts/{acc_id}/history-orders/position/{pid}")
 async def orders(acc_id: str, pid: str):
     return []
@@ -252,6 +262,16 @@ async def force_close(pid: str, reason: str = "sl"):
 async def set_trade_allowed(allowed: bool = True):
     state["trade_allowed"] = allowed
     return {"ok": True, "trade_allowed": allowed}
+
+
+@app.post("/mock/deposit")
+async def mock_deposit(amount: float, comment: str = ""):
+    """Simulates a balance operation on the MT account (deposit > 0, withdrawal < 0) as a DEAL_TYPE_BALANCE deal."""
+    state["balance"] += amount
+    deal = {"id": nid(), "platform": "mt5", "type": "DEAL_TYPE_BALANCE", "entryType": "DEAL_ENTRY_IN", "time": now_iso(), "profit": amount,
+            "swap": 0.0, "commission": 0.0, "comment": comment or ("Deposit" if amount > 0 else "Withdrawal")}
+    state["balance_deals"].append(deal)
+    return {"ok": True, "balance": round(state["balance"], 2), "deal": deal}
 
 
 @app.post("/mock/connection")

@@ -10,6 +10,8 @@ from fx.symbols import SPECS
 
 logger = logging.getLogger("fx.live")
 _REASON_RE = re.compile(r"\[(sl|tp)\b", re.I)
+BALANCE_DEAL_TYPES = {"DEAL_TYPE_BALANCE", "DEAL_TYPE_CREDIT", "DEAL_TYPE_BONUS", "DEAL_TYPE_CORRECTION"}
+BALANCE_DEAL_LABELS = {"DEAL_TYPE_BALANCE": "depósito/retiro", "DEAL_TYPE_CREDIT": "crédito del bróker", "DEAL_TYPE_BONUS": "bono", "DEAL_TYPE_CORRECTION": "corrección"}
 
 
 def q_step(v: float, step: float) -> float:
@@ -137,3 +139,20 @@ class FxLiveBroker:
             if i < tries - 1:
                 await asyncio.sleep(1.0)
         return None
+
+    async def cash_flows(self, since_ms: int) -> list:
+        """Balance operations of the account (deposits, withdrawals, credits, corrections) since `since_ms`, oldest first."""
+        from datetime import datetime, timezone
+        start = datetime.fromtimestamp(since_ms / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
+        end = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        deals = await self.api.deals_by_time(self.account_id, start, end, self.region)
+        out = []
+        for d in deals:
+            if d.get("type") not in BALANCE_DEAL_TYPES:
+                continue
+            amount = float(d.get("profit") or 0)
+            if not amount:
+                continue
+            out.append({"id": f"hfm:{d.get('id')}", "amount": amount, "ts": str(d.get("time") or end).replace("Z", "+00:00"),
+                        "note": (d.get("comment") or d.get("brokerComment") or BALANCE_DEAL_LABELS.get(d.get("type"), "operación de balance"))[:80]})
+        return sorted(out, key=lambda x: x["ts"])

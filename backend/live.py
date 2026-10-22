@@ -5,6 +5,9 @@ import logging
 from bybit import BybitClient, BybitError, round_step
 
 logger = logging.getLogger("live")
+CASH_TYPES = {"TRANSFER_IN", "TRANSFER_OUT", "BONUS_TRANSFER_IN", "BONUS_TRANSFER_OUT", "AIRDROP", "BONUS", "BONUS_RECOLLECT"}
+CASH_LABELS = {"TRANSFER_IN": "transferencia entrante", "TRANSFER_OUT": "transferencia saliente", "BONUS_TRANSFER_IN": "bono recibido",
+               "BONUS_TRANSFER_OUT": "bono retirado", "AIRDROP": "airdrop", "BONUS": "bono", "BONUS_RECOLLECT": "bono expirado"}
 
 
 class LiveBroker:
@@ -83,3 +86,25 @@ class LiveBroker:
             match = [r for r in rows if r["side"] == close_side and (qty is None or abs(r["qty"] - qty) < 1e-9)]
             rows = match or rows
         return max(rows, key=lambda r: r["time"]) if rows else None
+
+    async def cash_flows(self, since_ms: int, pages: int = 5) -> list:
+        """Transfers in/out of the unified wallet (deposits, withdrawals, bonuses, airdrops) since `since_ms`, oldest first."""
+        from datetime import datetime, timezone
+        end_ms = int(time.time() * 1000)
+        start_ms = max(int(since_ms), end_ms - 7 * 86_400_000 + 60_000)
+        out, cursor = [], None
+        for _ in range(pages):
+            page = await self.client.transaction_log(start_ms, end_ms, cursor)
+            for r in page["list"]:
+                if r.get("type") not in CASH_TYPES or (r.get("currency") or "USDT") != "USDT":
+                    continue
+                amount = float(r.get("change") or r.get("cashFlow") or 0)
+                if not amount:
+                    continue
+                ts_ms = int(r.get("transactionTime") or end_ms)
+                out.append({"id": f"bybit:{r.get('id')}:{r.get('type')}:{ts_ms}:{amount}", "amount": amount,
+                            "ts": datetime.fromtimestamp(ts_ms / 1000, timezone.utc).isoformat(), "note": CASH_LABELS.get(r.get("type"), r.get("type"))})
+            cursor = page["cursor"]
+            if not cursor:
+                break
+        return sorted(out, key=lambda x: x["ts"])

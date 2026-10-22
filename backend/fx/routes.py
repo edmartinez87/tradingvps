@@ -36,7 +36,7 @@ import wfcheck
 logger = logging.getLogger(__name__)
 router = protected_router()
 router.prefix = "/api/fx"
-add_shared_routes(router, engine, "HotForex AI Trading")
+add_shared_routes(router, engine, "HotForex AI Trading", "USD")
 SESSION_LIST = [{"id": s[0], "name": s[1]} for s in SESSIONS]
 
 
