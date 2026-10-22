@@ -139,7 +139,7 @@ export function buildHowTo(bot) {
       steps: [
         "Pulsa el botón «Instalar en tu VPS» de la cabecera: descarga un zip con la app completa (sin tus claves ni datos) y sigue la guía detallada con los comandos listos para copiar. La misma guía viaja dentro del zip en deploy/INSTALACION.md.",
         "Carpeta deploy/: `install.sh` instala Docker, genera secretos y contraseña, construye los contenedores (Mongo + backend + web con HTTPS automático si usas dominio) y programa los crons: revisión IA 08:00 UTC, walk-forward lunes 07:00, resumen semanal domingos 20:00 y copia de seguridad 03:00.",
-        "`update-zip.sh archivo.zip` actualiza a una versión nueva descargada del panel (conserva claves, copias y base de datos); `backup.sh` crea una copia ahora (`--telegram` para enviarla); `restore.sh archivo.json.gz` restaura una copia; `reset-password.sh` cambia la contraseña si la olvidas.",
+        "`update-zip.sh archivo.zip` actualiza a una versión nueva descargada del panel (conserva claves, copias y base de datos); `backup.sh` crea una copia ahora (`--telegram` para enviarla); `restore.sh archivo.json.gz` restaura una copia; `reset-password.sh` cambia la contraseña si la olvidas; `clean-disk.sh` libera espacio (caché de compilación de Docker, imágenes huérfanas, journald).",
         "Las copias se guardan en deploy/backups/ (14 días) y también puedes descargarlas desde Ajustes → Copias de seguridad. Guarda a buen recaudo la CREDENTIAL_ENCRYPTION_KEY de backend.env: sin ella no se pueden leer las API keys de una copia.",
       ],
     },

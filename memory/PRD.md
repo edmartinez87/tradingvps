@@ -230,6 +230,13 @@
 - Mock `scripts/metaapi_mock.py` (aditivo): guarda `reliability`, `POST …/undeploy`, `DELETE /users/current/accounts/{id}`.
 - Tested iteration_32: `tests/test_iter32_metaapi_plans.py` 10/10 (planes/plan_key, config expone planes y precios, plan inválido 422, link como G1 regular crea type/reliability correctos en el mock, guardar mismos valores conserva el vínculo, cambio de plan marca mismatch en config/test/link/mode (sin recrear), recreate 409 con bot en marcha, recreate borra+crea G2 (1 sola cuenta en el mock, log), test conexión guarda plan, clear limpia); regresión `test_iter18_fx_live.py` 11/11; frontend 100 % (testing_agent `iteration_30.json`: 7 escenarios incl. recrear, probar conexión, cambio guardado → mismatch reaparece sin desvincular, vincular/símbolos). Nota: «Pasar a modo real» no se bloquea por desajuste de tipo (solo aviso), intencionado.
 
+## Implemented (2026-06, iteration 33 · blindaje de disco del VPS)
+- Diagnóstico del VPS del usuario (22 GB al 58 %): la app no genera archivos relevantes (Mongo < 5 MB, copias de KB); el consumo era caché de compilación de Docker (3,7 GB recuperables) + swap 2,4 GB + imágenes 2,3 GB + sistema.
+- `docker-compose.yml`: ancla `x-logging` con rotación json-file 3×10 MB aplicada a mongo/backend/web. `update.sh` y `update-zip.sh`: `docker builder prune -af --filter "until=24h"` tras cada rebuild. `install.sh` [6/6]: límite de journald (`/etc/systemd/journald.conf.d/ai-trader.conf`, SystemMaxUse=200M) + prune de caché; chmod del script nuevo.
+- Nuevo `deploy/clean-disk.sh` (`--all` borra toda la caché): muestra antes/después, tamaño de Mongo/copias/logs de contenedores, limpia caché de compilación no usada en 24 h, imágenes/contenedores huérfanos, aplica el límite de journald (idempotente), `journalctl --vacuum-size=200M`, `apt-get clean`. Probado en sandbox con `docker` falso.
+- Docs: INSTALACION.md (comandos, mantenimiento, problemas frecuentes), README, guía UI «Instalar en tu VPS» (comando + problema frecuente + paso seguridad) y «Cómo usar» → VPS. `test_iter31_vps_package.py` ampliado (rotación de logs en todos los servicios, prune en scripts de update, clean-disk en zip/guía) 12/12.
+- Instrucciones dadas al usuario (instalación git en `/root/cryptobot`): `docker builder prune -af` inmediato; Save to GitHub → `bash update.sh` → `bash clean-disk.sh`.
+
 ## Fase 2 HotForex (pendiente)
 - P0: Prueba operativa del usuario con token real de MetaApi + cuenta demo HFM (MT4/MT5). Pendiente de que el usuario provea credenciales.
 

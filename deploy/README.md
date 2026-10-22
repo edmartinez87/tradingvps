@@ -31,6 +31,7 @@ y copia de seguridad nocturna de MongoDB (03:00 UTC, los domingos también por T
 | `./update.sh` | traer la última versión y reconstruir (instalación con git) |
 | `bash update-zip.sh /root/ai-trader-NUEVO.zip` | actualizar con un zip nuevo descargado del panel (conserva .env, backend.env, backups/ y la base de datos) |
 | `bash reset-password.sh` | poner una contraseña nueva al panel si la olvidaste |
+| `bash clean-disk.sh` | liberar espacio: caché de compilación de Docker, imágenes huérfanas, journald (`--all` = toda la caché) |
 | `bash cron-ai-review.sh` | disparar la revisión IA manualmente (Bybit y HotForex) |
 | `bash cron-walk-forward.sh` | revalidar ahora con walk-forward los pares con SL/TP optimizados (Bybit y HotForex) |
 | `bash cron-weekly-summary.sh` | enviar ahora el resumen semanal por Telegram (Bybit y HotForex) |

@@ -80,6 +80,7 @@ export const STEPS = [
       "El backend solo escucha en 127.0.0.1:8001 dentro del VPS; el único acceso público es el panel por 80/443, protegido por contraseña, JWT y bloqueo tras 5 intentos fallidos.",
       "Mantén el sistema al día (apt-get update && apt-get upgrade -y). Tras un reinicio no hay que hacer nada: arranque automático.",
       "Las copias nocturnas se guardan 14 días en deploy/backups/ (los domingos también por Telegram). Descárgalas de vez en cuando a tu ordenador.",
+      "Disco: la app apenas escribe; lo que crece es la caché de compilación de Docker en cada actualización. update.sh/update-zip.sh la limpian solos, los logs de contenedores están limitados (3×10 MB) y journald a 200 MB. Si aun así sube: bash clean-disk.sh.",
       "Si usas firewall propio, deja abiertos 22 (SSH), 80 y 443.",
     ],
   },
@@ -93,6 +94,7 @@ export const COMMANDS = [
   ["bash backup.sh", "copia de seguridad ahora en backups/ (--telegram para enviarla también)"],
   ["bash restore.sh backups/<archivo>.json.gz", "restaurar una copia desde la terminal"],
   ["bash reset-password.sh", "poner una contraseña nueva si la olvidaste"],
+  ["bash clean-disk.sh", "liberar espacio en disco (caché de Docker, imágenes huérfanas, journald)"],
   ["bash cron-ai-review.sh", "lanzar ahora la revisión IA de ambos bots"],
   ["bash update-zip.sh /root/ai-trader-NUEVO.zip", "actualizar a una versión nueva"],
 ];
@@ -106,5 +108,5 @@ export const TROUBLE = [
   ["Yahoo Finance «429 Too Many Requests» (HotForex)", "Límite temporal de Yahoo; el bot reintenta solo. No requiere acción."],
   ["Olvidé la contraseña del panel", "En el VPS: cd /root/ai-trader/deploy && bash reset-password.sh."],
   ["Quiero empezar de cero", "docker compose down -v borra también la base de datos (y las claves guardadas). Luego docker compose up -d."],
-  ["Poco espacio en disco", "docker image prune -af borra imágenes antiguas; revisa el tamaño de deploy/backups/."],
+  ["Poco espacio en disco", "La app apenas escribe (base de datos de pocos MB). Lo que crece es la caché de compilación de Docker tras cada actualización: ejecuta bash clean-disk.sh en deploy/ (o docker builder prune -af). Los logs de contenedores ya están limitados a 3×10 MB y journald a 200 MB."],
 ];

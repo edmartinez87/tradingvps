@@ -30,6 +30,7 @@ main() {
   echo "==> Reconstruyendo contenedores (2-10 min)"
   docker compose up -d --build
   docker image prune -f >/dev/null
+  docker builder prune -af --filter "until=24h" >/dev/null 2>&1 || true
   echo "Actualizado. Logs: docker compose logs -f backend"
 }
 

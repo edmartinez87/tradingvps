@@ -69,7 +69,7 @@ class TestPackageBuilder:
         assert all(n.startswith("ai-trader/") for n in names)
         for must in ("ai-trader/backend/server.py", "ai-trader/backend/deploy_pkg.py", "ai-trader/frontend/package.json", "ai-trader/frontend/src/App.js",
                      "ai-trader/deploy/install.sh", "ai-trader/deploy/docker-compose.yml", "ai-trader/deploy/INSTALACION.md", "ai-trader/deploy/update-zip.sh",
-                     "ai-trader/deploy/reset-password.sh", "ai-trader/deploy/frontend.yarn.lock", "ai-trader/scripts/bybit_mock.py", "ai-trader/.dockerignore",
+                     "ai-trader/deploy/reset-password.sh", "ai-trader/deploy/clean-disk.sh", "ai-trader/deploy/frontend.yarn.lock", "ai-trader/scripts/bybit_mock.py", "ai-trader/.dockerignore",
                      "ai-trader/VERSION", "ai-trader/README.md"):
             assert must in names, must
         leaks = [n for n in names if n.endswith("/.env") or n.endswith("backend.env") or "/node_modules/" in n or "/__pycache__/" in n
@@ -121,18 +121,23 @@ class TestDeployApi:
 
 class TestDeployScripts:
     def test_scripts_syntax_and_flags(self):
-        for f in ("install.sh", "update.sh", "update-zip.sh", "reset-password.sh", "backup.sh", "restore.sh"):
+        for f in ("install.sh", "update.sh", "update-zip.sh", "reset-password.sh", "backup.sh", "restore.sh", "clean-disk.sh"):
             p = ROOT / "deploy" / f
             assert os.access(p, os.X_OK), f
             subprocess.run(["bash", "-n", str(p)], check=True)
         install = (ROOT / "deploy" / "install.sh").read_text()
-        assert "update-zip.sh reset-password.sh" in install
+        assert "update-zip.sh reset-password.sh clean-disk.sh" in install and "SystemMaxUse=200M" in install
         compose = (ROOT / "deploy" / "docker-compose.yml").read_text()
         assert "APP_SOURCE_DIR=/src" in compose and "..:/src:ro" in compose
+        import yaml
+        services = yaml.safe_load(compose)["services"]
+        assert all(v["logging"]["options"] == {"max-size": "10m", "max-file": "3"} for v in services.values()), "log rotation on every service"
+        for f in ("update.sh", "update-zip.sh"):
+            assert 'docker builder prune -af --filter "until=24h"' in (ROOT / "deploy" / f).read_text(), f
         update = (ROOT / "deploy" / "update.sh").read_text()
         assert "../.git" in update and "update-zip.sh" in update
         guide = (ROOT / "deploy" / "INSTALACION.md").read_text()
-        for must in ("install.sh", "update-zip.sh", "reset-password.sh", "scp ai-trader-*.zip", "unzip", "CREDENTIAL_ENCRYPTION_KEY", "RESTAURAR"):
+        for must in ("install.sh", "update-zip.sh", "reset-password.sh", "clean-disk.sh", "scp ai-trader-*.zip", "unzip", "CREDENTIAL_ENCRYPTION_KEY", "RESTAURAR"):
             assert must in guide, must
 
     def test_update_zip_preserves_secrets_and_replaces_code(self, tmp_path):

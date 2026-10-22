@@ -1,7 +1,15 @@
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   mongo:
     image: ${MONGO_IMAGE:-mongo:7}
     restart: unless-stopped
+    <<: *logging
     volumes:
       - mongo_data:/data/db
 
@@ -10,6 +18,7 @@ services:
       context: ..
       dockerfile: deploy/backend.Dockerfile
     restart: unless-stopped
+    <<: *logging
     env_file: backend.env
     environment:
       - BACKUP_DIR=/data/backups
@@ -27,6 +36,7 @@ services:
       context: ..
       dockerfile: deploy/frontend.Dockerfile
     restart: unless-stopped
+    <<: *logging
     environment:
       - SITE_ADDRESS=${SITE_ADDRESS:-:80}
     ports:
