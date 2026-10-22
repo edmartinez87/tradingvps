@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only E2E (Playwright, 1920x1080) for the iter27 backup/restore feature and weekly-summary Evolución text, on both bots. Everything requested works: the Backup section shows in Ajustes of Bybit and HotForex. 'Crear copia ahora' shows the toast, updates the last copy and adds a row to the list. 'Descargar última' downloads a real gzip file with the right name. While Bybit is running, the amber note and the dialog warning appear and Restaurar stays disabled even after typing RESTAURAR; Cancelar closes the dialog. With both bots stopped, restoring a local file (chunked upload + progress bar) and restoring a stored copy both succeeded ('Copia restaurada · 1611 documentos …'). After each restore the page reloaded and stayed logged in on /bybit. The weekly description mentions evolución in both bots and Vista previa loads without error. Regression: the Bybit panel and the Evolución tab load after the restore. Final state: Bybit restarted (BOT EN EJECUCIÓN), HotForex stopped.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Ajustes > Copias de seguridad (Bybit, right column bottom)", "issues": ["The sonner toast (bottom-right) briefly covers the Descargar/Restaurar buttons of the backup-list rows right after creating a copy. Cosmetic, goes away when the toast closes."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: the weekly preview had no 'Evolución' block in this test because there were 0 config changes this week (_evolution_lines returns [] when empty, which looks intentional). Consider a one-line 'Evolución: sin cambios esta semana' so users know the section exists.",
+    "Optional: backup 'last' metadata in the DB can point to a file that no longer exists on disk (seen before testing: last=043134 not in the list). The UI handles this fine because it shows backups[0]."
+  ],
+  "critical_code_review_comments": [
+    "RestoreBackupDialog accepts the confirm word without regard to case ('restaurar' enables the button and the backend accepts it). Fine, just noting it is intentional.",
+    "BackupSection.restore: if a chunk upload fails partway, the server keeps the partial upload under that upload_id. Make sure the backend cleans up abandoned uploads (TTL or cleanup step)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "100%"},
+  "seed_data_creation": "Made 3 backups during testing (043408, 043436, 043539) and deleted them afterwards; only the original test_database-2026-10-22_042802.json.gz is left in /app/backend/backups/. Both restores used the copy made right after stopping Bybit (043436), so the data was the same.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Panel password BlackCat2233@ (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Backup testids: backup-section, backup-last(-name), backup-create-button, backup-download-last, backup-pick-file, backup-file-input (hidden, set_input_files works), backup-file-selected, backup-file-restore, backup-list, backup-row-/backup-restore-/backup-download-<filename>, backup-restore-dialog/-confirm-input/-confirm/-cancel/-progress/-running-warning, backup-running-note. Bot toggle: bot-toggle-button (text INICIAR BOT/DETENER BOT). Bybit Evolución tab: tab-evolution; FX: fx-tab-evolution. Bybit must be left RUNNING and HotForex STOPPED."
+}
