@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 28 FRONTEND test of 'Depósitos sin distorsión' + Ajustes → Cuenta paper → Depositar / Retirar card on HotForex and Bybit (Playwright, 1920x1080). All requested flows PASS: 4-cell grid (account-initial $500, account-net-deposits $0.00, account-equity, account-trades), account-return-note text, cashflows-card title 'Depositar / Retirar', buttons disabled until amount>0, cashflows-empty text. HF deposit 200 'prueba QA' → toast 'Depósito registrado +$200.00 · aportes netos +$200.00', net-deposits +$200.00 (text-emerald-400), equity $500→$700, list row '22/10, 05:13 | +$200.00 | Depósito · cuenta paper · prueba QA', inputs cleared, return note capital $700. Panel: kpi-equity sub 'Retorno 0.00% · aportes +$200', title contains 'capital aportado' ('PnL total $0.00 sobre el capital aportado $700.00 (inicial $500.00 + aportes netos +$200.00)...'), kpi-daily stayed $0.00, drawdown 0.00%. Withdraw 999999 → error toast 'El retiro supera el disponible de la cuenta paper (700.00 USD)', list unchanged. Withdraw 200 → 'Retiro registrado -$200.00 · aportes netos +$0.00', nd back to $0.00, newest row '-$200.00 | Retiro · cuenta paper'. Bybit: card present, deposit 50 → toast OK, equity 501.42→551.42, kpi-equity 'aportes +$50', kpi-daily stayed +$1.42; withdraw 50 → 'Retiro registrado -$50.00 · aportes netos $0.00'. Isolation verified both ways (HF list has no 'QA bybit', Bybit list has no 'prueba QA'). Regression: account-reset-button present (not clicked), backup-section loads. No page errors in clean run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Panel KPI 'PnL diario'", "issues": ["Minor/observation: the daily PnL $ is unaffected by a deposit (correct), but the % changes (Bybit +0.28% → +0.26% after +$50) because it's divided by current equity incl. the deposit. Acceptable, but could use start-of-day equity + net flows of the day if exact % stability is desired."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "None blocking. Optional: decide whether daily PnL % should be computed on (start-of-day equity + today's deposits) so it doesn't shift on deposit.",
+    "Clean up QA cashflow rows: HotForex has 4 rows (+200 'prueba QA', -200, -200, +200 'QA restore'), Bybit has 2 rows (+50 'QA bybit', -50). Net deposits are $0.00 on both."
+  ],
+  "critical_code_review_comments": [
+    "Withdrawals are allowed to take net_deposits negative (withdrawing part of the initial capital, e.g. HF reached -$200.00 shown in rose). Seems intended (limit is 'disponible'), just confirm it's desired.",
+    "CashFlowsCard reloads history only when account.net_deposits changes (useEffect dep); a deposit+withdraw sequence producing the same net value between refreshes still triggers load() from submit, so fine."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "100%"},
+  "seed_data_creation": "Test cashflows only (listed in action_items). An extra HF withdraw -200 happened because my first script's withdrawal succeeded and was re-run; compensated with an API deposit +200 'QA restore' (POST /api/fx/account/cashflow). Both bots' net_deposits = 0.00. Bot states untouched (Bybit running, HotForex stopped). Reset button not clicked.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Cashflow testids: account-section, account-initial/-net-deposits/-equity/-trades, account-return-note, cashflows-card, cashflow-amount-input, cashflow-note-input, cashflow-deposit-button, cashflow-withdraw-button, cashflows-list, cashflow-row-<id>, cashflows-empty. Settings toggle: settings-view-button ('Ajustes'/'Volver al panel'). Bot cards on selector: bot-card-crypto, bot-card-fx. FX API base /api/fx. Do NOT remove sonner toast DOM nodes via JS in Playwright — it corrupts React (insertBefore runtime error); match toasts with locator('[data-sonner-toast]', has_text=...)."
+}
