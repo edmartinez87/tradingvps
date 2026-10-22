@@ -34,7 +34,7 @@ class FxConfig(BaseModel):
     hfm_verified_equity: Optional[float] = None
     hfm_currency: str = ""
     hfm_leverage: Optional[int] = None
-    hfm_alert_after_sec: int = 60
+    hfm_alert_after_sec: int = 180
     news_enabled: bool = True
     news_interval_min: int = 15
     news_countries: List[str] = list(CURRENCIES)

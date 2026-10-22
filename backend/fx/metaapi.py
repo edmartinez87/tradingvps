@@ -24,14 +24,49 @@ def plan_key(acc_type: str, reliability: str) -> str:
     t = "cloud-g2" if (acc_type or "") in ("cloud", "cloud-g2") else "cloud-g1"
     r = "regular" if (reliability or "high") == "regular" and t == "cloud-g1" else "high"
     return next(k for k, p in PLANS.items() if p["type"] == t and p["reliability"] == r)
-OK_CODES = {"TRADE_RETCODE_DONE", "TRADE_RETCODE_PLACED", "TRADE_RETCODE_DONE_PARTIAL"}
+OK_CODES = {"TRADE_RETCODE_DONE", "TRADE_RETCODE_PLACED", "TRADE_RETCODE_DONE_PARTIAL", "TRADE_RETCODE_NO_CHANGES", "ERR_NO_ERROR"}
+# Result unknown (MetaApi docs): the request may have reached the broker → verify by clientId before retrying.
+UNKNOWN_CODES = {"TRADE_RETCODE_DISCONNECTED_DURING_TRADE", "ERR_TRADE_TIMED_OUT", "ERR_TRADE_TIMEOUT", "ERR_NO_RESULT", "TRADE_RETCODE_TIMEOUT"}
+# Failed for sure but transient (terminal/broker connection, quotes, busy) → safe to retry after a short wait.
+TRANSIENT_CODES = {"TRADE_RETCODE_DISCONNECTED_BEFORE_TRADE", "ERR_NOT_SYNCHRONIZED", "ERR_NO_QUOTES", "TRADE_RETCODE_CONNECTION", "TRADE_RETCODE_PRICE_OFF",
+                   "TRADE_RETCODE_REQUOTE", "TRADE_RETCODE_PRICE_CHANGED", "TRADE_RETCODE_TOO_MANY_REQUESTS", "TRADE_RETCODE_LOCKED", "TRADE_RETCODE_ERROR",
+                   "ERR_NO_CONNECTION", "ERR_SERVER_BUSY", "ERR_TOO_FREQUENT_REQUESTS", "ERR_OFF_QUOTES", "ERR_BROKER_BUSY", "ERR_REQUOTE", "ERR_PRICE_CHANGED",
+                   "ERR_TRADE_CONTEXT_BUSY", "ERR_TOO_MANY_REQUESTS", "ERR_COMMON_ERROR"}
 RETCODE_TXT = {
     "TRADE_RETCODE_REQUOTE": "recotización del precio", "TRADE_RETCODE_REJECT": "orden rechazada por el bróker", "TRADE_RETCODE_CANCEL": "orden cancelada",
     "TRADE_RETCODE_INVALID": "petición inválida", "TRADE_RETCODE_INVALID_VOLUME": "volumen inválido (lote mínimo/paso)", "TRADE_RETCODE_INVALID_PRICE": "precio inválido",
     "TRADE_RETCODE_INVALID_STOPS": "SL/TP demasiado cerca del precio (stops inválidos)", "TRADE_RETCODE_MARKET_CLOSED": "mercado cerrado",
     "TRADE_RETCODE_NO_MONEY": "margen insuficiente", "TRADE_RETCODE_PRICE_CHANGED": "el precio cambió", "TRADE_RETCODE_TOO_MANY_REQUESTS": "demasiadas peticiones",
     "TRADE_RETCODE_TRADE_DISABLED": "trading deshabilitado en la cuenta", "TRADE_RETCODE_POSITION_CLOSED": "la posición ya estaba cerrada",
+    "TRADE_RETCODE_DISCONNECTED_BEFORE_TRADE": "terminal sin conexión con el servidor de HFM (la orden no llegó al bróker)",
+    "TRADE_RETCODE_DISCONNECTED_DURING_TRADE": "la conexión con HFM se cortó durante la orden (resultado desconocido)",
+    "ERR_TRADE_TIMED_OUT": "la orden expiró sin respuesta del bróker (resultado desconocido)", "ERR_TRADE_TIMEOUT": "la orden expiró sin respuesta del bróker",
+    "TRADE_RETCODE_TIMEOUT": "petición cancelada por tiempo de espera", "ERR_NOT_SYNCHRONIZED": "el terminal aún está sincronizando con HFM",
+    "ERR_NO_QUOTES": "sin cotizaciones del bróker", "TRADE_RETCODE_CONNECTION": "sin conexión con el servidor de HFM", "TRADE_RETCODE_PRICE_OFF": "sin precios para procesar la orden",
+    "TRADE_RETCODE_LOCKED": "petición bloqueada en procesamiento", "TRADE_RETCODE_ERROR": "error de procesamiento en el bróker", "ERR_NO_CONNECTION": "sin conexión con el servidor de HFM",
+    "ERR_SERVER_BUSY": "servidor del bróker ocupado", "ERR_OFF_QUOTES": "fuera de cotización", "ERR_BROKER_BUSY": "bróker ocupado", "ERR_TRADE_CONTEXT_BUSY": "terminal ocupado",
+    "ERR_INVESTOR": "contraseña investor: no permite operar", "ERR_MARKET_UNKNOWN_SYMBOL": "símbolo desconocido en HFM (revisa el sufijo)",
+    "TRADE_RETCODE_FROZEN": "orden/posición congelada por el bróker", "TRADE_RETCODE_INVALID_FILL": "modo de llenado no permitido", "TRADE_RETCODE_LIMIT_VOLUME": "volumen máximo por símbolo alcanzado",
+    "TRADE_RETCODE_LIMIT_POSITIONS": "número máximo de posiciones alcanzado", "TRADE_RETCODE_SERVER_DISABLES_AT": "trading automático deshabilitado por el servidor",
+    "TRADE_RETCODE_CLIENT_DISABLES_AT": "trading automático deshabilitado en el terminal", "TRADE_RETCODE_ONLY_REAL": "operación solo permitida en cuentas reales",
 }
+RETRY_HTTP = {502, 503, 504}
+RETRY_DELAYS = (1.0, 2.0, 4.0)
+
+
+def _retry_after(r: "httpx.Response") -> float:
+    """Seconds to wait after a 429: MetaApi puts `metadata.recommendedRetryTime` in the body (Retry-After header as fallback)."""
+    try:
+        t = (r.json().get("metadata") or {}).get("recommendedRetryTime")
+        if t:
+            from datetime import datetime, timezone
+            return max(0.5, min(30.0, (datetime.fromisoformat(t.replace("Z", "+00:00")) - datetime.now(timezone.utc)).total_seconds()))
+    except (ValueError, AttributeError):
+        pass
+    try:
+        return max(0.5, min(30.0, float(r.headers.get("Retry-After") or 2)))
+    except ValueError:
+        return 2.0
 
 
 def client_base(region: str) -> str:
@@ -39,15 +74,18 @@ def client_base(region: str) -> str:
 
 
 class MetaApiError(Exception):
-    def __init__(self, status: int, msg: str, code: str = ""):
+    """kind: 'rejected' (definitive), 'transient' (failed for sure, retry later) or 'unknown' (may have executed: verify by clientId)."""
+    def __init__(self, status: int, msg: str, code: str = "", kind: str = "rejected", retry_after: float = None):
         super().__init__(msg)
-        self.status, self.msg, self.code = status, msg, code
+        self.status, self.msg, self.code, self.kind, self.retry_after = status, msg, code, kind, retry_after
+        self.attempts = 1
 
 
 class MetaApi:
-    def __init__(self, token: str, region: str = "new-york", base_url: str = ""):
+    def __init__(self, token: str, region: str = "new-york", base_url: str = "", read_timeout: float = 20.0, trade_timeout: float = 90.0):
         self.token, self.region, self.base_url = token, region, (base_url or "").rstrip("/")
-        self.client = httpx.AsyncClient(timeout=httpx.Timeout(25.0, connect=8.0))
+        self.read_timeout, self.trade_timeout = read_timeout, trade_timeout
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(read_timeout, connect=8.0))
         self._specs = {}
 
     def _prov(self) -> str:
@@ -56,20 +94,46 @@ class MetaApi:
     def _cli(self, region: str = None) -> str:
         return self.base_url or client_base(region or self.region)
 
-    async def _call(self, method: str, url: str, json: dict = None, tx: str = None, params: dict = None):
+    async def _call(self, method: str, url: str, json: dict = None, tx: str = None, params: dict = None, trade: bool = False):
+        """Idempotent calls (GET / provisioning) retry transient failures (network, 429, 5xx) with backoff; a trade request is sent once and a
+        network failure is reported as kind='unknown' because MetaApi may still have executed it."""
         headers = {"auth-token": self.token, "Accept": "application/json"}
         if json is not None:
             headers["Content-Type"] = "application/json"
         if tx:
             headers["transaction-id"] = tx
-        try:
-            r = await self.client.request(method, url, headers=headers, json=json, params=params)
-        except httpx.HTTPError as e:
-            raise MetaApiError(0, f"MetaApi no responde: {str(e)[:120] or type(e).__name__}")
+        attempt = 0
+        while True:
+            try:
+                r = await self.client.request(method, url, headers=headers, json=json, params=params,
+                                              timeout=httpx.Timeout(self.trade_timeout if trade else self.read_timeout, connect=8.0))
+            except httpx.HTTPError as e:
+                err = MetaApiError(0, f"MetaApi no responde: {type(e).__name__}{(' · ' + str(e)[:80]) if str(e) else ''}", kind="unknown" if trade else "transient")
+            else:
+                if r.status_code == 429:
+                    wait = _retry_after(r)
+                    err = MetaApiError(429, f"MetaApi: límite de peticiones alcanzado (reintento en {wait:.0f} s)", kind="transient", retry_after=wait)
+                    if trade:
+                        raise err
+                    if attempt < len(RETRY_DELAYS):
+                        await asyncio.sleep(min(wait, 10.0))
+                        attempt += 1
+                        continue
+                    raise err
+                elif r.status_code in RETRY_HTTP:
+                    err = MetaApiError(r.status_code, f"MetaApi {r.status_code}: servicio temporalmente no disponible", kind="unknown" if trade else "transient")
+                else:
+                    return self._parse(r)
+            if trade or attempt >= len(RETRY_DELAYS):
+                err.attempts = attempt + 1
+                raise err
+            await asyncio.sleep(RETRY_DELAYS[attempt])
+            attempt += 1
+
+    @staticmethod
+    def _parse(r: "httpx.Response"):
         if r.status_code == 401:
             raise MetaApiError(401, "MetaApi rechazó el token (401): revisa el token en app.metaapi.cloud/token")
-        if r.status_code == 429:
-            raise MetaApiError(429, "MetaApi: límite de peticiones alcanzado, inténtalo en unos segundos")
         if r.status_code == 202:
             return {"_retry": True, "retry_after": int(r.headers.get("Retry-After") or 3)}
         if r.status_code >= 400:
@@ -78,7 +142,8 @@ class MetaApi:
                 msg = detail.get("message") or detail.get("error") or str(detail)
             except ValueError:
                 msg = r.text[:300]
-            raise MetaApiError(r.status_code, f"MetaApi {r.status_code}: {str(msg)[:300]}")
+            kind = "transient" if r.status_code == 404 and "NotSynchronized" in r.text else "rejected"
+            raise MetaApiError(r.status_code, f"MetaApi {r.status_code}: {str(msg)[:300]}", kind=kind)
         return None if r.status_code == 204 or not r.content else r.json()
 
     # ---------- provisioning ----------
@@ -150,13 +215,37 @@ class MetaApi:
     async def orders_by_position(self, account_id: str, position_id: str, region: str = None) -> list:
         return await self._call("GET", f"{self._acc(account_id, region)}/history-orders/position/{position_id}") or []
 
+    async def orders_by_time(self, account_id: str, start_iso: str, end_iso: str, region: str = None, limit: int = 200) -> list:
+        return await self._call("GET", f"{self._acc(account_id, region)}/history-orders/time/{quote(start_iso, safe='')}/{quote(end_iso, safe='')}",
+                                params={"limit": limit}) or []
+
+    async def find_position_by_client_id(self, account_id: str, client_id: str, region: str = None, tries: int = 6, delay: float = 2.5) -> dict | None:
+        """After a trade with unknown result: looks for the position MetaApi tagged with our clientId (docs: Tracking trades)."""
+        for i in range(tries):
+            for p in await self.positions(account_id, region, refresh=(i == 0)):
+                if p.get("clientId") == client_id:
+                    return p
+            if i < tries - 1:
+                await asyncio.sleep(delay)
+        return None
+
+    async def order_filled_by_client_id(self, account_id: str, client_id: str, region: str = None, minutes: int = 5) -> dict | None:
+        from datetime import datetime, timedelta, timezone
+        end = datetime.now(timezone.utc)
+        start = (end - timedelta(minutes=minutes)).isoformat().replace("+00:00", "Z")
+        for o in await self.orders_by_time(account_id, start, end.isoformat().replace("+00:00", "Z"), region):
+            if o.get("clientId") == client_id and str(o.get("state", "")).endswith("FILLED"):
+                return o
+        return None
+
     # ---------- trading ----------
     async def trade(self, account_id: str, payload: dict, region: str = None) -> dict:
-        res = await self._call("POST", f"{self._acc(account_id, region)}/trade", json=payload) or {}
+        res = await self._call("POST", f"{self._acc(account_id, region)}/trade", json=payload, trade=True) or {}
         code = str(res.get("stringCode") or "")
         if code not in OK_CODES:
             txt = RETCODE_TXT.get(code, res.get("message") or code or "sin código de respuesta")
-            raise MetaApiError(200, f"MetaTrader: {txt} ({code or res.get('numericCode', '?')})", code)
+            kind = "unknown" if code in UNKNOWN_CODES else ("transient" if code in TRANSIENT_CODES else "rejected")
+            raise MetaApiError(200, f"MetaTrader: {txt} ({code or res.get('numericCode', '?')})", code, kind=kind)
         return res
 
     async def market_order(self, account_id: str, symbol: str, side: str, volume: float, sl: float, tp: float, client_id: str, region: str = None) -> dict:
@@ -164,8 +253,8 @@ class MetaApi:
                    "stopLoss": sl, "takeProfit": tp, "clientId": client_id, "magic": MAGIC}
         return await self.trade(account_id, payload, region)
 
-    async def close_position(self, account_id: str, position_id: str, region: str = None) -> dict:
-        return await self.trade(account_id, {"actionType": "POSITION_CLOSE_ID", "positionId": str(position_id), "clientId": "bot-close"}, region)
+    async def close_position(self, account_id: str, position_id: str, region: str = None, client_id: str = "AIT_close_c") -> dict:
+        return await self.trade(account_id, {"actionType": "POSITION_CLOSE_ID", "positionId": str(position_id), "clientId": client_id}, region)
 
     async def modify_position(self, account_id: str, position_id: str, sl: float, tp: float, region: str = None) -> dict:
         return await self.trade(account_id, {"actionType": "POSITION_MODIFY", "positionId": str(position_id), "stopLoss": sl, "takeProfit": tp}, region)

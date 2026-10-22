@@ -1,6 +1,7 @@
 """Iteration 18 – HotForex REAL mode via MetaApi (local mock on :8012): link/test/symbols/redeploy, mode checklist & switch,
 live orders with SL/TP, broker sync (trailing → broker, external SL close), manual close, close-all, guards. Sequential (single class)."""
 import os
+import re
 import time
 import subprocess
 import pytest
@@ -173,7 +174,7 @@ class TestFxLive:
         pos = wait_for(lambda: [p for p in s.get(f"{FX}/positions", timeout=30).json() if p["symbol"] == "EURUSD"], 15)
         assert pos, "no live position recorded"
         p = pos[0]
-        assert p["live"] is True and p["order_id"] and p["link_id"].startswith("bot-") and p["qty"] >= 0.01 and p["leverage"] == 100
+        assert p["live"] is True and p["order_id"] and re.fullmatch(r"AIT_[0-9a-f]{8}_o", p["link_id"]) and p["qty"] >= 0.01 and p["leverage"] == 100
         mp = [x for x in mock_state()["positions"] if x["id"] == p["order_id"]]
         assert mp, "position not found at the mock broker"
         mp = mp[0]

@@ -1,10 +1,12 @@
 """Local MetaApi.cloud mock (provisioning + client API) for end-to-end testing of the HotForex REAL executor.
 Run: python3 scripts/metaapi_mock.py  (port 8012)  · token: mocktoken · accepts any MT login/server.
 Helpers: POST /mock/price/{symbol}?price=X · POST /mock/close/{position_id}?reason=sl|tp · POST /mock/connection?connected=false · GET /mock/state · POST /mock/reset
+         POST /mock/fault?trade_hang=3&trade_code=ERR_TRADE_TIMED_OUT&trade_execute=true&times=1&positions_hang=3&positions_times=1 (fault injection)
 """
 import sys
 import time
 import uuid
+import asyncio
 from datetime import datetime, timezone
 import httpx
 import uvicorn
@@ -24,7 +26,8 @@ state = {}
 def reset():
     state.clear()
     state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True, "connected": True,
-                  "balance_deals": []})
+                  "balance_deals": [], "orders": [], "faults": {"trade_hang": 0.0, "trade_code": "", "trade_code_num": -10, "trade_times": 0, "trade_execute": False,
+                                                                "positions_hang": 0.0, "positions_times": 0}})
 
 
 reset()
@@ -150,6 +153,10 @@ async def account_information(acc_id: str):
 
 @app.get("/users/current/accounts/{acc_id}/positions")
 async def positions(acc_id: str):
+    f = state["faults"]
+    if f["positions_times"] > 0:
+        f["positions_times"] -= 1
+        await asyncio.sleep(f["positions_hang"])
     if not state["connected"]:
         return _not_connected()
     out = []
@@ -197,6 +204,23 @@ async def trade(acc_id: str, request: Request):
         return _not_connected()
     if not state["trade_allowed"]:
         return _retcode("TRADE_RETCODE_TRADE_DISABLED", 10027, "Trade disabled")
+    f = state["faults"]
+    fault = None
+    if f["trade_times"] > 0:
+        f["trade_times"] -= 1
+        fault = dict(f)
+        if fault["trade_code"] and not fault["trade_execute"]:
+            return _retcode(fault["trade_code"], fault["trade_code_num"], "Injected fault")
+    res = await _trade(body, action)
+    if fault:
+        if fault["trade_hang"]:
+            await asyncio.sleep(fault["trade_hang"])
+        if fault["trade_code"]:
+            return _retcode(fault["trade_code"], fault["trade_code_num"], "Injected fault (executed)")
+    return res
+
+
+async def _trade(body: dict, action: str):
     if action in ("ORDER_TYPE_BUY", "ORDER_TYPE_SELL"):
         symbol = body.get("symbol", "")
         base, spec = _spec(symbol)
@@ -219,6 +243,8 @@ async def trade(acc_id: str, request: Request):
                                    "commission": round(COMMISSION_PER_LOT * vol, 2), "stopLoss": sl, "takeProfit": tp, "clientId": body.get("clientId"), "margin": margin}
         state["deals"][pid] = [{"id": nid(), "type": "DEAL_TYPE_BUY" if long else "DEAL_TYPE_SELL", "entryType": "DEAL_ENTRY_IN", "symbol": symbol, "positionId": pid,
                                 "orderId": oid, "volume": vol, "price": entry, "profit": 0.0, "swap": 0.0, "commission": round(COMMISSION_PER_LOT * vol, 2), "time": now_iso()}]
+        state["orders"].append({"id": oid, "type": "ORDER_TYPE_BUY" if long else "ORDER_TYPE_SELL", "state": "ORDER_STATE_FILLED", "symbol": symbol, "positionId": pid,
+                                "volume": vol, "openPrice": entry, "time": now_iso(), "doneTime": now_iso(), "clientId": body.get("clientId"), "magic": body.get("magic", 0)})
         return _retcode("TRADE_RETCODE_DONE", 10009, "Request completed", orderId=oid, positionId=pid)
     pid = str(body.get("positionId") or "")
     p = state["positions"].get(pid)
@@ -254,10 +280,27 @@ async def deals_by_time(acc_id: str, start: str, end: str, limit: int = 1000):
 
 @app.get("/users/current/accounts/{acc_id}/history-orders/position/{pid}")
 async def orders(acc_id: str, pid: str):
-    return []
+    return [o for o in state["orders"] if o["positionId"] == pid]
+
+
+@app.get("/users/current/accounts/{acc_id}/history-orders/time/{start}/{end}")
+async def orders_by_time(acc_id: str, start: str, end: str, limit: int = 200):
+    if not state["connected"]:
+        return _not_connected()
+    rows = [o for o in state["orders"] if start <= o["doneTime"].replace("+00:00", "Z") <= end]
+    return sorted(rows, key=lambda o: o["doneTime"])[:limit]
 
 
 # ---------- helpers ----------
+@app.post("/mock/fault")
+async def set_fault(trade_hang: float = 0.0, trade_code: str = "", trade_code_num: int = -10, trade_execute: bool = False, times: int = 1,
+                    positions_hang: float = 0.0, positions_times: int = 0):
+    """Fault injection for the next `times` trade requests: hang `trade_hang` seconds after executing (client timeout → result unknown),
+    and/or answer with `trade_code` (executed first when trade_execute=true, otherwise without executing). `positions_hang` delays the next
+    `positions_times` GET /positions calls."""
+    state["faults"].update(trade_hang=trade_hang, trade_code=trade_code, trade_code_num=trade_code_num, trade_execute=trade_execute, trade_times=times,
+                           positions_hang=positions_hang, positions_times=positions_times)
+    return {"ok": True, "faults": state["faults"]}
 @app.post("/mock/price/{symbol}")
 async def set_price(symbol: str, price: float):
     state["prices"][symbol] = price
@@ -302,7 +345,8 @@ async def set_connection(connected: bool = True):
 @app.get("/mock/state")
 async def mock_state():
     return {"balance": round(state["balance"], 2), "equity": _equity(), "positions": list(state["positions"].values()), "accounts": list(state["accounts"].values()),
-            "deals": state["deals"], "prices": state["prices"], "trade_allowed": state["trade_allowed"], "connected": state["connected"]}
+            "deals": state["deals"], "prices": state["prices"], "trade_allowed": state["trade_allowed"], "connected": state["connected"], "faults": state["faults"],
+            "orders": state["orders"]}
 
 
 @app.post("/mock/reset")

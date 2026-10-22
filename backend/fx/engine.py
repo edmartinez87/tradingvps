@@ -17,6 +17,7 @@ from fx.ai import evaluate_signal
 from ai_advisor import label as ai_label
 from fx.backtest import build_fx_df
 from fx.live import FxLiveBroker
+from fx.metaapi import MetaApiError
 from fx.shadow import open_shadow, monitor_shadows
 import evolution
 import cashflow
@@ -29,6 +30,7 @@ LIVE_GRACE_SEC = 20
 HFM_HEALTH_SEC = 60
 HFM_HEALTH_RETRY_SEC = 15
 HFM_REMIND_SEC = 6 * 3600
+TRANSIENT_TG_SEC = 30 * 60
 HFM_OK_STATES, HFM_OK_CONN = ("DEPLOYED", ""), ("CONNECTED", "")
 BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado", "SESION": "sesión"}
 NEWS_STRATEGY = {"news_event": {"name": "Noticia macro", "rules": "Dato de alto impacto publicado con sorpresa clara frente a la previsión; Claude fija la dirección y la confianza, el precio debe confirmar en los primeros minutos. SL/TP por ATR 15m y cierre máximo por tiempo.", "basis": "Trading de noticias: el flujo posterior a sorpresas macro (tipos, NFP, IPC) tiende a persistir durante horas."}}
@@ -87,6 +89,7 @@ class FxEngine:
         self.broker = None
         self._broker_key = None
         self.broker_error = None
+        self._transient_tg_ts = 0.0
         self._external_warned = set()
         self.store = None
         self.hfm = _fresh_health()
@@ -436,6 +439,15 @@ class FxEngine:
                     await self.log("ERROR", f"{p.symbol}: no se pudo mover el stop en HFM · {str(e)[:120]}")
         await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
 
+    async def _tg_transient(self, symbol: str, e: MetaApiError):
+        """One Telegram notice per 30 min for orders skipped because HFM/MetaApi did not answer in time (not a broker rejection)."""
+        now = time.time()
+        if now - self._transient_tg_ts < TRANSIENT_TG_SEC:
+            return
+        self._transient_tg_ts = now
+        await self.tg(f"⏳ <b>Orden REAL no enviada · {symbol}</b>\nHFM/MetaApi no respondió a tiempo ({e.attempts} intento(s)): {e.msg[:200]}\n"
+                      "Se verificó que no quedó ninguna orden abierta. El bot sigue operando; si se repite, revisa la conexión en Ajustes → HotForex.", "orders")
+
     async def _close_live_from_broker(self, p: Position):
         async with self.lock:
             if not await self.db.positions.find_one({"_id": ObjectId(p.id)}):
@@ -542,10 +554,23 @@ class FxEngine:
                         await self.log("RISK", f"{symbol}: {reason}")
                         return None, reason
                     r = await self.broker.open(symbol, sig["side"], lots, sl, tp)
+                except MetaApiError as e:
+                    if e.kind == "transient":
+                        reason = f"HFM/MetaApi no disponible tras {e.attempts} intento(s): {e.msg[:120]}"
+                        await self.log("RISK", f"{symbol}: orden REAL no enviada · {reason} · verificado: no quedó ninguna orden abierta")
+                        await self._tg_transient(symbol, e)
+                        return None, reason
+                    await self.log("ERROR", f"{symbol}: orden REAL rechazada por HFM/MetaApi · {e.msg[:160]}")
+                    await self.tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{e.msg[:300]}", "orders")
+                    return None, f"orden REAL rechazada: {e.msg[:120]}"
                 except Exception as e:
                     await self.log("ERROR", f"{symbol}: orden REAL rechazada por HFM/MetaApi · {str(e)[:160]}")
                     await self.tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{str(e)[:300]}", "orders")
                     return None, f"orden REAL rechazada: {str(e)[:120]}"
+                if r.get("note"):
+                    await self.log("RISK", f"{symbol}: orden REAL {r['note']} · posición {r['position_id']} localizada por clientId")
+                elif r.get("attempts", 1) > 1:
+                    await self.log("RISK", f"{symbol}: orden REAL ejecutada en el intento {r['attempts']} tras fallos temporales de HFM/MetaApi")
                 entry, lots, fee = (r["entry"] or entry), r["lots"], abs(r["commission"])
                 sl, tp = r["sl"], r["tp"]
                 margin = lots * SPECS[symbol]["contract"] * risk.base_usd(symbol, tickers, entry) / leverage
@@ -596,10 +621,15 @@ class FxEngine:
                     await self.log("ERROR", f"{p.symbol}: cierre REAL imposible · sin cuenta HFM vinculada")
                     return None
                 try:
-                    await self.broker.close(p.order_id)
+                    cr_close = await self.broker.close(p.order_id, p.link_id)
+                    if cr_close.get("note"):
+                        await self.log("RISK", f"{p.symbol}: cierre REAL {cr_close['note']}")
+                    elif cr_close.get("attempts", 1) > 1:
+                        await self.log("RISK", f"{p.symbol}: cierre REAL ejecutado en el intento {cr_close['attempts']} tras fallos temporales de HFM/MetaApi")
                 except Exception as e:
                     if getattr(e, "code", "") != "TRADE_RETCODE_POSITION_CLOSED":
-                        await self.log("ERROR", f"{p.symbol}: cierre REAL fallido · {str(e)[:160]}")
+                        kind = "HFM/MetaApi no disponible tras varios intentos" if getattr(e, "kind", "") == "transient" else "cierre REAL fallido"
+                        await self.log("ERROR", f"{p.symbol}: {kind} · {str(e)[:160]} · la posición sigue abierta en HFM con su SL/TP; se reintentará")
                         return None
                 cr = None
                 try:

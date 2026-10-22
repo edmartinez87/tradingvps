@@ -42,7 +42,7 @@ function SymbolsCheck({ data }) {
 export default function HfmSection({ config, onSave, onRefresh, account }) {
   const [form, setForm] = useState({ metaapi_token: "", mt_login: config.mt_login || "", mt_password: "", mt_server: config.mt_server || "",
     mt_platform: config.mt_platform || "mt5", metaapi_region: config.metaapi_region || "new-york", mt_symbol_suffix: config.mt_symbol_suffix || "",
-    metaapi_base_url: config.metaapi_base_url || "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 60, metaapi_plan: config.metaapi_plan || "g2-high" });
+    metaapi_base_url: config.metaapi_base_url || "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 180, metaapi_plan: config.metaapi_plan || "g2-high" });
   const [advanced, setAdvanced] = useState(!!config.metaapi_base_url);
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState(null);
@@ -56,7 +56,7 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
   const save = async () => {
     setBusy("save");
     const body = Object.fromEntries(Object.entries(form).filter(([k, v]) => v !== "" || !["metaapi_token", "mt_password"].includes(k)));
-    body.hfm_alert_after_sec = Math.min(3600, Math.max(10, Number(form.hfm_alert_after_sec) || 60));
+    body.hfm_alert_after_sec = Math.min(3600, Math.max(10, Number(form.hfm_alert_after_sec) || 180));
     const ok = await onSave(body, "Datos de HFM guardados · vincula y prueba la conexión");
     setBusy("");
     if (ok) setForm((f) => ({ ...f, metaapi_token: "", mt_password: "", hfm_alert_after_sec: body.hfm_alert_after_sec }));
@@ -95,7 +95,7 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
     setBusy("clear");
     const ok = await onSave({ clear_hfm: true }, "Datos de HFM eliminados");
     setBusy(""); setResult(null); setSymbols(null);
-    if (ok) setForm({ metaapi_token: "", mt_login: "", mt_password: "", mt_server: "", mt_platform: "mt5", metaapi_region: "new-york", mt_symbol_suffix: "", metaapi_base_url: "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 60, metaapi_plan: "g2-high" });
+    if (ok) setForm({ metaapi_token: "", mt_login: "", mt_password: "", mt_server: "", mt_platform: "mt5", metaapi_region: "new-york", mt_symbol_suffix: "", metaapi_base_url: "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 180, metaapi_plan: "g2-high" });
   };
   const acc = result?.account;
   const linked = !!config.metaapi_account_id;
@@ -151,7 +151,7 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
           <Field label="Endpoint personalizado (vacío = MetaApi.cloud)" hint="Solo para pruebas con un servidor MetaApi propio o un mock local">
             <Input data-testid="hfm-base-url-input" autoComplete="off" value={form.metaapi_base_url} placeholder="https://…" onChange={set("metaapi_base_url")} className={INPUT} />
           </Field>
-          <Field label="Aviso de desconexión (segundos)" hint="En modo REAL, si la cuenta HFM pierde la conexión con MetaApi durante más de este tiempo, recibirás un aviso por Telegram (y otro al restablecerse). 10–3600 s.">
+          <Field label="Aviso de desconexión (segundos)" hint="En modo REAL, si la cuenta HFM pierde la conexión con MetaApi durante más de este tiempo, recibirás un aviso por Telegram (y otro al restablecerse). Los cortes breves (reinicios nocturnos del servidor demo, reconexiones del terminal) son normales: recomendado 180–300 s. 10–3600 s.">
             <Input data-testid="hfm-alert-after-input" type="number" min={10} max={3600} step={5} value={form.hfm_alert_after_sec} onChange={set("hfm_alert_after_sec")} className={`${INPUT} num`} />
           </Field>
         </div>
