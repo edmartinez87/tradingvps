@@ -39,7 +39,7 @@ export function HfmPlanPicker({ plans = [], common, value, onChange, currentPlan
   );
 }
 
-export function HfmRecreateNotice({ currentLabel, wantedLabel, busy, onRecreate, botRunning }) {
+export function HfmRecreateNotice({ currentLabel, wantedLabel, busy, onRecreate }) {
   return (
     <div data-testid="hfm-plan-mismatch" className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 p-3">
       <p className="text-[12px] leading-relaxed text-amber-200">
@@ -48,7 +48,7 @@ export function HfmRecreateNotice({ currentLabel, wantedLabel, busy, onRecreate,
       </p>
       <AlertDialog>
         <AlertDialogTrigger asChild>
-          <Button data-testid="hfm-recreate-button" variant="outline" disabled={busy || botRunning} title={botRunning ? "Detén el bot primero" : undefined}
+          <Button data-testid="hfm-recreate-button" variant="outline" disabled={busy} title="Requiere el bot detenido"
             className="h-8 border-amber-500/50 bg-transparent font-mono text-[11px] uppercase tracking-wider text-amber-200 hover:bg-amber-500/15">
             {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCcwDot className="mr-1.5 h-3.5 w-3.5" />} Recrear con el nuevo tipo
           </Button>

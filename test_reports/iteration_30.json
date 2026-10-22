@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend E2E (Playwright, 1920x800) of the MetaApi account-type picker + recreate flow in HotForex Ajustes → HFM section, against local MetaApi mock (127.0.0.1:8012). All 7 requested scenarios PASS: 3 plan cards with Spanish-formatted prices, Recomendada + 'Actual en MetaApi' badges, mismatch notice + Modo de operación detail, unsaved-plan hint toggling, recreate dialog cancel/confirm (toast 'Cuenta recreada en MetaApi · G2 alta', hfm-account-plan = Cloud G2 · fiabilidad alta, hint shown, badge moved to G2, mock state = exactly 1 account cloud-g2/high), Probar conexión after recreate (DEPLOYED · CONNECTED · G2 alta, no warning), save G1 regular → mismatch reappears (G2 existing vs G1 chosen) with account still linked (symbols button enabled, symbols check OK 12 pairs), revert G2 + save → mismatch gone, Vincular cuenta regression OK, intro text says 'servicio de pago por uso' (no 'plan gratuito'). Persisted after reload.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: HfmRecreateNotice accepts a botRunning prop (disables button with 'Detén el bot primero') but HfmSection never passes it; backend already returns 409 when the bot runs, so it's only a UX nicety (pass engine running state)."
+  ],
+  "critical_code_review_comments": [
+    "HfmSection.jsx line 144: botRunning not passed to HfmRecreateNotice → button enabled while bot running (backend guards with 409, toast error would show).",
+    "Minor: 'Pasar a modo real' remains enabled while plan mismatch exists (check shown as warning only) — acceptable since mismatch is non-blocking, but consider if intended."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped (frontend only)", "frontend": "100%"},
+  "test_credentials": "Panel password BlackCat2233@ (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Final state: saved plan g2-high, mock has 1 account cloud-g2/high DEPLOYED, trading mode paper, bot stopped.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter32 MetaApi plan picker fully verified on UI. Settings opened via settings-view-button on /hotforex. To recreate the mismatch initial state, recreate the mock account as G1 regular (e.g. save g1-regular + recreate, then save g2-high)."
+}
