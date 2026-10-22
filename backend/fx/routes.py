@@ -22,7 +22,7 @@ from fx.config import FxConfigUpdate
 from fx.symbols import SPECS, AVAILABLE, CURRENCIES, CURRENCY_NAMES, pips
 from fx.market import TF_SECONDS, market_status, SESSIONS
 from fx.engine import FX_STRATEGY_INFO
-from fx.metaapi import MetaApi, MetaApiError
+from fx.metaapi import MetaApi, MetaApiError, PLANS, plan_key
 from fx.live import FxLiveBroker
 from fx.profiles import PROFILES, detect_profile, profile_patch
 from fx.backtest import run_backtest
@@ -442,7 +442,20 @@ def _metaapi(body: HfmTestRequest = None):
 
 def _acc_view(acc: dict) -> dict:
     return {"id": acc.get("_id") or acc.get("id"), "login": acc.get("login"), "server": acc.get("server"), "state": acc.get("state"),
-            "connection": acc.get("connectionStatus"), "region": acc.get("region"), "platform": acc.get("platform") or acc.get("version")}
+            "connection": acc.get("connectionStatus"), "region": acc.get("region"), "platform": acc.get("platform") or acc.get("version"),
+            "type": acc.get("type") or "", "reliability": acc.get("reliability") or "", "plan": plan_key(acc.get("type"), acc.get("reliability"))}
+
+
+def _plan_patch(acc: dict) -> dict:
+    return {"hfm_account_type": acc.get("type") or "", "hfm_reliability": acc.get("reliability") or ""}
+
+
+def _plan_hint(acc: dict) -> str | None:
+    current = plan_key(acc.get("type"), acc.get("reliability"))
+    if current == fx_store.cfg.metaapi_plan:
+        return None
+    return (f"La cuenta ya existe en MetaApi como {PLANS[current]['short']} y has elegido {PLANS[fx_store.cfg.metaapi_plan]['short']}: "
+            "MetaApi no permite cambiar el tipo, pulsa «Recrear con el nuevo tipo» (bot detenido) o vuelve a seleccionar el tipo actual.")
 
 
 @router.post("/hfm/test")
@@ -470,6 +483,7 @@ async def hfm_test(body: HfmTestRequest = None):
                  "hfm_connection": (out["account"] or {}).get("connection") or ""}
         if out["account"]:
             patch["metaapi_account_id"] = out["account"]["id"]
+            patch.update(hfm_account_type=out["account"]["type"], hfm_reliability=out["account"]["reliability"])
         if out["info"]:
             info = out["info"]
             patch.update(hfm_verified_at=now_iso(), hfm_verified_equity=info.get("equity"), hfm_currency=info.get("currency", ""),
@@ -481,6 +495,9 @@ async def hfm_test(body: HfmTestRequest = None):
                    else "Token válido. La cuenta MT todavía no está vinculada en MetaApi: pulsa «Vincular cuenta»." if login else "Token válido. Guarda el login/servidor de HFM para vincular la cuenta.")
     if out["info"] and not out["info"].get("tradeAllowed", True):
         out["hint"] = "La cuenta está conectada pero NO permite operar: usa la contraseña master (no investor) para el modo REAL."
+    if out["account"] and saved and (ph := _plan_hint(out["account"])):
+        out["plan_mismatch"] = True
+        out["hint"] = ph
     return out
 
 
@@ -493,9 +510,9 @@ async def hfm_link():
     try:
         acc = await api.find_account(c.mt_login, c.mt_server)
         if not acc:
-            created = await api.provision(c.mt_login, c.mt_password, c.mt_server, c.mt_platform)
+            created = await api.provision(c.mt_login, c.mt_password, c.mt_server, c.mt_platform, plan=c.metaapi_plan)
             acc = await api.account(created.get("id") or created.get("_id"))
-            await engine.log("INFO", f"Cuenta HFM {c.mt_login} vinculada en MetaApi ({c.metaapi_region})")
+            await engine.log("INFO", f"Cuenta HFM {c.mt_login} vinculada en MetaApi ({c.metaapi_region} · {PLANS[c.metaapi_plan]['label']})")
         if acc.get("state") in ("UNDEPLOYED", "CREATED"):
             await api.deploy(acc["_id"])
             acc = await api.account(acc["_id"])
@@ -505,8 +522,48 @@ async def hfm_link():
         raise HTTPException(424, f"No se pudo vincular la cuenta: {str(e)[:160]}")
     finally:
         await api.aclose()
-    await fx_store.update({"metaapi_account_id": acc["_id"], "hfm_state": acc.get("state", ""), "hfm_connection": acc.get("connectionStatus", "")})
-    return {"ok": True, "account": _acc_view(acc), "hint": "Despliegue solicitado: la conexión tarda 1-3 minutos. Pulsa «Probar conexión» para ver el estado."}
+    await fx_store.update({"metaapi_account_id": acc["_id"], "hfm_state": acc.get("state", ""), "hfm_connection": acc.get("connectionStatus", ""), **_plan_patch(acc)})
+    hint = _plan_hint(acc)
+    return {"ok": True, "account": _acc_view(acc), "plan_mismatch": bool(hint),
+            "hint": hint or "Despliegue solicitado: la conexión tarda 1-3 minutos. Pulsa «Probar conexión» para ver el estado."}
+
+
+@router.post("/hfm/recreate")
+async def hfm_recreate():
+    """Delete the MetaApi account and create it again with the selected plan (type/reliability can't be changed in place)."""
+    c = fx_store.cfg
+    if not (c.metaapi_token and c.mt_login and c.mt_password and c.mt_server):
+        raise HTTPException(400, "Guarda primero el token de MetaApi, login, contraseña y servidor de HFM")
+    if engine.running:
+        raise HTTPException(409, "Detén el bot antes de recrear la cuenta en MetaApi")
+    plan = PLANS[c.metaapi_plan]
+    api = MetaApi(c.metaapi_token, c.metaapi_region, c.metaapi_base_url)
+    removed = ""
+    try:
+        old = await api.find_account(c.mt_login, c.mt_server) or ({"_id": c.metaapi_account_id} if c.metaapi_account_id else None)
+        if old and old.get("_id"):
+            try:
+                await api.undeploy(old["_id"])
+            except MetaApiError:
+                pass
+            await api.delete_account(old["_id"])
+            removed = f"{PLANS[plan_key(old.get('type'), old.get('reliability'))]['short']} ({old['_id'][:8]}…)" if old.get("type") else old["_id"][:8] + "…"
+        created = await api.provision(c.mt_login, c.mt_password, c.mt_server, c.mt_platform, plan=c.metaapi_plan)
+        acc = await api.account(created.get("id") or created.get("_id"))
+        if acc.get("state") in ("UNDEPLOYED", "CREATED"):
+            await api.deploy(acc["_id"])
+            acc = await api.account(acc["_id"])
+    except MetaApiError as e:
+        raise HTTPException(424, e.msg)
+    except Exception as e:
+        raise HTTPException(424, f"No se pudo recrear la cuenta: {str(e)[:160]}")
+    finally:
+        await api.aclose()
+    await fx_store.update({"metaapi_account_id": acc["_id"], "hfm_state": acc.get("state", ""), "hfm_connection": acc.get("connectionStatus", ""),
+                           "hfm_verified_at": None, "hfm_verified_equity": None, "hfm_trade_allowed": None, **_plan_patch(acc)})
+    await engine.log("INFO", f"Cuenta HFM {c.mt_login} recreada en MetaApi como {plan['label']}" + (f" · eliminada la anterior {removed}" if removed else ""))
+    return {"ok": True, "account": _acc_view(acc), "removed": removed,
+            "hint": f"Cuenta recreada como {plan['label']}: la conexión tarda 1-3 minutos. Pulsa «Probar conexión» para verificarla de nuevo."}
 
 
 @router.post("/hfm/redeploy")
@@ -548,11 +605,15 @@ async def _mode_checks() -> dict:
     c = fx_store.cfg
     open_pos = await engine.db.positions.count_documents({})
     acc = await engine.account_summary()
+    current_plan = plan_key(c.hfm_account_type, c.hfm_reliability) if c.metaapi_account_id and c.hfm_account_type else ""
+    plan_mismatch = bool(current_plan and current_plan != c.metaapi_plan)
     checks = [
         {"key": "keys", "label": "Token de MetaApi y cuenta HFM guardados", "ok": bool(c.metaapi_token and c.mt_login and c.mt_password and c.mt_server), "required": True},
         {"key": "linked", "label": "Cuenta vinculada y desplegada en MetaApi", "ok": bool(c.metaapi_account_id and c.hfm_state == "DEPLOYED"), "required": True,
-         "warn": bool(c.hfm_connection and c.hfm_connection != "CONNECTED"),
-         "detail": f"{c.hfm_state or 'sin vincular'}{' · ' + c.hfm_connection if c.hfm_connection else ''}"},
+         "warn": bool(c.hfm_connection and c.hfm_connection != "CONNECTED") or plan_mismatch,
+         "detail": f"{c.hfm_state or 'sin vincular'}{' · ' + c.hfm_connection if c.hfm_connection else ''}"
+                   + (f" · {PLANS[current_plan]['short']}" if current_plan else "")
+                   + (f" (elegido {PLANS[c.metaapi_plan]['short']}: recrear la cuenta)" if plan_mismatch else "")},
         {"key": "verified", "label": f"Conexión verificada con HFM {c.mt_server or ''}".strip(), "ok": bool(c.hfm_verified_at), "required": True,
          "detail": f"equidad {c.hfm_verified_equity:,.2f} {c.hfm_currency}" if c.hfm_verified_equity is not None else None},
         {"key": "trade_allowed", "label": "La cuenta permite operar (contraseña master)", "ok": c.hfm_trade_allowed is not False, "required": True,

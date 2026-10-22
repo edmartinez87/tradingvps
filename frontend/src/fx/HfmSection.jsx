@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Panel } from "@/components/bot/Panel";
 import { http, errMsg, fmtDateTime } from "@/lib/api";
 import { Field, INPUT, BTN, BTN_OUT } from "@/components/bot/admin/SecuritySection";
+import { HfmPlanPicker, HfmRecreateNotice } from "./HfmPlanPicker";
 
 const STATE_TONE = { DEPLOYED: "border-emerald-500/40 text-emerald-400", TOKEN_OK: "border-sky-500/40 text-sky-300" };
 const REDEPLOY_STATES = ["DEPLOY_FAILED", "REDEPLOY_FAILED", "UNDEPLOYED", "DISCONNECTED", "DISCONNECTED_FROM_BROKER"];
@@ -40,7 +41,7 @@ function SymbolsCheck({ data }) {
 export default function HfmSection({ config, onSave, onRefresh }) {
   const [form, setForm] = useState({ metaapi_token: "", mt_login: config.mt_login || "", mt_password: "", mt_server: config.mt_server || "",
     mt_platform: config.mt_platform || "mt5", metaapi_region: config.metaapi_region || "new-york", mt_symbol_suffix: config.mt_symbol_suffix || "",
-    metaapi_base_url: config.metaapi_base_url || "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 60 });
+    metaapi_base_url: config.metaapi_base_url || "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 60, metaapi_plan: config.metaapi_plan || "g2-high" });
   const [advanced, setAdvanced] = useState(!!config.metaapi_base_url);
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState(null);
@@ -78,6 +79,12 @@ export default function HfmSection({ config, onSave, onRefresh }) {
     toast.success("Redespliegue solicitado");
     onRefresh?.();
   });
+  const recreate = () => run("recreate", async () => {
+    const { data } = await http.post("/hfm/recreate");
+    setResult({ account: data.account, hint: data.hint, plan_mismatch: false });
+    toast.success(`Cuenta recreada en MetaApi · ${plans.find((p) => p.key === form.metaapi_plan)?.short || form.metaapi_plan}`);
+    onRefresh?.();
+  });
   const checkSymbols = () => run("symbols", async () => {
     const { data } = await http.post("/hfm/symbols");
     setSymbols(data);
@@ -87,11 +94,16 @@ export default function HfmSection({ config, onSave, onRefresh }) {
     setBusy("clear");
     const ok = await onSave({ clear_hfm: true }, "Datos de HFM eliminados");
     setBusy(""); setResult(null); setSymbols(null);
-    if (ok) setForm({ metaapi_token: "", mt_login: "", mt_password: "", mt_server: "", mt_platform: "mt5", metaapi_region: "new-york", mt_symbol_suffix: "", metaapi_base_url: "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 60 });
+    if (ok) setForm({ metaapi_token: "", mt_login: "", mt_password: "", mt_server: "", mt_platform: "mt5", metaapi_region: "new-york", mt_symbol_suffix: "", metaapi_base_url: "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 60, metaapi_plan: "g2-high" });
   };
   const acc = result?.account;
   const linked = !!config.metaapi_account_id;
   const canRedeploy = linked && (REDEPLOY_STATES.includes(config.hfm_state) || REDEPLOY_STATES.includes(config.hfm_connection) || acc?.state === "DEPLOY_FAILED");
+  const plans = config.metaapi_plans || [];
+  const planLabel = (key) => plans.find((p) => p.key === key)?.label || key;
+  const currentPlan = acc?.plan || config.hfm_current_plan || "";
+  const mismatch = linked && !!currentPlan && config.metaapi_plan === form.metaapi_plan && currentPlan !== config.metaapi_plan;
+  const unsavedPlan = form.metaapi_plan !== (config.metaapi_plan || "g2-high");
 
   return (
     <Panel testId="hfm-section" title="HotForex (HFM) · cuenta real vía MetaApi" icon={Landmark} bodyClass="p-4 space-y-3"
@@ -101,7 +113,7 @@ export default function HfmSection({ config, onSave, onRefresh }) {
         </span>
       )}>
       <p className="text-[12px] leading-relaxed text-slate-400">
-        HFM opera con MetaTrader 4/5 y no tiene API REST, así que el puente es <span className="text-slate-200">MetaApi.cloud</span> (plan gratuito para 1 cuenta). Pasos: 1) crea una cuenta en metaapi.cloud y copia el token (app.metaapi.cloud/token);
+        HFM opera con MetaTrader 4/5 y no tiene API REST, así que el puente es <span className="text-slate-200">MetaApi.cloud</span> (servicio de pago por uso: elige abajo el tipo de cuenta según coste y estabilidad). Pasos: 1) crea una cuenta en metaapi.cloud y copia el token (app.metaapi.cloud/token);
         2) introduce el login MT, la contraseña <span className="text-slate-200">master</span> (la investor solo permite leer) y el servidor exacto de HFM (p.ej. <span className="num text-slate-200">HFMarketsGlobal-Live2</span>);
         3) guarda, <span className="text-slate-200">Vincular cuenta</span>, <span className="text-slate-200">Probar conexión</span> y <span className="text-slate-200">Comprobar símbolos</span>. Después activa el modo REAL en la tarjeta «Modo de operación». Empieza con una cuenta demo de HFM.
         {config.secrets_encrypted ? " Token y contraseña se guardan cifrados." : ""}
@@ -127,6 +139,9 @@ export default function HfmSection({ config, onSave, onRefresh }) {
           </Field>
         </div>
       </div>
+      <HfmPlanPicker plans={plans} common={config.metaapi_plan_common} value={form.metaapi_plan} onChange={(k) => setForm((f) => ({ ...f, metaapi_plan: k }))} currentPlan={currentPlan} />
+      {unsavedPlan && <p data-testid="hfm-plan-unsaved" className="font-mono text-[10.5px] text-amber-300">Tipo de cuenta cambiado a {planLabel(form.metaapi_plan)} · pulsa «Guardar» para aplicarlo{linked ? " y después «Recrear con el nuevo tipo»" : ""}.</p>}
+      {mismatch && <HfmRecreateNotice currentLabel={planLabel(currentPlan)} wantedLabel={planLabel(config.metaapi_plan)} busy={busy === "recreate"} onRecreate={recreate} />}
       <button data-testid="hfm-advanced-toggle" onClick={() => setAdvanced((v) => !v)} className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-slate-500 hover:text-slate-300">
         <ChevronDown className={`h-3 w-3 transition-transform ${advanced ? "rotate-180" : ""}`} /> Avanzado · endpoint de MetaApi y aviso de desconexión
       </button>
@@ -166,12 +181,12 @@ export default function HfmSection({ config, onSave, onRefresh }) {
       {(result || config.hfm_verified_at) && (
         <div data-testid="hfm-test-result" className="space-y-1.5 rounded-sm border border-[#1E293B] bg-[#0B1220] p-3 font-mono text-[11px] text-slate-300">
           {result?.token_valid && <p>Token MetaApi: <span className="text-emerald-400">válido</span> · {result.accounts_total} cuenta(s) en MetaApi</p>}
-          {acc && <p>Cuenta {acc.login} · {acc.server} · {String(acc.platform || "").toUpperCase()} · estado <span className={acc.state === "DEPLOYED" ? "text-emerald-400" : "text-amber-300"}>{acc.state}</span> · conexión {acc.connection || "—"} · región {acc.region}</p>}
+          {acc && <p>Cuenta {acc.login} · {acc.server} · {String(acc.platform || "").toUpperCase()} · estado <span className={acc.state === "DEPLOYED" ? "text-emerald-400" : "text-amber-300"}>{acc.state}</span> · conexión {acc.connection || "—"} · región {acc.region}{acc.plan && <> · tipo <span data-testid="hfm-account-plan" className="text-sky-300">{planLabel(acc.plan)}</span></>}</p>}
           {result?.info && (
             <p>Bróker {result.info.broker} · {result.info.currency} · balance <span className="num text-slate-100">{result.info.balance}</span> · equidad <span className="num text-slate-100">{result.info.equity}</span> · margen libre {result.info.freeMargin} · apalancamiento 1:{result.info.leverage} · {result.positions?.length || 0} posiciones abiertas · trading <span className={result.info.tradeAllowed === false ? "text-rose-300" : "text-emerald-400"}>{result.info.tradeAllowed === false ? "NO permitido" : "permitido"}</span></p>
           )}
           {result?.hint && <p className="text-amber-300">{result.hint}</p>}
-          {!result && config.hfm_verified_at && <p>Última verificación {fmtDateTime(config.hfm_verified_at)} · {config.hfm_broker || "HFM"} · equidad {config.hfm_verified_equity} {config.hfm_currency} · apalancamiento 1:{config.hfm_leverage}{config.hfm_trade_allowed === false ? " · SIN permiso de trading" : ""}</p>}
+          {!result && config.hfm_verified_at && <p>Última verificación {fmtDateTime(config.hfm_verified_at)} · {config.hfm_broker || "HFM"} · equidad {config.hfm_verified_equity} {config.hfm_currency} · apalancamiento 1:{config.hfm_leverage}{config.hfm_trade_allowed === false ? " · SIN permiso de trading" : ""}{config.hfm_current_plan ? ` · tipo ${planLabel(config.hfm_current_plan)}` : ""}</p>}
         </div>
       )}
       {symbols && <SymbolsCheck data={symbols} />}

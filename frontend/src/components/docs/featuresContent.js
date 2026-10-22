@@ -117,7 +117,7 @@ export function buildFeatures(bot) {
     },
     {
       icon: "Landmark", title: fx ? "Modo REAL con HFM vía MetaApi" : "Modo REAL con Bybit",
-      text: fx ? "Vincula tu cuenta MT4/MT5 de HFM (demo o real) con un token de MetaApi: el bot la despliega, la verifica y opera igual que en paper."
+      text: fx ? "Vincula tu cuenta MT4/MT5 de HFM (demo o real) con un token de MetaApi: el bot la despliega, la verifica y opera igual que en paper. Eliges el tipo de infraestructura de MetaApi (Cloud G2 alta · recomendada y la más barata, G1 regular o G1 alta) viendo su coste por hora y por mes."
                 : "Introduce una API key de Bybit (mainnet, testnet o demo) y el bot opera con órdenes a mercado con stop y objetivo adjuntos.",
       bullets: [
         "Lista de comprobación antes de cambiar de modo: credenciales verificadas, bot detenido, sin posiciones abiertas; confirmación escribiendo REAL y reinicio de estadísticas con la equidad real.",

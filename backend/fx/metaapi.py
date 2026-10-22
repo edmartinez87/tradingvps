@@ -8,6 +8,22 @@ from urllib.parse import quote
 
 PROV = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai"
 MAGIC = 777001
+# MetaApi pay-as-you-go infrastructure options (USD, excl. VAT; metaapi.cloud pricing). Type/reliability can't be changed on an existing account.
+PLANS = {
+    "g2-high": {"type": "cloud-g2", "reliability": "high", "label": "Cloud G2 · fiabilidad alta", "short": "G2 alta", "hour_usd": 0.012, "deploy_usd": 0.072,
+                "recommended": True, "note": "La más barata y la más rápida (ticks < 2,5 s). Es la que MetaApi recomienda para producción: sirve igual para demo y para dinero real."},
+    "g1-regular": {"type": "cloud-g1", "reliability": "regular", "label": "Cloud G1 · fiabilidad regular", "short": "G1 regular", "hour_usd": 0.019688, "deploy_usd": 0.118125,
+                   "recommended": False, "note": "Infraestructura antigua sin redundancia. Solo tiene sentido si tu servidor de HFM no conecta en G2."},
+    "g1-high": {"type": "cloud-g1", "reliability": "high", "label": "Cloud G1 · fiabilidad alta", "short": "G1 alta", "hour_usd": 0.039376, "deploy_usd": 0.23625,
+                "recommended": False, "note": "La más cara: G1 con servidores redundantes. Útil solo si necesitas G1 y máxima estabilidad con dinero real."},
+}
+PLAN_COMMON = {"account_month_usd": 2.1, "undeployed_hour_usd": 0.00105}
+
+
+def plan_key(acc_type: str, reliability: str) -> str:
+    t = "cloud-g2" if (acc_type or "") in ("cloud", "cloud-g2") else "cloud-g1"
+    r = "regular" if (reliability or "high") == "regular" and t == "cloud-g1" else "high"
+    return next(k for k, p in PLANS.items() if p["type"] == t and p["reliability"] == r)
 OK_CODES = {"TRADE_RETCODE_DONE", "TRADE_RETCODE_PLACED", "TRADE_RETCODE_DONE_PARTIAL"}
 RETCODE_TXT = {
     "TRADE_RETCODE_REQUOTE": "recotización del precio", "TRADE_RETCODE_REJECT": "orden rechazada por el bróker", "TRADE_RETCODE_CANCEL": "orden cancelada",
@@ -79,9 +95,10 @@ class MetaApi:
                 return a
         return None
 
-    async def provision(self, login: str, password: str, server: str, platform: str, name: str = "hotforex-ai-trading") -> dict:
+    async def provision(self, login: str, password: str, server: str, platform: str, name: str = "hotforex-ai-trading", plan: str = "g2-high") -> dict:
+        p = PLANS.get(plan) or PLANS["g2-high"]
         payload = {"login": str(login), "password": password, "name": name, "server": server, "platform": platform, "magic": MAGIC,
-                   "type": "cloud-g2", "region": self.region, "manualTrades": False, "keywords": ["HFM", "HotForex"]}
+                   "type": p["type"], "reliability": p["reliability"], "region": self.region, "manualTrades": False, "keywords": ["HFM", "HotForex"]}
         tx = uuid.uuid4().hex[:32]
         for _ in range(6):
             res = await self._call("POST", f"{self._prov()}/users/current/accounts", json=payload, tx=tx)
@@ -95,6 +112,12 @@ class MetaApi:
 
     async def redeploy(self, account_id: str):
         return await self._call("POST", f"{self._prov()}/users/current/accounts/{account_id}/redeploy", json={}, params={"executeForAllReplicas": "true"})
+
+    async def undeploy(self, account_id: str):
+        return await self._call("POST", f"{self._prov()}/users/current/accounts/{account_id}/undeploy", json={}, params={"executeForAllReplicas": "true"})
+
+    async def delete_account(self, account_id: str):
+        return await self._call("DELETE", f"{self._prov()}/users/current/accounts/{account_id}", params={"executeForAllReplicas": "true"})
 
     # ---------- terminal state ----------
     def _acc(self, account_id: str, region: str = None) -> str:

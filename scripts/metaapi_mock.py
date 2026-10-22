@@ -95,7 +95,7 @@ async def create_account(request: Request):
     acc_id = uuid.uuid4().hex[:24]
     state["accounts"][acc_id] = {"_id": acc_id, "login": str(body.get("login")), "server": body.get("server"), "platform": body.get("platform", "mt5"),
                                  "state": "DEPLOYED", "connectionStatus": "CONNECTED", "region": body.get("region", "new-york"), "name": body.get("name"),
-                                 "magic": body.get("magic", 0), "type": body.get("type", "cloud-g2")}
+                                 "magic": body.get("magic", 0), "type": body.get("type", "cloud-g2"), "reliability": body.get("reliability", "high")}
     return {"id": acc_id, "state": "DEPLOYED"}
 
 
@@ -103,6 +103,22 @@ async def create_account(request: Request):
 async def get_account(acc_id: str):
     acc = state["accounts"].get(acc_id)
     return acc if acc else JSONResponse({"message": "Account not found"}, status_code=404)
+
+
+@app.post("/users/current/accounts/{acc_id}/undeploy", status_code=204)
+async def undeploy(acc_id: str):
+    acc = state["accounts"].get(acc_id)
+    if acc:
+        acc.update(state="UNDEPLOYED", connectionStatus="DISCONNECTED")
+    return Response(status_code=204)
+
+
+@app.delete("/users/current/accounts/{acc_id}", status_code=204)
+async def delete_account(acc_id: str):
+    if acc_id not in state["accounts"]:
+        return JSONResponse({"message": "Account not found"}, status_code=404)
+    del state["accounts"][acc_id]
+    return Response(status_code=204)
 
 
 @app.post("/users/current/accounts/{acc_id}/deploy", status_code=204)
