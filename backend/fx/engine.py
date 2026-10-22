@@ -151,7 +151,51 @@ class FxEngine:
         await self.db.account.replace_one({"_id": "main"}, {
             "_id": "main", "initial_balance": initial, "balance": initial, "peak_equity": initial, "max_drawdown": 0.0,
             "day": today(), "day_start_equity": initial, "daily_paused": False, "created_at": now_iso(), "net_deposits": 0.0,
+            "account_ref": self.account_ref if self.live else "",
         }, upsert=True)
+
+    @property
+    def account_ref(self) -> str:
+        """Identity of the HFM account the statistics belong to (login@server); empty in paper."""
+        return f"{self.cfg.mt_login}@{self.cfg.mt_server}" if self.cfg and self.cfg.mt_login and self.cfg.mt_server else ""
+
+    def account_kind(self) -> str | None:
+        return None if not self.live else ("demo" if "demo" in self.env.lower() else "live")
+
+    async def rebase_account(self) -> dict:
+        """Account switch (e.g. demo → real money): the new account's equity becomes the capital base while trades, counters and the
+        strategy knowledge are kept. Previous trades get tagged with the old account period and the equity curve is shifted so it stays continuous."""
+        info = await self._broker_info(0)
+        if not info:
+            raise ValueError("No se pudo leer la equidad de la cuenta HFM: pulsa «Probar conexión» y vuelve a intentarlo")
+        equity = float(info["equity"])
+        acc = await self.db.account.find_one({"_id": "main"})
+        old_ref = acc.get("account_ref") or "cuenta anterior"
+        label = f"Periodo anterior · {old_ref}"
+        async with self.lock:
+            tagged = await self.db.trades.update_many({"$or": [{"period": {"$exists": False}}, {"period": ""}]}, {"$set": {"period": label}})
+            last = await self.db.equity.find_one({}, sort=[("ts", -1)])
+            first = await self.db.equity.find_one({}, sort=[("ts", 1)])
+            if last:
+                nd0 = float((first or {}).get("net_deposits") or 0)
+                adjusted_last = float(last["equity"]) - (float(last.get("net_deposits") or 0) - nd0)
+                shift = round(equity - adjusted_last, 2)
+                await self.db.equity.update_many({}, [{"$set": {"equity": {"$round": [{"$add": ["$equity", shift]}, 2]},
+                                                                 "balance": {"$round": [{"$add": [{"$ifNull": ["$balance", "$equity"]}, shift]}, 2]},
+                                                                 "net_deposits": 0.0}}])
+            await self.db.account.update_one({"_id": "main"}, {"$set": {
+                "initial_balance": equity, "balance": equity, "peak_equity": equity, "day": today(), "day_start_equity": equity,
+                "daily_paused": False, "net_deposits": 0.0, "account_ref": self.account_ref, "rebased_at": now_iso(), "previous_account_ref": old_ref,
+                "cash_checked_at": now_iso()}})
+            await self.db.equity.insert_one({"ts": now_iso(), "equity": equity, "balance": float(info["balance"]), "net_deposits": 0.0})
+        self._last_equity = equity
+        self._cash_checked = time.time()
+        cur = info.get("currency", "USD")
+        await self.log("INFO", f"Cuenta HFM cambiada a {self.account_ref} · capital inicial re-basado a {equity:,.2f} {cur} · "
+                               f"{tagged.modified_count} operaciones anteriores etiquetadas «{label}» · historial y contadores conservados")
+        await self.tg(f"🔁 <b>Cuenta HFM cambiada</b> · {self.account_ref}\nCapital inicial re-basado a {equity:,.2f} {cur}. "
+                      f"Historial conservado: {tagged.modified_count} operaciones del periodo anterior ({old_ref}).", "orders")
+        return {"equity": equity, "currency": cur, "tagged": tagged.modified_count, "account_ref": self.account_ref, "previous_account_ref": old_ref}
 
     async def get_settings(self) -> FxSettings:
         return FxSettings.model_validate(await self.db.settings.find_one({"_id": "main"}))
@@ -174,6 +218,8 @@ class FxEngine:
     async def start(self):
         self.running = True
         await self.db.settings.update_one({"_id": "main"}, {"$set": {"bot_running": True}})
+        if self.live and self.account_ref:
+            await self.db.account.update_one({"_id": "main", "$or": [{"account_ref": {"$exists": False}}, {"account_ref": ""}]}, {"$set": {"account_ref": self.account_ref}})
         mode = f"REAL en HFM ({self.env})" if self.live else "paper trading"
         await self.log("INFO", f"Bot ACTIVADO · forex y metales en {mode}" + ("" if market_open() else " · el mercado está cerrado, operará al abrir"))
         await self.tg(f"▶️ <b>Bot ACTIVADO</b> · {mode} forex/metales", "orders")
@@ -237,6 +283,8 @@ class FxEngine:
             "max_drawdown": round(acc["max_drawdown"], 2),
             "open_positions": len(positions), "mode": self.mode_label, "exchange_error": self.broker_error if self.live else None,
             "exchange_synced": info is not None, "currency": info["currency"] if info else "USD",
+            "account_ref": acc.get("account_ref") or "", "account_kind": self.account_kind(),
+            "account_changed": bool(self.live and acc.get("account_ref") and acc.get("account_ref") != self.account_ref),
         }
 
     async def checkin(self, settings: FxSettings = None, summary: dict = None) -> dict:

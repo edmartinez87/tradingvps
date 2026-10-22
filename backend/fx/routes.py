@@ -43,7 +43,7 @@ SESSION_LIST = [{"id": s[0], "name": s[1]} for s in SESSIONS]
 def _status() -> dict:
     return {"running": engine.running, "scanning": engine.scanning, "provider": "yahoo", "last_scan": engine.last_scan,
             "next_scan_in": max(0, int(engine.next_scan_ts - time.time())) if engine.next_scan_ts else None,
-            "mode": engine.mode_label, "env": engine.env, "market": "Forex · Metales", "telegram": notify.is_on(), "ai": ai_current(), "ai_usage": ai_usage.snapshot("fx"),
+            "mode": engine.mode_label, "env": engine.env, "account_kind": engine.account_kind(), "market": "Forex · Metales", "telegram": notify.is_on(), "ai": ai_current(), "ai_usage": ai_usage.snapshot("fx"),
             "exchange_error": engine.market.error, "broker_error": engine.broker_error if engine.live else None, "broker_health": engine.broker_health(),
             "market_hours": market_status()}
 
@@ -353,6 +353,25 @@ async def reset_account(body: ResetRequest = None):
     return await engine.account_summary()
 
 
+@router.post("/account/rebase")
+async def rebase_account():
+    """Switch of HFM account (demo → real money): re-base the capital to the new account's equity keeping trades, counters and strategy knowledge."""
+    c = fx_store.cfg
+    if not engine.live:
+        raise HTTPException(409, "Cambiar de cuenta solo aplica en modo REAL; en paper usa «Reiniciar»")
+    if not (c.metaapi_account_id and c.hfm_verified_at):
+        raise HTTPException(409, "Vincula y prueba la conexión de la cuenta nueva antes de cambiar de cuenta")
+    if engine.running:
+        raise HTTPException(409, "Detén el bot antes de cambiar de cuenta")
+    if await engine.db.positions.count_documents({}):
+        raise HTTPException(409, "Cierra las posiciones abiertas antes de cambiar de cuenta")
+    try:
+        out = await engine.rebase_account()
+    except ValueError as e:
+        raise HTTPException(424, str(e))
+    return {**out, "account": await engine.account_summary()}
+
+
 @router.get("/performance")
 async def get_performance():
     return await performance(engine.db, fx_shadow_stats)
@@ -623,7 +642,7 @@ async def _mode_checks() -> dict:
         {"key": "paper", "label": "Validación en paper: ≥ 30 operaciones con profit factor ≥ 1.2", "required": False,
          "ok": acc["total_trades"] >= 30 and (acc["profit_factor"] or 0) >= 1.2, "detail": f"{acc['total_trades']} ops · PF {acc['profit_factor'] or '—'}"},
     ]
-    return {"mode": c.trading_mode, "env": c.mt_server or "HFM", "live_since": c.live_since, "checks": checks,
+    return {"mode": c.trading_mode, "env": c.mt_server or "HFM", "account_kind": engine.account_kind(), "live_since": c.live_since, "checks": checks,
             "can_go_live": all(x["ok"] for x in checks if x["required"]), "verified_equity": c.hfm_verified_equity, "currency": c.hfm_currency or "USD"}
 
 
@@ -650,9 +669,10 @@ async def set_mode(body: ModeRequest):
         await fx_store.update({"trading_mode": "live", "live_since": now_iso()})
         if body.reset_stats:
             await engine.reset_account(fx_store.cfg.hfm_verified_equity or None)
-        await engine.log("RISK", f"MODO REAL ACTIVADO · HFM {fx_store.cfg.mt_server} vía MetaApi · el bot operará con dinero real al iniciarse")
-        await engine.tg(f"🚨 <b>MODO REAL ACTIVADO</b> · HFM {fx_store.cfg.mt_server}\nEquidad {fx_store.cfg.hfm_verified_equity or 0:,.2f} {fx_store.cfg.hfm_currency}. "
-                        "El bot operará con dinero real cuando lo inicies.", "orders")
+        demo = engine.account_kind() == "demo"
+        await engine.log("RISK", f"MODO REAL ACTIVADO · HFM {fx_store.cfg.mt_server} vía MetaApi · " + ("cuenta DEMO: dinero ficticio, el bot opera igual que en real" if demo else "el bot operará con dinero real al iniciarse"))
+        await engine.tg(f"🚨 <b>MODO REAL ACTIVADO</b> · HFM {fx_store.cfg.mt_server}{' · <b>cuenta DEMO</b>' if demo else ''}\nEquidad {fx_store.cfg.hfm_verified_equity or 0:,.2f} {fx_store.cfg.hfm_currency}. "
+                        + ("Dinero ficticio del servidor demo; el bot opera y aprende igual que en real." if demo else "El bot operará con dinero real cuando lo inicies."), "orders")
     else:
         await fx_store.update({"trading_mode": "paper", "live_since": None})
         if body.reset_stats:

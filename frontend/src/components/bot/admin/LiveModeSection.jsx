@@ -46,9 +46,10 @@ export default function LiveModeSection({ config, refresh, labels = BYBIT_LIVE_L
 
   if (!data) return <Panel testId="livemode-section" title="Modo de operación" icon={Rocket} bodyClass="p-4"><Loader2 className="h-4 w-4 animate-spin text-slate-500" /></Panel>;
   const live = data.mode === "live";
+  const demo = live && data.account_kind === "demo";
   return (
     <Panel testId="livemode-section" title="Modo de operación" icon={Rocket} bodyClass="p-4 space-y-3"
-      actions={<span data-testid="livemode-badge" className={`rounded-sm border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${live ? "border-rose-500/50 bg-rose-500/10 text-rose-300" : "border-amber-500/40 bg-amber-500/10 text-amber-300"}`}>{live ? `REAL · ${data.env}` : "PAPER"}</span>}>
+      actions={<span data-testid="livemode-badge" className={`rounded-sm border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${demo ? "border-sky-500/50 bg-sky-500/10 text-sky-300" : live ? "border-rose-500/50 bg-rose-500/10 text-rose-300" : "border-amber-500/40 bg-amber-500/10 text-amber-300"}`}>{live ? `REAL · ${demo ? "CUENTA DEMO · " : ""}${data.env}` : "PAPER"}</span>}>
       <p className="text-[12px] leading-relaxed text-slate-400">
         {live ? labels.liveDesc(data) : labels.paperDesc(data)}
       </p>

@@ -20,7 +20,10 @@ export default function TradeHistory({ trades }) {
         <tbody className="num text-[12px]">
           {trades.map((t) => (
             <tr key={t.id} data-testid={`trade-row-${t.id}`} className="border-b border-[#1E293B]/60 transition-colors hover:bg-[#111827]">
-              <TD className="text-slate-400">{fmtDateTime(t.closed_at)}</TD>
+              <TD className="text-slate-400">
+                {fmtDateTime(t.closed_at)}
+                {t.period && <span data-testid={`trade-period-${t.id}`} title={t.period} className="mt-0.5 block w-fit rounded-[2px] border border-slate-600/60 px-1 font-mono text-[9px] uppercase tracking-wider text-slate-500">periodo anterior</span>}
+              </TD>
               <TD>
                 <p className="font-display text-[13px] font-semibold text-slate-100">{t.symbol}</p>
                 <p className="text-[10px] text-slate-500">{STRATEGY_LABELS[t.strategy]}</p>

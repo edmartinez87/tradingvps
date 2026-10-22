@@ -51,7 +51,7 @@ export default function FxAdminSettings({ account, refresh }) {
         <p className="text-[12px] text-slate-500">Cuenta real de HFM (vía MetaApi) y cambio de modo, agente de noticias y trading por noticias, revisión IA automática, resumen semanal y cuenta paper. La clave de acceso, la IA y Telegram son compartidos con el bot de criptomonedas. La estrategia y el riesgo se configuran desde el panel principal.</p>
       </div>
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-        <HfmSection config={config} onSave={save} onRefresh={load} />
+        <HfmSection config={config} onSave={save} onRefresh={() => { load(); refresh?.(); }} account={account} />
         <LiveModeSection config={config} refresh={() => { load(); refresh?.(); }} labels={HFM_LIVE_LABELS} />
         <FxNewsSection config={config} onSave={save} />
         <AutoReviewSection config={config} onSave={save} onRan={load} desc={AUTO_REVIEW_DESC} />

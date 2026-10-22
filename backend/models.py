@@ -168,6 +168,7 @@ class Trade(BaseDocument):
     reason: str
     opened_at: str
     live: bool = False
+    period: str = ""
     closed_at: str = Field(default_factory=now_iso)
 
 

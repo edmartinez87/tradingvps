@@ -78,6 +78,12 @@ export function buildFaq(bot) {
             : "Aparece un banner rojo «Bybit no responde» y el bot no envía órdenes hasta que vuelve; las posiciones abiertas conservan su stop y objetivo en el exchange." },
     { cat: "Modo REAL", q: "¿Puedo tener operaciones manuales en la misma cuenta?", tags: ["manual", "externas", "posiciones externas"],
       a: "Puedes, pero no es recomendable: el bot detecta posiciones que no gestiona y lo avisa en el log, pero no las toca ni las cuenta en sus estadísticas, y su equidad sí afecta al tamaño de las órdenes del bot. Lo ideal es una subcuenta o cuenta dedicada." },
+    ...(fx ? [
+      { cat: "Modo REAL", q: "¿El bot aprende igual en REAL con una cuenta demo de HFM?", tags: ["demo", "aprender", "fases", "reiniciar estadísticas"],
+        a: "Sí. La revisión IA, el walk-forward, el shadow trading, la Evolución y las fases del plan funcionan igual en paper y en REAL (demo o dinero real): solo cambia dónde se ejecutan las órdenes. La cabecera muestra «Cuenta demo» cuando el servidor es …-Demo. Al «reiniciar estadísticas» se borran operaciones, equidad, señales y shadow (los contadores de la fase vuelven a cero), pero se conservan los parámetros aprendidos, la fase del plan, la Evolución y el walk-forward." },
+      { cat: "Modo REAL", q: "¿Qué hago al pasar de la cuenta demo a una con dinero real?", tags: ["cambiar de cuenta", "re-basar", "saldo", "capital inicial"],
+        a: "Detén el bot y cierra posiciones; en Ajustes → HotForex introduce la cuenta nueva, Guardar, Vincular, Probar conexión y Comprobar símbolos. El saldo y la equidad se leen del bróker automáticamente, pero el capital inicial seguiría siendo el de la demo: pulsa «Cambiar de cuenta · re-basar capital» para que el capital inicial, el pico de equidad y el límite diario pasen a la equidad real conservando operaciones (marcadas «periodo anterior»), contadores del plan y todo lo aprendido. «Reiniciar» en la cabecera hace lo mismo pero borrando el historial." },
+    ] : []),
     { cat: "Modo REAL", q: "¿Cómo vuelvo a paper?", tags: ["volver a paper"],
       a: "Detén el bot, cierra las posiciones y pulsa «Volver a paper» en Ajustes → Modo de operación. Las credenciales se conservan (puedes quitarlas con «Quitar») y la cuenta paper se reinicia a $500." },
 

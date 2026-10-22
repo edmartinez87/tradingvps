@@ -8,6 +8,7 @@ import { Panel } from "@/components/bot/Panel";
 import { http, errMsg, fmtDateTime } from "@/lib/api";
 import { Field, INPUT, BTN, BTN_OUT } from "@/components/bot/admin/SecuritySection";
 import { HfmPlanPicker, HfmRecreateNotice } from "./HfmPlanPicker";
+import { HfmSwitchAccount } from "./HfmSwitchAccount";
 
 const STATE_TONE = { DEPLOYED: "border-emerald-500/40 text-emerald-400", TOKEN_OK: "border-sky-500/40 text-sky-300" };
 const REDEPLOY_STATES = ["DEPLOY_FAILED", "REDEPLOY_FAILED", "UNDEPLOYED", "DISCONNECTED", "DISCONNECTED_FROM_BROKER"];
@@ -38,7 +39,7 @@ function SymbolsCheck({ data }) {
   );
 }
 
-export default function HfmSection({ config, onSave, onRefresh }) {
+export default function HfmSection({ config, onSave, onRefresh, account }) {
   const [form, setForm] = useState({ metaapi_token: "", mt_login: config.mt_login || "", mt_password: "", mt_server: config.mt_server || "",
     mt_platform: config.mt_platform || "mt5", metaapi_region: config.metaapi_region || "new-york", mt_symbol_suffix: config.mt_symbol_suffix || "",
     metaapi_base_url: config.metaapi_base_url || "", hfm_alert_after_sec: config.hfm_alert_after_sec ?? 60, metaapi_plan: config.metaapi_plan || "g2-high" });
@@ -190,6 +191,7 @@ export default function HfmSection({ config, onSave, onRefresh }) {
         </div>
       )}
       {symbols && <SymbolsCheck data={symbols} />}
+      <HfmSwitchAccount config={config} account={account} onDone={onRefresh} />
     </Panel>
   );
 }
