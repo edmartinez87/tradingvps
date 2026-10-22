@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 31 feature 'Instalar en tu VPS' frontend E2E (Playwright, 1920x800) on /bybit and /hotforex. All requested flows pass: header button text/toggle, vps-install-view, package meta (version 8974620, 218 files), blob ZIP download (ai-trader-8974620-20261022.zip, ~820 KB, valid PK zip) + 'Paquete descargado' toast, 11 steps, progress 0→1 de 11, localStorage persistence across reload and unmark, copy button toast 'Comando copiado' + 'Copiado' label reverting after ~1.8s, 6 requirements / 9 commands / 9 trouble items with accordion expanding, back button + header toggle back to dashboard/fx-dashboard, docs regression and mutual exclusion of Ajustes/Documentación/VPS views. Backend sanity: /api/deploy/info 401 without token, available:true with token. No page errors. Bots not touched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Header (both bots) when view==='deploy'", "issues": ["Hovering the active 'Volver al panel' deploy-view-button shows amber background (rgba(245,163,0,0.9), inherited from shadcn Button default variant hover:bg-primary/90) with emerald text rgb(110,231,183) — low contrast/off-theme. Add explicit hover class for the active state, e.g. 'hover:bg-[#1a2333]'."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": ["(Minor) Fix hover style of active deploy-view-button in Header.jsx (~line 131) so it doesn't turn amber with emerald text."],
+  "critical_code_review_comments": [
+    "VpsDownloadCard refetches /api/deploy/info on every mount (spinner 'Comprobando la versión…' each time the view opens) — acceptable, could cache.",
+    "CodeBlock fallback uses deprecated document.execCommand; fine as fallback but toast 'Comando copiado' is shown even if both copy methods fail."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only; quick curl OK)", "frontend": "100%"},
+  "seed_data_creation": "None. localStorage vps_steps_done cleared after test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login at / with password from /app/memory/test_credentials.md. Labels are CSS-uppercased: compare inner_text case-insensitively. Download via page.expect_download works (blob anchor). Report numbering: previous highest was iteration_28.json."
+}
