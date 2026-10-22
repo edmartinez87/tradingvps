@@ -1,5 +1,17 @@
 # Despliegue en VPS (Docker)
 
+Guía completa paso a paso (también en el panel, botón «Instalar en tu VPS»): [`INSTALACION.md`](INSTALACION.md).
+
+Opción A · desde el zip descargado en el panel:
+
+```bash
+apt-get update && apt-get install -y unzip
+cd /root && unzip -q ai-trader-*.zip && cd ai-trader/deploy
+sudo bash install.sh
+```
+
+Opción B · desde git:
+
 ```bash
 sudo apt-get update && sudo apt-get install -y git
 git clone <URL_DEL_REPO> cryptobot && cd cryptobot/deploy
@@ -16,7 +28,9 @@ y copia de seguridad nocturna de MongoDB (03:00 UTC, los domingos también por T
 | `docker compose ps` | estado de los servicios |
 | `docker compose logs -f backend` | logs del bot |
 | `docker compose restart backend` | reiniciar el bot |
-| `./update.sh` | traer la última versión y reconstruir |
+| `./update.sh` | traer la última versión y reconstruir (instalación con git) |
+| `bash update-zip.sh /root/ai-trader-NUEVO.zip` | actualizar con un zip nuevo descargado del panel (conserva .env, backend.env, backups/ y la base de datos) |
+| `bash reset-password.sh` | poner una contraseña nueva al panel si la olvidaste |
 | `bash cron-ai-review.sh` | disparar la revisión IA manualmente (Bybit y HotForex) |
 | `bash cron-walk-forward.sh` | revalidar ahora con walk-forward los pares con SL/TP optimizados (Bybit y HotForex) |
 | `bash cron-weekly-summary.sh` | enviar ahora el resumen semanal por Telegram (Bybit y HotForex) |

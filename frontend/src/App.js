@@ -12,6 +12,7 @@ import Header from "@/components/bot/Header";
 import Login from "@/components/bot/Login";
 import AdminSettings from "@/components/bot/AdminSettings";
 import Documentation from "@/components/docs/Documentation";
+import VpsInstall from "@/components/deploy/VpsInstall";
 import KpiStrip from "@/components/bot/KpiStrip";
 import Watchlist from "@/components/bot/Watchlist";
 import PriceChart from "@/components/bot/PriceChart";
@@ -83,9 +84,12 @@ function Dashboard({ onLogout }) {
       <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} onSwitchBot={() => nav("/")}
         onSettings={() => setView((v) => (v === "settings" ? "panel" : "settings"))}
         onDocs={() => setView((v) => (v === "docs" ? "panel" : "docs"))}
+        onDeploy={() => setView((v) => (v === "deploy" ? "panel" : "deploy"))}
         onScan={() => act(() => http.post("/bot/scan"), "Escaneo solicitado")}
         onReset={() => act(() => http.post("/account/reset", {}), "Cuenta paper reiniciada")} />
-      {view === "docs" ? (
+      {view === "deploy" ? (
+        <main className="mx-auto max-w-[1920px] p-4 md:p-6"><VpsInstall onBack={() => setView("panel")} /></main>
+      ) : view === "docs" ? (
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><Documentation bot="crypto" onBack={() => setView("panel")} /></main>
       ) : view === "settings" ? (
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><AdminSettings account={data.account} refresh={refresh} /></main>

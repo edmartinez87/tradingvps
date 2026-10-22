@@ -28,7 +28,7 @@ from profiles import PROFILES, detect_profile, profile_patch  # noqa: E402
 import migrations  # noqa: E402
 import funding  # noqa: E402
 from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news, ai_usage  # noqa: E402
-from routers import cron_routes, weekly_routes, walk_forward_routes, bybit_routes, ai_routes, analysis_routes, backup_routes  # noqa: E402
+from routers import cron_routes, weekly_routes, walk_forward_routes, bybit_routes, ai_routes, analysis_routes, backup_routes, deploy_routes  # noqa: E402
 from routers.shared_routes import add_shared_routes  # noqa: E402
 from fx import routes as fx_routes  # noqa: E402
 
@@ -334,6 +334,7 @@ app.include_router(cron_routes.router)
 app.include_router(weekly_routes.router)
 app.include_router(walk_forward_routes.router)
 app.include_router(backup_routes.router)
+app.include_router(deploy_routes.router)
 app.include_router(fx_routes.router)
 app.add_middleware(
     CORSMiddleware,
@@ -341,6 +342,7 @@ app.add_middleware(
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "X-Package-Version"],
 )
 
 

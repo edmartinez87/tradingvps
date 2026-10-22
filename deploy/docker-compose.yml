@@ -13,8 +13,10 @@ services:
     env_file: backend.env
     environment:
       - BACKUP_DIR=/data/backups
+      - APP_SOURCE_DIR=/src
     volumes:
       - ./backups:/data/backups
+      - ..:/src:ro
     depends_on:
       - mongo
     ports:

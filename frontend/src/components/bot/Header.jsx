@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Zap, Play, Square, RefreshCw, RotateCcw, Database, Timer, Settings2, LogOut, LayoutGrid, BookOpen } from "lucide-react";
+import { Zap, Play, Square, RefreshCw, RotateCcw, Database, Timer, Settings2, LogOut, LayoutGrid, BookOpen, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -34,7 +34,7 @@ const StatusPill = ({ status }) => {
   );
 };
 
-export default function Header({ status, onToggle, onScan, onReset, busy, onSettings, onDocs, onLogout, view, onSwitchBot, brand = CRYPTO_BRAND }) {
+export default function Header({ status, onToggle, onScan, onReset, busy, onSettings, onDocs, onDeploy, onLogout, view, onSwitchBot, brand = CRYPTO_BRAND }) {
   const [count, setCount] = useState(status.next_scan_in);
   useEffect(() => setCount(status.next_scan_in), [status.next_scan_in]);
   useEffect(() => {
@@ -123,6 +123,13 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
               className={`docs-glow h-8 font-mono text-[11px] font-bold uppercase tracking-wider transition-transform hover:-translate-y-px ${
                 view === "docs" ? "bg-[#111827] text-amber-300 ring-1 ring-amber-500/60" : "bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400 text-[#07090E] hover:from-amber-300 hover:via-orange-300 hover:to-rose-300"}`}>
               <BookOpen className="mr-1.5 h-3.5 w-3.5" /> {view === "docs" ? "Volver al panel" : "Documentación"}
+            </Button>
+          )}
+          {onDeploy && (
+            <Button data-testid="deploy-view-button" size="sm" onClick={onDeploy} title="Descarga la app completa e instálala en tu propio servidor, paso a paso"
+              className={`vps-glow h-8 font-mono text-[11px] font-bold uppercase tracking-wider transition-transform hover:-translate-y-px ${
+                view === "deploy" ? "bg-[#111827] text-emerald-300 ring-1 ring-emerald-500/60" : "border border-emerald-400/60 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"}`}>
+              <Server className="mr-1.5 h-3.5 w-3.5" /> {view === "deploy" ? "Volver al panel" : "Instalar en tu VPS"}
             </Button>
           )}
           {onSwitchBot && (

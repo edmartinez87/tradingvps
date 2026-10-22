@@ -110,11 +110,20 @@
   50% { box-shadow: 0 0 0 4px rgba(247, 166, 0, 0), 0 0 26px rgba(251, 146, 60, 0.55); }
 }
 
+.vps-glow {
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45), 0 0 14px rgba(16, 185, 129, 0.25);
+  animation: vps-glow 3.2s ease-in-out infinite;
+}
+@keyframes vps-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.35), 0 0 10px rgba(16, 185, 129, 0.2); }
+  50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0), 0 0 22px rgba(52, 211, 153, 0.5); }
+}
+
 ::selection {
   background: rgba(247, 166, 0, 0.35);
   color: #fff;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rise, .flash-up, .flash-down, .pulse-dot::after, .docs-glow { animation: none; opacity: 1; transform: none; }
+  .rise, .flash-up, .flash-down, .pulse-dot::after, .docs-glow, .vps-glow { animation: none; opacity: 1; transform: none; }
 }

@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 [ "$(id -u)" -eq 0 ] || { echo "Ejecuta como root: sudo bash install.sh"; exit 1; }
 
 echo "==> [1/6] Docker"
+command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl; }
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
@@ -55,7 +56,7 @@ mkdir -p backups
 docker compose up -d --build
 
 echo "==> [5/6] Crons: revisión IA (08:00 UTC), walk-forward semanal (lunes 07:00 UTC), resumen semanal (domingo 20:00 UTC) y copia de seguridad nocturna (03:00 UTC; los domingos también por Telegram)"
-chmod +x cron-ai-review.sh cron-walk-forward.sh cron-weekly-summary.sh backup.sh restore.sh update.sh
+chmod +x cron-ai-review.sh cron-walk-forward.sh cron-weekly-summary.sh backup.sh restore.sh update.sh update-zip.sh reset-password.sh
 CRON_LINE="0 8 * * * /bin/bash $(pwd)/cron-ai-review.sh >> /var/log/cryptobot-cron.log 2>&1"
 WF_LINE="0 7 * * 1 /bin/bash $(pwd)/cron-walk-forward.sh >> /var/log/cryptobot-cron.log 2>&1"
 WK_LINE="0 20 * * 0 /bin/bash $(pwd)/cron-weekly-summary.sh >> /var/log/cryptobot-cron.log 2>&1"

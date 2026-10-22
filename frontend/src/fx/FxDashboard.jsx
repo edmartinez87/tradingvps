@@ -26,6 +26,7 @@ import SessionsStrip from "./SessionsStrip";
 import FxNewsPanel from "./FxNewsPanel";
 import FxAdminSettings from "./FxAdminSettings";
 import Documentation from "@/components/docs/Documentation";
+import VpsInstall from "@/components/deploy/VpsInstall";
 
 const TAB_CLS = "rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider data-[state=active]:bg-amber-500 data-[state=active]:text-[#07090E]";
 const FX_TFS = ["5m", "15m", "1h", "4h"];
@@ -103,9 +104,12 @@ export default function FxDashboard({ onLogout }) {
       <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} brand={FX_BRAND} onSwitchBot={() => nav("/")}
         onSettings={() => setView((v) => (v === "settings" ? "panel" : "settings"))}
         onDocs={() => setView((v) => (v === "docs" ? "panel" : "docs"))}
+        onDeploy={() => setView((v) => (v === "deploy" ? "panel" : "deploy"))}
         onScan={() => act(() => http.post("/bot/scan"), "Escaneo solicitado")}
         onReset={() => act(() => http.post("/account/reset", {}), "Cuenta paper reiniciada")} />
-      {view === "docs" ? (
+      {view === "deploy" ? (
+        <main className="mx-auto max-w-[1920px] p-4 md:p-6"><VpsInstall onBack={() => setView("panel")} /></main>
+      ) : view === "docs" ? (
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><Documentation bot="fx" onBack={() => setView("panel")} /></main>
       ) : view === "settings" ? (
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><FxAdminSettings account={data.account} refresh={refresh} /></main>
