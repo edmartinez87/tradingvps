@@ -17,7 +17,7 @@ from fx.ai import evaluate_signal
 from ai_advisor import label as ai_label
 from fx.backtest import build_fx_df
 from fx.live import FxLiveBroker, is_our_link
-from fx.metaapi import MetaApiError
+from fx.metaapi import MetaApiError, TRADE_DISABLED_CODES
 from fx.shadow import open_shadow, monitor_shadows
 import evolution
 import cashflow
@@ -618,9 +618,13 @@ class FxEngine:
                         await self.log("RISK", f"{symbol}: orden REAL no enviada · {reason} · verificado: no quedó ninguna orden abierta")
                         await self._tg_transient(symbol, e)
                         return None, reason
-                    await self.log("ERROR", f"{symbol}: orden REAL rechazada por HFM/MetaApi · {e.msg[:160]}")
-                    await self.tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{e.msg[:300]}", "orders")
-                    return None, f"orden REAL rechazada: {e.msg[:120]}"
+                    await self.log("ERROR", f"{symbol}: orden REAL rechazada por HFM/MetaApi · {e.msg[:260]}")
+                    await self.tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{e.msg[:400]}", "orders")
+                    if e.code in TRADE_DISABLED_CODES and self.store:
+                        bad = sorted(set(self.cfg.hfm_symbols_bad or []) | {symbol})
+                        await self.store.update({"hfm_symbols_bad": bad})
+                        await self.log("RISK", f"{symbol}: marcado como NO operable en HFM · no se enviarán más órdenes de este par hasta corregir el sufijo y volver a «Comprobar símbolos»")
+                    return None, f"orden REAL rechazada: {e.msg[:160]}"
                 except Exception as e:
                     await self.log("ERROR", f"{symbol}: orden REAL no enviada · {str(e)[:160]}")
                     await self.tg(f"⚠️ <b>Orden REAL no enviada · {symbol}</b>\n{str(e)[:300]}", "orders")
@@ -792,6 +796,8 @@ class FxEngine:
             return "límite de pérdida diaria alcanzado", "BLOQUEADA", open_syms
         if self.live and self.hfm["down_since"]:
             return "cuenta HFM sin conexión con MetaApi", "BLOQUEADA", open_syms
+        if self.live and self.cfg and symbol in (self.cfg.hfm_symbols_bad or []):
+            return "par no operable en HFM con el sufijo de símbolos configurado (Ajustes → HotForex → Comprobar símbolos)", "BLOQUEADA", open_syms
         return None, None, open_syms
 
     async def _handle_signal(self, symbol, sig, settings: FxSettings, df, htf, htf_tf):

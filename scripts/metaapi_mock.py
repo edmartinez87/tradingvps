@@ -25,7 +25,7 @@ state = {}
 
 def reset():
     state.clear()
-    state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True, "connected": True,
+    state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True, "connected": True, "suffix": "",
                   "balance_deals": [], "orders": [], "faults": {"trade_hang": 0.0, "trade_code": "", "trade_code_num": -10, "trade_times": 0, "trade_execute": False,
                                                                 "positions_hang": 0.0, "positions_times": 0, "positions_status": 0, "positions_after_trade": 0}})
 
@@ -47,7 +47,7 @@ def nid():
 
 
 async def price_of(symbol: str) -> float:
-    base = symbol.rstrip(".").replace(".r", "")
+    base = _split(symbol)[0]
     if base in state["prices"]:
         return state["prices"][base]
     spec = SPECS.get(base)
@@ -61,9 +61,24 @@ async def price_of(symbol: str) -> float:
     return p
 
 
+# HFM lists every account group's symbols (EURUSD, EURUSDb, EURUSDr…) but only the group matching the account (state["suffix"]) is tradable
+GROUP_SUFFIXES = ("", "b", "r", "c", "x", ".r")
+
+
+def _split(symbol: str):
+    for base in SPECS:
+        if symbol.startswith(base) and symbol[len(base):] in GROUP_SUFFIXES:
+            return base, symbol[len(base):]
+    return symbol, None
+
+
 def _spec(symbol: str):
-    base = symbol.replace(".r", "")
-    return base, SPECS.get(base)
+    base, suf = _split(symbol)
+    return base, (SPECS.get(base) if suf is not None else None)
+
+
+def _tradable(symbol: str) -> bool:
+    return _split(symbol)[1] == state["suffix"]
 
 
 def _pnl(p: dict, price: float) -> float:
@@ -175,7 +190,15 @@ async def specification(acc_id: str, symbol: str):
     if not spec:
         return JSONResponse({"message": f"Symbol {symbol} not found"}, status_code=404)
     return {"symbol": symbol, "tickSize": spec["pip"] / 10, "minVolume": 0.01, "maxVolume": 100, "volumeStep": 0.01, "digits": spec["digits"],
-            "contractSize": spec["contract"], "baseCurrency": spec["base"], "quoteCurrency": spec["quote"], "tradeMode": "SYMBOL_TRADE_MODE_FULL"}
+            "contractSize": spec["contract"], "baseCurrency": spec["base"], "quoteCurrency": spec["quote"],
+            "tradeMode": "SYMBOL_TRADE_MODE_FULL" if _tradable(symbol) else "SYMBOL_TRADE_MODE_DISABLED"}
+
+
+@app.get("/users/current/accounts/{acc_id}/symbols")
+async def symbols(acc_id: str):
+    if not state["connected"]:
+        return _not_connected()
+    return [f"{base}{suf}" for base in SPECS for suf in GROUP_SUFFIXES if suf != ".r"]
 
 
 @app.get("/users/current/accounts/{acc_id}/symbols/{symbol}/current-tick")
@@ -230,6 +253,8 @@ async def _trade(body: dict, action: str):
         base, spec = _spec(symbol)
         if not spec:
             return JSONResponse({"message": f"Symbol {symbol} not found"}, status_code=404)
+        if not _tradable(symbol):
+            return _retcode("ERR_TRADE_DISABLED", 133, "Trade is disabled")
         vol = float(body.get("volume") or 0)
         if vol < 0.01 or round(vol / 0.01) * 0.01 - vol > 1e-9:
             return _retcode("TRADE_RETCODE_INVALID_VOLUME", 10014, "Invalid volume")
@@ -323,6 +348,15 @@ async def force_close(pid: str, reason: str = "sl"):
     return {"ok": True, "deal": deal}
 
 
+@app.post("/mock/account-group")
+async def mock_account_group(suffix: str = ""):
+    """Simulates the HFM account type: '' Premium, 'b' Zero, 'r' Pro, 'c' Cent, 'x' InfinityX. Other groups' symbols quote but are trade-disabled."""
+    if suffix not in GROUP_SUFFIXES:
+        return JSONResponse({"message": f"suffix must be one of {GROUP_SUFFIXES}"}, status_code=400)
+    state["suffix"] = suffix
+    return {"ok": True, "suffix": suffix}
+
+
 @app.post("/mock/trade-allowed")
 async def set_trade_allowed(allowed: bool = True):
     state["trade_allowed"] = allowed
@@ -352,7 +386,7 @@ async def set_connection(connected: bool = True):
 async def mock_state():
     return {"balance": round(state["balance"], 2), "equity": _equity(), "positions": list(state["positions"].values()), "accounts": list(state["accounts"].values()),
             "deals": state["deals"], "prices": state["prices"], "trade_allowed": state["trade_allowed"], "connected": state["connected"], "faults": state["faults"],
-            "orders": state["orders"]}
+            "orders": state["orders"], "suffix": state["suffix"]}
 
 
 @app.post("/mock/reset")

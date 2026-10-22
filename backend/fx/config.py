@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from config import _enc, _dec, mask, _fernet
 from fx.symbols import CURRENCIES
 from fx.metaapi import PLANS, PLAN_COMMON, plan_key
+from fx.live import HFM_SUFFIXES
 
 SECRET_FIELDS = ("metaapi_token", "mt_password")
 REGIONS = ["new-york", "london"]
@@ -34,6 +35,9 @@ class FxConfig(BaseModel):
     hfm_verified_equity: Optional[float] = None
     hfm_currency: str = ""
     hfm_leverage: Optional[int] = None
+    hfm_suffix_kind: str = ""
+    hfm_symbols_bad: Optional[List[str]] = None
+    hfm_symbols_checked_at: Optional[str] = None
     hfm_alert_after_sec: int = 180
     news_enabled: bool = True
     news_interval_min: int = 15
@@ -135,6 +139,7 @@ class FxConfigStore:
         d["mt_platforms"] = PLATFORMS
         d["metaapi_plans"] = [{"key": k, **p, "month_usd": round(p["hour_usd"] * 24 * 30, 2)} for k, p in PLANS.items()]
         d["metaapi_plan_common"] = PLAN_COMMON
+        d["hfm_suffixes"] = [{"suffix": k, "label": v} for k, v in HFM_SUFFIXES.items()]
         d["hfm_current_plan"] = plan_key(self.cfg.hfm_account_type, self.cfg.hfm_reliability) if self.cfg.metaapi_account_id and self.cfg.hfm_account_type else ""
         d["hfm_plan_mismatch"] = bool(d["hfm_current_plan"] and d["hfm_current_plan"] != self.cfg.metaapi_plan)
         d["news_currencies"] = CURRENCIES
@@ -150,7 +155,8 @@ class FxConfigStore:
         if body.clear_hfm:
             patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", metaapi_base_url="", mt_symbol_suffix="",
                          hfm_state="", hfm_connection="", hfm_broker="", hfm_account_type="", hfm_reliability="",
-                         hfm_trade_allowed=None, hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None)
+                         hfm_trade_allowed=None, hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None,
+                         hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked_at=None)
         if "mt_platform" in patch and patch["mt_platform"] not in PLATFORMS:
             raise ValueError("Plataforma inválida (mt4 o mt5)")
         if "metaapi_plan" in patch and patch["metaapi_plan"] not in PLANS:
@@ -170,5 +176,7 @@ class FxConfigStore:
         if changed and not body.clear_hfm:
             patch.update(hfm_verified_at=None, hfm_verified_equity=None, hfm_state="", hfm_connection="", hfm_trade_allowed=None)
             if changed - {"metaapi_token", "mt_password"}:
-                patch.update(metaapi_account_id="", hfm_account_type="", hfm_reliability="")
+                patch.update(metaapi_account_id="", hfm_account_type="", hfm_reliability="", hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked_at=None)
+        if "mt_symbol_suffix" in patch and patch["mt_symbol_suffix"] != self.cfg.mt_symbol_suffix and not body.clear_hfm:
+            patch.update(hfm_symbols_bad=None, hfm_symbols_checked_at=None)
         return patch

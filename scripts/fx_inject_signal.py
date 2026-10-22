@@ -15,6 +15,7 @@ async def main(symbol: str, side: str, ai: bool):
     db = AsyncIOMotorClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
     eng = FxEngine(db)
     store = FxConfigStore(db)
+    eng.store = store
     store.listeners.append(eng.apply_config)
     await store.load()
     await eng.market.detect()

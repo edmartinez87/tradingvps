@@ -22,7 +22,7 @@ from fx.config import FxConfigUpdate
 from fx.symbols import SPECS, AVAILABLE, CURRENCIES, CURRENCY_NAMES, pips
 from fx.market import TF_SECONDS, market_status, SESSIONS
 from fx.engine import FX_STRATEGY_INFO
-from fx.metaapi import MetaApi, MetaApiError, PLANS, plan_key
+from fx.metaapi import MetaApi, MetaApiError, PLANS, plan_key, SUFFIX_HINT
 from fx.live import FxLiveBroker
 from fx.profiles import PROFILES, detect_profile, profile_patch
 from fx.backtest import run_backtest
@@ -517,7 +517,24 @@ async def hfm_test(body: HfmTestRequest = None):
     if out["account"] and saved and (ph := _plan_hint(out["account"])):
         out["plan_mismatch"] = True
         out["hint"] = ph
+    if out["info"] and saved and out["info"].get("tradeAllowed", True):
+        out["suffix"], out["symbols"] = await _probe_symbols()
     return out
+
+
+async def _probe_symbols():
+    """After a successful connection test: detect the account-type suffix, apply it and re-check tradability of every active pair (never fails the test)."""
+    c = fx_store.cfg
+    broker = FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix)
+    try:
+        det = await _detect_suffix(broker, apply=True)
+        if det.get("applied"):
+            broker.suffix = det["suffix"]
+        return det, await _check_symbols(broker)
+    except MetaApiError as e:
+        return {"suffix": None, "hint": f"No se pudo comprobar el sufijo de símbolos: {e.msg[:120]}"}, None
+    finally:
+        await broker.aclose()
 
 
 @router.post("/hfm/link")
@@ -608,16 +625,61 @@ async def hfm_symbols():
     c = fx_store.cfg
     if not (c.metaapi_token and c.metaapi_account_id):
         raise HTTPException(400, "Vincula y verifica primero la cuenta en MetaApi")
-    s = await engine.get_settings()
     broker = engine.broker or FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix)
     try:
-        rows = {sym: await broker.check_symbol(sym) for sym in s.symbols}
+        return await _check_symbols(broker)
     finally:
         if broker is not engine.broker:
             await broker.aclose()
-    bad = [sym for sym, r in rows.items() if not r["ok"]]
-    await engine.log("INFO", f"Símbolos HFM comprobados · {len(rows) - len(bad)}/{len(rows)} disponibles" + (f" · sin cotización: {', '.join(bad)}" if bad else ""))
-    return {"suffix": c.mt_symbol_suffix, "symbols": rows, "missing": bad}
+
+
+async def _check_symbols(broker: FxLiveBroker) -> dict:
+    """Quote + tradability of every active pair with the configured suffix; the result feeds the «Pasar a REAL» checklist."""
+    s = await engine.get_settings()
+    rows = {sym: await broker.check_symbol(sym) for sym in s.symbols}
+    missing = [sym for sym, r in rows.items() if not r["quoted"]]
+    disabled = [sym for sym, r in rows.items() if r["quoted"] and not r["ok"]]
+    bad = missing + disabled
+    await fx_store.update({"hfm_symbols_bad": bad, "hfm_symbols_checked_at": now_iso()})
+    await engine.log("RISK" if bad else "INFO", f"Símbolos HFM comprobados · {len(rows) - len(bad)}/{len(rows)} operables"
+                     + (f" · sin cotización: {', '.join(missing)}" if missing else "") + (f" · NO operables con el sufijo «{broker.suffix}»: {', '.join(disabled)} ({SUFFIX_HINT})" if disabled else ""))
+    return {"suffix": broker.suffix, "symbols": rows, "missing": missing, "disabled": disabled, "checked_at": fx_store.cfg.hfm_symbols_checked_at}
+
+
+@router.post("/hfm/detect-suffix")
+async def hfm_detect_suffix(apply: bool = True):
+    c = fx_store.cfg
+    if not (c.metaapi_token and c.metaapi_account_id):
+        raise HTTPException(400, "Vincula y verifica primero la cuenta en MetaApi")
+    broker = engine.broker or FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix)
+    try:
+        det = await _detect_suffix(broker, apply)
+    except MetaApiError as e:
+        raise HTTPException(424, e.msg)
+    finally:
+        if broker is not engine.broker:
+            await broker.aclose()
+    return det
+
+
+async def _detect_suffix(broker: FxLiveBroker, apply: bool) -> dict:
+    det = await broker.detect_suffix()
+    if det["suffix"] is None:
+        det["hint"] = f"Ningún {det['probe']} operable en esta cuenta (¿mercado cerrado o cuenta sin permiso de trading?) · sufijo sin cambios"
+        return det
+    kind = det["account_type"] or "otro tipo"
+    shown = f"«{det['suffix']}»" if det["suffix"] else "sin sufijo"
+    if det["matches"]:
+        det["hint"] = f"Sufijo de símbolos correcto: {shown} (cuenta HFM {kind})"
+        await fx_store.update({"hfm_suffix_kind": kind})
+    elif apply:
+        await fx_store.update({"mt_symbol_suffix": det["suffix"], "hfm_suffix_kind": kind})
+        det["applied"] = True
+        det["hint"] = f"Sufijo de símbolos detectado y aplicado: {shown} (cuenta HFM {kind}) · tus pares se enviarán como {det['probe']}{det['suffix']}"
+        await engine.log("INFO", f"Sufijo de símbolos HFM detectado: {shown} · cuenta {kind} · aplicado automáticamente")
+    else:
+        det["hint"] = f"Sufijo detectado {shown} (cuenta HFM {kind}); el configurado es {'«' + broker.suffix + '»' if broker.suffix else 'ninguno'}"
+    return det
 
 
 async def _mode_checks() -> dict:
@@ -637,6 +699,10 @@ async def _mode_checks() -> dict:
          "detail": f"equidad {c.hfm_verified_equity:,.2f} {c.hfm_currency}" if c.hfm_verified_equity is not None else None},
         {"key": "trade_allowed", "label": "La cuenta permite operar (contraseña master)", "ok": c.hfm_trade_allowed is not False, "required": True,
          "detail": None if c.hfm_trade_allowed is not False else "trading deshabilitado o contraseña investor"},
+        {"key": "symbols", "label": "Pares operables en HFM con el sufijo de símbolos configurado", "ok": c.hfm_symbols_bad == [], "required": True,
+         "detail": ("sin comprobar · pulsa «Probar conexión» o «Comprobar símbolos»" if c.hfm_symbols_bad is None
+                    else f"no operables: {', '.join(c.hfm_symbols_bad)} · revisa el sufijo" if c.hfm_symbols_bad
+                    else f"sufijo {'«' + c.mt_symbol_suffix + '»' if c.mt_symbol_suffix else 'ninguno'}" + (f" · cuenta {c.hfm_suffix_kind}" if c.hfm_suffix_kind else ""))},
         {"key": "stopped", "label": "Bot detenido", "ok": not engine.running, "required": True},
         {"key": "flat", "label": "Sin posiciones abiertas", "ok": open_pos == 0, "required": True, "detail": f"{open_pos} abiertas" if open_pos else None},
         {"key": "paper", "label": "Validación en paper: ≥ 30 operaciones con profit factor ≥ 1.2", "required": False,

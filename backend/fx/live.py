@@ -33,6 +33,18 @@ def is_our_link(client_id) -> bool:
     return bool(_LINK_OPEN_RE.match(str(client_id or "")))
 
 
+# HFM symbol suffix per account type (hfm.com → "What symbol suffixes are used for each account type")
+HFM_SUFFIXES = {"": "Premium", "b": "Zero", "r": "Pro", "c": "Cent", "x": "InfinityX"}
+TRADE_MODE_FULL = "SYMBOL_TRADE_MODE_FULL"
+TRADE_MODE_TXT = {TRADE_MODE_FULL: "operable", "SYMBOL_TRADE_MODE_DISABLED": "deshabilitado", "SYMBOL_TRADE_MODE_CLOSEONLY": "solo cierre",
+                  "SYMBOL_TRADE_MODE_LONGONLY": "solo compras", "SYMBOL_TRADE_MODE_SHORTONLY": "solo ventas"}
+SUFFIX_PROBE = "EURUSD"
+
+
+def trade_mode_txt(mode) -> str:
+    return TRADE_MODE_TXT.get(str(mode or ""), "operable" if not mode else str(mode))
+
+
 def q_step(v: float, step: float) -> float:
     if not step or step <= 0:
         return v
@@ -94,19 +106,49 @@ class FxLiveBroker:
         return next((p for p in await self.positions(max_age) if p["id"] == str(position_id)), None)
 
     async def lot(self, symbol: str) -> dict:
-        s = await self.api.spec(self.account_id, self.broker_symbol(symbol), self.region)
+        return self._lot_from(symbol, await self.api.spec(self.account_id, self.broker_symbol(symbol), self.region))
+
+    def _lot_from(self, symbol: str, s: dict) -> dict:
         return {"min": float(s.get("minVolume") or 0.01), "step": float(s.get("volumeStep") or 0.01), "max": float(s.get("maxVolume") or 100),
                 "digits": int(s.get("digits") if s.get("digits") is not None else SPECS[symbol]["digits"]), "tick": float(s.get("tickSize") or 0),
                 "contract": float(s.get("contractSize") or SPECS[symbol]["contract"]), "symbol": self.broker_symbol(symbol)}
 
     async def check_symbol(self, symbol: str) -> dict:
+        """Quote AND tradability: HFM lists every account group's symbols, but only the ones with your suffix are tradable (others → ERR_TRADE_DISABLED)."""
         try:
-            lot = await self.lot(symbol)
+            spec = await self.api.spec(self.account_id, self.broker_symbol(symbol), self.region, max_age=0)
+            lot = self._lot_from(symbol, spec)
             tick = await self.api.tick(self.account_id, self.broker_symbol(symbol), self.region)
-            return {"ok": True, "broker_symbol": lot["symbol"], "min_lot": lot["min"], "lot_step": lot["step"], "digits": lot["digits"],
-                    "contract": lot["contract"], "bid": tick.get("bid"), "ask": tick.get("ask"), "error": None}
+            mode = spec.get("tradeMode") or TRADE_MODE_FULL
+            ok = mode == TRADE_MODE_FULL
+            return {"ok": ok, "quoted": True, "broker_symbol": lot["symbol"], "min_lot": lot["min"], "lot_step": lot["step"], "digits": lot["digits"],
+                    "contract": lot["contract"], "bid": tick.get("bid"), "ask": tick.get("ask"), "trade_mode": trade_mode_txt(mode),
+                    "error": None if ok else f"cotiza pero NO es operable en esta cuenta ({trade_mode_txt(mode)}) · sufijo de símbolos incorrecto"}
         except MetaApiError as e:
-            return {"ok": False, "broker_symbol": self.broker_symbol(symbol), "error": e.msg}
+            return {"ok": False, "quoted": False, "broker_symbol": self.broker_symbol(symbol), "trade_mode": None, "error": e.msg}
+
+    async def detect_suffix(self, probe: str = SUFFIX_PROBE) -> dict:
+        """Finds which variant of `probe` (EURUSD, EURUSDb, EURUSDr…) the account can actually trade → the symbol suffix of this account type."""
+        try:
+            names = await self.api.symbols(self.account_id, self.region)
+            cands = sorted({n[len(probe):] for n in names if n.startswith(probe) and len(n) - len(probe) <= 4}, key=lambda s: (len(s), s))
+        except MetaApiError:
+            cands = []
+        if not cands:
+            cands = list(HFM_SUFFIXES)
+        rows = []
+        for suf in cands[:8]:
+            try:
+                spec = await self.api.spec(self.account_id, probe + suf, self.region, max_age=0)
+                rows.append({"suffix": suf, "symbol": probe + suf, "trade_mode": trade_mode_txt(spec.get("tradeMode") or TRADE_MODE_FULL),
+                             "tradable": (spec.get("tradeMode") or TRADE_MODE_FULL) == TRADE_MODE_FULL})
+            except MetaApiError as e:
+                if e.status not in (404, 400):
+                    raise
+        tradable = [r for r in rows if r["tradable"]]
+        chosen = tradable[0]["suffix"] if tradable else None
+        return {"suffix": chosen, "account_type": HFM_SUFFIXES.get(chosen) if chosen is not None else None, "probe": probe, "candidates": rows,
+                "current": self.suffix, "matches": chosen == self.suffix if chosen is not None else None}
 
     async def _wait_position(self, position_id: str, tries: int = 6) -> dict | None:
         for i in range(tries):

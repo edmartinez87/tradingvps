@@ -141,7 +141,8 @@ class TestFxLive:
         d = s.get(f"{FX}/mode", timeout=30).json()
         assert d["mode"] == "paper" and d["env"] == "HFMarketsGlobal-Demo" and d["currency"] == "USD" and d["verified_equity"] == 1000.0
         keys = [c["key"] for c in d["checks"]]
-        assert keys == ["keys", "linked", "verified", "trade_allowed", "stopped", "flat", "paper"]
+        assert keys == ["keys", "linked", "verified", "trade_allowed", "symbols", "stopped", "flat", "paper"]
+        assert next(c for c in d["checks"] if c["key"] == "symbols")["ok"] is True  # /hfm/test probed tradability (iter 37)
         assert d["can_go_live"] is True
         assert s.post(f"{FX}/mode", json={"mode": "live", "confirm": "nope"}, timeout=30).status_code == 400
         assert s.post(f"{FX}/mode", json={"mode": "foo"}, timeout=30).status_code == 400

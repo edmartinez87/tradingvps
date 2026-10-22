@@ -25,6 +25,9 @@ def plan_key(acc_type: str, reliability: str) -> str:
     r = "regular" if (reliability or "high") == "regular" and t == "cloud-g1" else "high"
     return next(k for k, p in PLANS.items() if p["type"] == t and p["reliability"] == r)
 OK_CODES = {"TRADE_RETCODE_DONE", "TRADE_RETCODE_PLACED", "TRADE_RETCODE_DONE_PARTIAL", "TRADE_RETCODE_NO_CHANGES", "ERR_NO_ERROR"}
+# the symbol quotes but the account group may not trade it (HFM: each account type has its own symbol suffix)
+TRADE_DISABLED_CODES = {"TRADE_RETCODE_TRADE_DISABLED", "ERR_TRADE_DISABLED"}
+SUFFIX_HINT = "el símbolo cotiza pero no es operable en esta cuenta: revisa el sufijo de símbolos (HFM: Premium sin sufijo, Zero «b», Pro «r», Cent «c», InfinityX «x»)"
 # Result unknown (MetaApi docs): the request may have reached the broker → verify by clientId before retrying.
 UNKNOWN_CODES = {"TRADE_RETCODE_DISCONNECTED_DURING_TRADE", "ERR_TRADE_TIMED_OUT", "ERR_TRADE_TIMEOUT", "ERR_NO_RESULT", "TRADE_RETCODE_TIMEOUT"}
 # Failed for sure but transient (terminal/broker connection, quotes, busy) → safe to retry after a short wait.
@@ -37,7 +40,8 @@ RETCODE_TXT = {
     "TRADE_RETCODE_INVALID": "petición inválida", "TRADE_RETCODE_INVALID_VOLUME": "volumen inválido (lote mínimo/paso)", "TRADE_RETCODE_INVALID_PRICE": "precio inválido",
     "TRADE_RETCODE_INVALID_STOPS": "SL/TP demasiado cerca del precio (stops inválidos)", "TRADE_RETCODE_MARKET_CLOSED": "mercado cerrado",
     "TRADE_RETCODE_NO_MONEY": "margen insuficiente", "TRADE_RETCODE_PRICE_CHANGED": "el precio cambió", "TRADE_RETCODE_TOO_MANY_REQUESTS": "demasiadas peticiones",
-    "TRADE_RETCODE_TRADE_DISABLED": "trading deshabilitado en la cuenta", "TRADE_RETCODE_POSITION_CLOSED": "la posición ya estaba cerrada",
+    "TRADE_RETCODE_TRADE_DISABLED": "trading deshabilitado para este símbolo o cuenta", "ERR_TRADE_DISABLED": "trading deshabilitado para este símbolo o cuenta",
+    "TRADE_RETCODE_POSITION_CLOSED": "la posición ya estaba cerrada",
     "TRADE_RETCODE_DISCONNECTED_BEFORE_TRADE": "terminal sin conexión con el servidor de HFM (la orden no llegó al bróker)",
     "TRADE_RETCODE_DISCONNECTED_DURING_TRADE": "la conexión con HFM se cortó durante la orden (resultado desconocido)",
     "ERR_TRADE_TIMED_OUT": "la orden expiró sin respuesta del bróker (resultado desconocido)", "ERR_TRADE_TIMEOUT": "la orden expiró sin respuesta del bróker",
@@ -206,6 +210,11 @@ class MetaApi:
     async def tick(self, account_id: str, symbol: str, region: str = None) -> dict:
         return await self._call("GET", f"{self._acc(account_id, region)}/symbols/{quote(symbol, safe='')}/current-tick")
 
+    async def symbols(self, account_id: str, region: str = None) -> list:
+        """All symbol names known to the terminal (every HFM account group variant: EURUSD, EURUSDb, EURUSDr…)."""
+        res = await self._call("GET", f"{self._acc(account_id, region)}/symbols") or []
+        return [str(s.get("symbol") if isinstance(s, dict) else s) for s in res]
+
     async def deals_by_position(self, account_id: str, position_id: str, region: str = None) -> list:
         return await self._call("GET", f"{self._acc(account_id, region)}/history-deals/position/{position_id}") or []
 
@@ -245,6 +254,8 @@ class MetaApi:
         code = str(res.get("stringCode") or "")
         if code not in OK_CODES:
             txt = RETCODE_TXT.get(code, res.get("message") or code or "sin código de respuesta")
+            if code in TRADE_DISABLED_CODES:
+                txt = f"{txt} · {SUFFIX_HINT}"
             kind = "unknown" if code in UNKNOWN_CODES else ("transient" if code in TRANSIENT_CODES else "rejected")
             raise MetaApiError(200, f"MetaTrader: {txt} ({code or res.get('numericCode', '?')})", code, kind=kind)
         return res

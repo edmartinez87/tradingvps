@@ -23,11 +23,15 @@ const Sel = ({ value, onChange, options, testId, render }) => (
 
 function SymbolsCheck({ data }) {
   const rows = Object.entries(data.symbols);
+  const disabled = data.disabled || [];
+  const bad = data.missing.length + disabled.length;
+  const head = bad
+    ? [data.missing.length ? `${data.missing.length} par(es) sin cotización en HFM: ${data.missing.join(", ")}` : "",
+       disabled.length ? `${disabled.length} par(es) cotizan pero NO son operables en esta cuenta: ${disabled.join(", ")}` : ""].filter(Boolean).join(" · ") + " · revisa el sufijo de símbolos (tipo de cuenta HFM)"
+    : `Los ${rows.length} pares activos cotizan y son operables en HFM${data.suffix ? ` con sufijo «${data.suffix}»` : " sin sufijo"}`;
   return (
     <div data-testid="hfm-symbols-result" className="rounded-sm border border-[#1E293B] bg-[#0B1220] p-3 font-mono text-[11px] text-slate-300">
-      <p className={data.missing.length ? "text-amber-300" : "text-emerald-400"}>
-        {data.missing.length ? `${data.missing.length} par(es) sin cotización en HFM: ${data.missing.join(", ")} · revisa el sufijo de símbolos` : `Los ${rows.length} pares activos cotizan en HFM${data.suffix ? ` con sufijo «${data.suffix}»` : ""}`}
-      </p>
+      <p data-testid="hfm-symbols-summary" className={bad ? (disabled.length ? "text-rose-300" : "text-amber-300") : "text-emerald-400"}>{head}</p>
       <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3">
         {rows.map(([sym, r]) => (
           <span key={sym} data-testid={`hfm-symbol-${sym}`} className={r.ok ? "text-slate-300" : "text-rose-300"}>
@@ -36,6 +40,30 @@ function SymbolsCheck({ data }) {
         ))}
       </div>
     </div>
+  );
+}
+
+const OTHER = "__other__";
+const NONE = "__none__";
+const toSel = (v) => (v === "" ? NONE : v);
+const fromSel = (v) => (v === NONE ? "" : v);
+function SuffixField({ value, onChange, suffixes, kind }) {
+  const known = suffixes.some((s) => s.suffix === value);
+  const [custom, setCustom] = useState(!known);
+  const sel = custom ? OTHER : toSel(value);
+  return (
+    <Field label="Tipo de cuenta HFM · sufijo de símbolos" hint={kind ? `Detectado al probar la conexión: cuenta ${kind}` : "Cada tipo de cuenta HFM usa su propio sufijo (Zero → EURUSDb). Se detecta solo al «Probar conexión»."}>
+      <div className="flex gap-2">
+        <Select value={sel} onValueChange={(v) => { if (v === OTHER) { setCustom(true); } else { setCustom(false); onChange(fromSel(v)); } }}>
+          <SelectTrigger data-testid="hfm-account-kind-select" className={`${INPUT} flex-1`}><SelectValue /></SelectTrigger>
+          <SelectContent className="border-[#1E293B] bg-[#0D111A]">
+            {suffixes.map((s) => <SelectItem key={s.suffix || "none"} value={toSel(s.suffix)} data-testid={`hfm-account-kind-${s.suffix || "none"}`} className="font-mono text-xs">{s.label} · {s.suffix ? `EURUSD${s.suffix}` : "sin sufijo"}</SelectItem>)}
+            <SelectItem value={OTHER} data-testid="hfm-account-kind-other" className="font-mono text-xs">Otro sufijo…</SelectItem>
+          </SelectContent>
+        </Select>
+        {custom && <Input data-testid="hfm-suffix-input" autoComplete="off" value={value} placeholder="p.ej. .r" onChange={(e) => onChange(e.target.value)} className={`${INPUT} w-24`} />}
+      </div>
+    </Field>
   );
 }
 
@@ -65,7 +93,10 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
     setResult(null);
     const { data } = await http.post("/hfm/test", form.metaapi_token ? { ...form } : {});
     setResult(data);
-    toast[data.info && data.info.tradeAllowed === false ? "warning" : "success"](data.info ? (data.info.tradeAllowed === false ? "Conectada, pero sin permiso de trading" : "Cuenta HFM conectada vía MetaApi") : data.hint || "Token válido");
+    if (data.suffix && data.suffix.suffix !== null && data.suffix.suffix !== undefined) setForm((f) => ({ ...f, mt_symbol_suffix: data.suffix.suffix }));
+    if (data.symbols) setSymbols(data.symbols);
+    const badSymbols = data.symbols ? data.symbols.missing.length + (data.symbols.disabled || []).length : 0;
+    toast[data.info && (data.info.tradeAllowed === false || badSymbols) ? "warning" : "success"](data.info ? (data.info.tradeAllowed === false ? "Conectada, pero sin permiso de trading" : badSymbols ? `Conectada · ${badSymbols} par(es) no operables: revisa el sufijo` : "Cuenta HFM conectada vía MetaApi") : data.hint || "Token válido");
     onRefresh?.();
   });
   const link = () => run("link", async () => {
@@ -89,7 +120,9 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
   const checkSymbols = () => run("symbols", async () => {
     const { data } = await http.post("/hfm/symbols");
     setSymbols(data);
-    toast[data.missing.length ? "warning" : "success"](data.missing.length ? `${data.missing.length} par(es) sin cotización en HFM` : "Todos los pares cotizan en HFM");
+    const bad = data.missing.length + (data.disabled || []).length;
+    toast[bad ? "warning" : "success"](bad ? `${bad} par(es) no operables en HFM · revisa el sufijo` : "Todos los pares cotizan y son operables en HFM");
+    onRefresh?.();
   });
   const clear = async () => {
     setBusy("clear");
@@ -132,12 +165,12 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
         <Field label="Servidor HFM" hint="Exactamente como aparece en MetaTrader (Live/Demo)">
           <Input data-testid="hfm-server-input" autoComplete="off" value={form.mt_server} placeholder="HFMarketsGlobal-Live2" onChange={set("mt_server")} className={INPUT} />
         </Field>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Field label="Plataforma"><Sel value={form.mt_platform} onChange={(v) => setForm((f) => ({ ...f, mt_platform: v }))} options={config.mt_platforms || ["mt5", "mt4"]} testId="hfm-platform-select" render={(o) => o.toUpperCase()} /></Field>
           <Field label="Región"><Sel value={form.metaapi_region} onChange={(v) => setForm((f) => ({ ...f, metaapi_region: v }))} options={config.metaapi_regions || ["new-york", "london"]} testId="hfm-region-select" /></Field>
-          <Field label="Sufijo símbolos" hint="p.ej. «.r» si HFM muestra EURUSD.r">
-            <Input data-testid="hfm-suffix-input" autoComplete="off" value={form.mt_symbol_suffix} placeholder="(ninguno)" onChange={set("mt_symbol_suffix")} className={INPUT} />
-          </Field>
+          <div className="col-span-2">
+            <SuffixField value={form.mt_symbol_suffix} onChange={(v) => setForm((f) => ({ ...f, mt_symbol_suffix: v }))} suffixes={config.hfm_suffixes || [{ suffix: "", label: "Premium" }]} kind={config.hfm_suffix_kind} />
+          </div>
         </div>
       </div>
       <HfmPlanPicker plans={plans} common={config.metaapi_plan_common} value={form.metaapi_plan} onChange={(k) => setForm((f) => ({ ...f, metaapi_plan: k }))} currentPlan={currentPlan} />
@@ -187,6 +220,7 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
             <p>Bróker {result.info.broker} · {result.info.currency} · balance <span className="num text-slate-100">{result.info.balance}</span> · equidad <span className="num text-slate-100">{result.info.equity}</span> · margen libre {result.info.freeMargin} · apalancamiento 1:{result.info.leverage} · {result.positions?.length || 0} posiciones abiertas · trading <span className={result.info.tradeAllowed === false ? "text-rose-300" : "text-emerald-400"}>{result.info.tradeAllowed === false ? "NO permitido" : "permitido"}</span></p>
           )}
           {result?.hint && <p className="text-amber-300">{result.hint}</p>}
+          {result?.suffix?.hint && <p data-testid="hfm-suffix-detected" className={result.suffix.suffix === null || result.suffix.suffix === undefined ? "text-amber-300" : "text-sky-300"}>{result.suffix.hint}</p>}
           {!result && config.hfm_verified_at && <p>Última verificación {fmtDateTime(config.hfm_verified_at)} · {config.hfm_broker || "HFM"} · equidad {config.hfm_verified_equity} {config.hfm_currency} · apalancamiento 1:{config.hfm_leverage}{config.hfm_trade_allowed === false ? " · SIN permiso de trading" : ""}{config.hfm_current_plan ? ` · tipo ${planLabel(config.hfm_current_plan)}` : ""}</p>}
         </div>
       )}
