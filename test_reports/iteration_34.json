@@ -1,0 +1,33 @@
+{
+  "summary": "HFM account-type symbol suffix feature (user bug ERR_TRADE_DISABLED on HFM Demo Zero). Backend: test_iter37_hfm_suffix.py 8/8 + regression test_iter18_fx_live.py 11/11 + new test_iter38_hfm_suffix_extra.py 3/3 (22/22 pass). Covered: symbols check with Zero group & suffix '' (all disabled, quoted=true ok=false trade_mode 'deshabilitado', 'NO es operable'), mode checklist item 'symbols' required, /hfm/test detect+apply 'b'/Zero with hint 'EURUSDb', detect-suffix apply=false only reports, PUT suffix 'r' resets hfm_symbols_bad→null ('sin comprobar'), Premium group → '' / 'sin sufijo', go-live 409 'operables', exact user scenario via injector (ERROR log w/ hint + RISK 'marcado como NO operable', Mongo hfm_symbols_bad=['USDCHF'], second injection blocked locally with note 'no operable'), fix → USDCHFb position in mock. Extra: 400 guards without linked account, idempotent PUT of same suffix keeps check, second test → matches/'correcto'. Frontend (Playwright 1920x1080): selector default 'Premium · sin sufijo', options Premium/Zero · EURUSDb/Pro · EURUSDr/Cent · EURUSDc/InfinityX · EURUSDx/Otro sufijo…, 'Otro sufijo…' shows hfm-suffix-input, Zero+Guardar → mt_symbol_suffix 'b'; checklist item with 'sin comprobar · pulsa …'; full mock flow Guardar→Vincular→Probar conexión → hfm-suffix-detected 'detectado y aplicado: «b» (cuenta HFM Zero)', selector switches to Zero, green summary 'cotizan y son operables en HFM con sufijo «b»', rows EURUSDb…, toast 'Cuenta HFM conectada vía MetaApi', checklist 'sufijo «b» · cuenta Zero'; then Premium+Guardar → checklist 'sin comprobar'; Comprobar símbolos → red summary 'NO son operables en esta cuenta', red rows 'NO es operable', checklist 'no operables: …'. All pass. Cleanup done (paper, clear_hfm, base_url/suffix '', mock reset).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/fx/hfm/symbols (fx/routes.py _check_symbols + fx/live.py check_symbol)", "issue": "Any MetaApiError in check_symbol (timeout, 429, 5xx, market-closed tick failure) sets quoted=false → pair goes to 'missing' → persisted in hfm_symbols_bad → engine._blocks permanently blocks that pair in REAL ('par no operable en HFM con el sufijo…') until the user re-runs the check. Transient errors should not be persisted as non-tradable (only 404/not-found and tradeMode≠FULL). Could not reproduce with the mock (/mock/connection=false does not fail spec/tick), code-review finding."},
+      {"endpoint": "GET /api/fx/mode item 'symbols'", "issue": "hfm_symbols_bad==[] stays ok=true if the user later adds new active pairs (settings.symbols) that were never checked; consider storing the checked symbol list and treating unchecked pairs as 'sin comprobar'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Ajustes → HotForex", "issues": ["After changing the account type manually + 'Comprobar símbolos', the previous hfm-test-result block still shows 'Sufijo de símbolos detectado y aplicado: «b» …' right above the red symbols result (config is now Premium) – stale/contradictory; consider clearing the test result when the suffix changes or on Guardar."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter37_hfm_suffix.py", "/app/backend/tests/test_iter38_hfm_suffix_extra.py", "/app/backend/tests/test_iter18_fx_live.py", "/app/test_reports/pytest/pytest_iter34.xml"],
+  "action_items": [
+    "(Minor) Don't persist transient MetaApi errors from check_symbol into hfm_symbols_bad (engine blocks those pairs); only persist real not-found / tradeMode disabled",
+    "(Minor) Mark 'symbols' checklist item as unchecked when active pairs change after the last check",
+    "(Minor UX) Clear stale hfm-suffix-detected/test result when the suffix is changed manually"
+  ],
+  "critical_code_review_comments": [
+    "fx/routes.py is 748 lines (>700) – consider splitting HFM routes into fx/routes_hfm.py",
+    "check_symbol error path conflates transient failures with 'sin cotización' (see backend minor issue)"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter38_hfm_suffix_extra.py"],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100%"},
+  "seed_data_creation": "None persistent; mock HFM config used and cleaned up (FX paper, clear_hfm, metaapi_base_url='' mt_symbol_suffix='', mock reset to Premium)",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run HFM suffix tests with -n 0: tests/test_iter37_hfm_suffix.py, tests/test_iter38_hfm_suffix_extra.py. Mock group: POST 127.0.0.1:8012/mock/account-group?suffix=b. FX settings view opens via header button data-testid=settings-view-button on /hotforex; checklist items data-testid=livemode-check-<key>. Test_03 in iter38 doesn't actually simulate a spec/tick failure (mock limitation)."
+}

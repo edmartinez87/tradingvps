@@ -125,7 +125,8 @@ class FxLiveBroker:
                     "contract": lot["contract"], "bid": tick.get("bid"), "ask": tick.get("ask"), "trade_mode": trade_mode_txt(mode),
                     "error": None if ok else f"cotiza pero NO es operable en esta cuenta ({trade_mode_txt(mode)}) · sufijo de símbolos incorrecto"}
         except MetaApiError as e:
-            return {"ok": False, "quoted": False, "broker_symbol": self.broker_symbol(symbol), "trade_mode": None, "error": e.msg}
+            # 400/404 = the broker does not know the symbol; anything else (timeout, 429, 5xx) is a temporary failure, not a verdict
+            return {"ok": False, "quoted": False, "transient": e.status not in (400, 404), "broker_symbol": self.broker_symbol(symbol), "trade_mode": None, "error": e.msg}
 
     async def detect_suffix(self, probe: str = SUFFIX_PROBE) -> dict:
         """Finds which variant of `probe` (EURUSD, EURUSDb, EURUSDr…) the account can actually trade → the symbol suffix of this account type."""

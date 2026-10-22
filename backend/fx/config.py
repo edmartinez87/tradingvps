@@ -37,6 +37,7 @@ class FxConfig(BaseModel):
     hfm_leverage: Optional[int] = None
     hfm_suffix_kind: str = ""
     hfm_symbols_bad: Optional[List[str]] = None
+    hfm_symbols_checked: Optional[List[str]] = None
     hfm_symbols_checked_at: Optional[str] = None
     hfm_alert_after_sec: int = 180
     news_enabled: bool = True
@@ -156,7 +157,7 @@ class FxConfigStore:
             patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", metaapi_base_url="", mt_symbol_suffix="",
                          hfm_state="", hfm_connection="", hfm_broker="", hfm_account_type="", hfm_reliability="",
                          hfm_trade_allowed=None, hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None,
-                         hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked_at=None)
+                         hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None)
         if "mt_platform" in patch and patch["mt_platform"] not in PLATFORMS:
             raise ValueError("Plataforma inválida (mt4 o mt5)")
         if "metaapi_plan" in patch and patch["metaapi_plan"] not in PLANS:
@@ -176,7 +177,7 @@ class FxConfigStore:
         if changed and not body.clear_hfm:
             patch.update(hfm_verified_at=None, hfm_verified_equity=None, hfm_state="", hfm_connection="", hfm_trade_allowed=None)
             if changed - {"metaapi_token", "mt_password"}:
-                patch.update(metaapi_account_id="", hfm_account_type="", hfm_reliability="", hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked_at=None)
+                patch.update(metaapi_account_id="", hfm_account_type="", hfm_reliability="", hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None)
         if "mt_symbol_suffix" in patch and patch["mt_symbol_suffix"] != self.cfg.mt_symbol_suffix and not body.clear_hfm:
-            patch.update(hfm_symbols_bad=None, hfm_symbols_checked_at=None)
+            patch.update(hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None)
         return patch

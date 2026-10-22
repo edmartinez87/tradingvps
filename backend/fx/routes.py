@@ -634,16 +634,19 @@ async def hfm_symbols():
 
 
 async def _check_symbols(broker: FxLiveBroker) -> dict:
-    """Quote + tradability of every active pair with the configured suffix; the result feeds the «Pasar a REAL» checklist."""
+    """Quote + tradability of every active pair with the configured suffix; the result feeds the «Pasar a REAL» checklist.
+    Temporary MetaApi failures are reported but never persisted as 'not tradable' (that would block the pair in REAL)."""
     s = await engine.get_settings()
     rows = {sym: await broker.check_symbol(sym) for sym in s.symbols}
-    missing = [sym for sym, r in rows.items() if not r["quoted"]]
+    errors = [sym for sym, r in rows.items() if r.get("transient")]
+    missing = [sym for sym, r in rows.items() if not r["quoted"] and not r.get("transient")]
     disabled = [sym for sym, r in rows.items() if r["quoted"] and not r["ok"]]
     bad = missing + disabled
-    await fx_store.update({"hfm_symbols_bad": bad, "hfm_symbols_checked_at": now_iso()})
-    await engine.log("RISK" if bad else "INFO", f"Símbolos HFM comprobados · {len(rows) - len(bad)}/{len(rows)} operables"
-                     + (f" · sin cotización: {', '.join(missing)}" if missing else "") + (f" · NO operables con el sufijo «{broker.suffix}»: {', '.join(disabled)} ({SUFFIX_HINT})" if disabled else ""))
-    return {"suffix": broker.suffix, "symbols": rows, "missing": missing, "disabled": disabled, "checked_at": fx_store.cfg.hfm_symbols_checked_at}
+    await fx_store.update({"hfm_symbols_bad": None if errors else bad, "hfm_symbols_checked": None if errors else list(s.symbols), "hfm_symbols_checked_at": now_iso()})
+    await engine.log("RISK" if bad or errors else "INFO", f"Símbolos HFM comprobados · {len(rows) - len(bad) - len(errors)}/{len(rows)} operables"
+                     + (f" · sin cotización: {', '.join(missing)}" if missing else "") + (f" · NO operables con el sufijo «{broker.suffix}»: {', '.join(disabled)} ({SUFFIX_HINT})" if disabled else "")
+                     + (f" · sin respuesta de MetaApi (repite la comprobación): {', '.join(errors)}" if errors else ""))
+    return {"suffix": broker.suffix, "symbols": rows, "missing": missing, "disabled": disabled, "errors": errors, "checked_at": fx_store.cfg.hfm_symbols_checked_at}
 
 
 @router.post("/hfm/detect-suffix")
@@ -686,6 +689,8 @@ async def _mode_checks() -> dict:
     c = fx_store.cfg
     open_pos = await engine.db.positions.count_documents({})
     acc = await engine.account_summary()
+    active = (await engine.get_settings()).symbols
+    unchecked = [sym for sym in active if sym not in (c.hfm_symbols_checked or [])] if c.hfm_symbols_bad is not None else []
     current_plan = plan_key(c.hfm_account_type, c.hfm_reliability) if c.metaapi_account_id and c.hfm_account_type else ""
     plan_mismatch = bool(current_plan and current_plan != c.metaapi_plan)
     checks = [
@@ -699,9 +704,10 @@ async def _mode_checks() -> dict:
          "detail": f"equidad {c.hfm_verified_equity:,.2f} {c.hfm_currency}" if c.hfm_verified_equity is not None else None},
         {"key": "trade_allowed", "label": "La cuenta permite operar (contraseña master)", "ok": c.hfm_trade_allowed is not False, "required": True,
          "detail": None if c.hfm_trade_allowed is not False else "trading deshabilitado o contraseña investor"},
-        {"key": "symbols", "label": "Pares operables en HFM con el sufijo de símbolos configurado", "ok": c.hfm_symbols_bad == [], "required": True,
+        {"key": "symbols", "label": "Pares operables en HFM con el sufijo de símbolos configurado", "ok": c.hfm_symbols_bad == [] and not unchecked, "required": True,
          "detail": ("sin comprobar · pulsa «Probar conexión» o «Comprobar símbolos»" if c.hfm_symbols_bad is None
                     else f"no operables: {', '.join(c.hfm_symbols_bad)} · revisa el sufijo" if c.hfm_symbols_bad
+                    else f"pares nuevos sin comprobar: {', '.join(unchecked)} · pulsa «Comprobar símbolos»" if unchecked
                     else f"sufijo {'«' + c.mt_symbol_suffix + '»' if c.mt_symbol_suffix else 'ninguno'}" + (f" · cuenta {c.hfm_suffix_kind}" if c.hfm_suffix_kind else ""))},
         {"key": "stopped", "label": "Bot detenido", "ok": not engine.running, "required": True},
         {"key": "flat", "label": "Sin posiciones abiertas", "ok": open_pos == 0, "required": True, "detail": f"{open_pos} abiertas" if open_pos else None},

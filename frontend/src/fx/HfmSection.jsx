@@ -24,14 +24,16 @@ const Sel = ({ value, onChange, options, testId, render }) => (
 function SymbolsCheck({ data }) {
   const rows = Object.entries(data.symbols);
   const disabled = data.disabled || [];
+  const errors = data.errors || [];
   const bad = data.missing.length + disabled.length;
   const head = bad
     ? [data.missing.length ? `${data.missing.length} par(es) sin cotización en HFM: ${data.missing.join(", ")}` : "",
        disabled.length ? `${disabled.length} par(es) cotizan pero NO son operables en esta cuenta: ${disabled.join(", ")}` : ""].filter(Boolean).join(" · ") + " · revisa el sufijo de símbolos (tipo de cuenta HFM)"
+    : errors.length ? `MetaApi no respondió para ${errors.join(", ")} · repite la comprobación en unos segundos`
     : `Los ${rows.length} pares activos cotizan y son operables en HFM${data.suffix ? ` con sufijo «${data.suffix}»` : " sin sufijo"}`;
   return (
     <div data-testid="hfm-symbols-result" className="rounded-sm border border-[#1E293B] bg-[#0B1220] p-3 font-mono text-[11px] text-slate-300">
-      <p data-testid="hfm-symbols-summary" className={bad ? (disabled.length ? "text-rose-300" : "text-amber-300") : "text-emerald-400"}>{head}</p>
+      <p data-testid="hfm-symbols-summary" className={bad ? (disabled.length ? "text-rose-300" : "text-amber-300") : errors.length ? "text-amber-300" : "text-emerald-400"}>{head}</p>
       <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3">
         {rows.map(([sym, r]) => (
           <span key={sym} data-testid={`hfm-symbol-${sym}`} className={r.ok ? "text-slate-300" : "text-rose-300"}>
@@ -87,7 +89,10 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
     body.hfm_alert_after_sec = Math.min(3600, Math.max(10, Number(form.hfm_alert_after_sec) || 180));
     const ok = await onSave(body, "Datos de HFM guardados · vincula y prueba la conexión");
     setBusy("");
-    if (ok) setForm((f) => ({ ...f, metaapi_token: "", mt_password: "", hfm_alert_after_sec: body.hfm_alert_after_sec }));
+    if (ok) {
+      setForm((f) => ({ ...f, metaapi_token: "", mt_password: "", hfm_alert_after_sec: body.hfm_alert_after_sec }));
+      if (body.mt_symbol_suffix !== config.mt_symbol_suffix) setSymbols(null);
+    }
   };
   const test = () => run("test", async () => {
     setResult(null);
@@ -169,7 +174,7 @@ export default function HfmSection({ config, onSave, onRefresh, account }) {
           <Field label="Plataforma"><Sel value={form.mt_platform} onChange={(v) => setForm((f) => ({ ...f, mt_platform: v }))} options={config.mt_platforms || ["mt5", "mt4"]} testId="hfm-platform-select" render={(o) => o.toUpperCase()} /></Field>
           <Field label="Región"><Sel value={form.metaapi_region} onChange={(v) => setForm((f) => ({ ...f, metaapi_region: v }))} options={config.metaapi_regions || ["new-york", "london"]} testId="hfm-region-select" /></Field>
           <div className="col-span-2">
-            <SuffixField value={form.mt_symbol_suffix} onChange={(v) => setForm((f) => ({ ...f, mt_symbol_suffix: v }))} suffixes={config.hfm_suffixes || [{ suffix: "", label: "Premium" }]} kind={config.hfm_suffix_kind} />
+            <SuffixField value={form.mt_symbol_suffix} onChange={(v) => { setForm((f) => ({ ...f, mt_symbol_suffix: v })); setResult((r) => (r?.suffix ? { ...r, suffix: null } : r)); }} suffixes={config.hfm_suffixes || [{ suffix: "", label: "Premium" }]} kind={config.hfm_suffix_kind} />
           </div>
         </div>
       </div>

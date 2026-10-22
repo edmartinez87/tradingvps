@@ -196,3 +196,44 @@ class TestEngineTradeDisabled:
         assert s.post(f"{FX}/positions/close-all", timeout=120).status_code == 200
         time.sleep(1)
         assert mstate()["positions"] == []
+
+
+class TestCheckRobustness:
+    def test_09_transient_metaapi_error_is_not_a_verdict(self):
+        """A timeout/5xx while checking must not mark the pair as non-tradable (it would block it in REAL); only 404/400 do."""
+        import asyncio
+        import httpx
+        from fx.live import FxLiveBroker
+
+        def make(status, body):
+            def handler(req):
+                return httpx.Response(status, json=body)
+            b = FxLiveBroker("tok", "acc", "new-york", "http://fake", "")
+            b.api.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            return b
+        loop = asyncio.new_event_loop()
+        r = loop.run_until_complete(make(503, {"message": "boom"}).check_symbol("EURUSD"))
+        assert r["ok"] is False and r["quoted"] is False and r["transient"] is True
+        r = loop.run_until_complete(make(404, {"message": "Symbol EURUSD not found"}).check_symbol("EURUSD"))
+        assert r["ok"] is False and r["quoted"] is False and r["transient"] is False
+
+    def test_10_new_active_pair_needs_recheck(self, s, zero):
+        assert s.post(f"{FX}/hfm/detect-suffix", timeout=120).json()["suffix"] == "b"
+        st = s.get(f"{FX}/settings", timeout=30).json()
+        original = list(st["symbols"])
+        extra = original[-1]
+        try:
+            assert s.put(f"{FX}/settings", json={"symbols": original[:-1]}, timeout=30).status_code == 200
+            d = s.post(f"{FX}/hfm/symbols", timeout=120).json()
+            assert d["disabled"] == [] and d["errors"] == [] and extra not in d["symbols"]
+            cfg = s.get(f"{FX}/config", timeout=30).json()
+            assert cfg["hfm_symbols_bad"] == [] and sorted(cfg["hfm_symbols_checked"]) == sorted(original[:-1])
+            assert check(s, "symbols")["ok"] is True
+            # the user activates another pair after the check → it must be re-checked before going live
+            assert s.put(f"{FX}/settings", json={"symbols": original}, timeout=30).status_code == 200
+            c = check(s, "symbols")
+            assert c["ok"] is False and "pares nuevos sin comprobar" in c["detail"] and extra in c["detail"]
+            assert s.post(f"{FX}/hfm/symbols", timeout=120).json()["disabled"] == []
+            assert check(s, "symbols")["ok"] is True
+        finally:
+            s.put(f"{FX}/settings", json={"symbols": original}, timeout=30)
