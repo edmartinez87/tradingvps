@@ -1,0 +1,20 @@
+{
+  "summary": "Iteration 26 FRONTEND ONLY: tested 'Deshacer cambio' from the Evolución tab end-to-end on both bots via Playwright (1920x1080). Crypto (/bybit): changed Máx. posiciones 3→4 and saved (toast 'Configuración guardada'). In tab-evolution → evolution-refresh, the newest evolution-event-manual shows evolution-revert-button. Clicking it opens evolution-revert-dialog with title '¿Deshacer este cambio?' and a description that mentions 'Máx. posiciones'. evolution-revert-cancel closes the dialog with nothing changed (total still 1). Clicking Deshacer again and then confirm shows the toast 'Cambio deshecho: Máx. posiciones', and the list reloads. A new evolution-event-revert ('Deshecho manualmente') appears at the top with evolution-revert-of ('Deshace un cambio anterior'), the summary 'Deshecho el cambio «Ajuste manual» del 22/10 04:07 (max_positions)', the change 4→3 and its own Deshacer button. The original event now shows evolution-reverted-badge 'Deshecho el 22/10, 04:07' and no Deshacer button. evolution-total went 1→2. The settings input and GET /api/settings both show max_positions=3 again. FX (/hotforex): same flow with Riesgo por operación 1→1.1. Toast 'Cambio deshecho: Riesgo/op (%)', the same badges and buttons, total 1→2, and GET /api/fx/settings shows risk_per_trade=1.0. The panel intro has the required text about the AI undoing changes that got worse. All 8 crypto tabs and all 8 FX tabs load with 0 console errors. The FX bot stayed DETENIDO and the crypto bot stayed EN EJECUCIÓN; Start/Stop was never clicked.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Evolución - revert event summary", "issues": ["The summary ends with the raw setting key in brackets, e.g. '(max_positions)' / '(risk_per_trade)', instead of the readable label (Máx. posiciones / Riesgo/op). This text is built by the backend in evolution.revert(); it could use LABELS or be dropped, since the change list below already shows the label.", "Small date-format mismatch: the summary says 'del 22/10 04:07' (no comma) while the badge says 'Deshecho el 22/10, 04:07'. Cosmetic only."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": ["Optional (cosmetic): show readable setting labels instead of raw keys in the revert-event summary."],
+  "critical_code_review_comments": ["EvolutionPanel.jsx (159 lines) is clean. AlertDialogAction closes the dialog right away and onRevert runs without a busy state, so a slow request could be fired twice by clicking quickly on another revertible event. Low risk, because the backend returns 409 for a change that is already undone."],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped as requested)", "frontend": "100%"},
+  "seed_data_creation": "Evolution events created by this test: 2 in crypto db.changes (1 manual + 1 revert) and 2 in fx_changes (1 manual + 1 revert). Settings are back to their original values (crypto max_positions=3, fx risk_per_trade=1.0).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Crypto and FX evolution totals are each 2 after this iteration (the iteration-25 events were no longer there when testing started). Bot card testids: bot-card-crypto and bot-card-fx (not bot-card-hotforex). Settings inputs: settings-max-positions-input, settings-risk-per-trade-input, settings-save-button. Revert testids work as listed in the request. The newest event is the first li in evolution-timeline."
+}
