@@ -123,6 +123,9 @@ class TestEvolutionUnit:
         trades = [{"closed_at": _iso(d), "pnl": p} for d, p in ((25, -3), (18, 2), (15, 1), (14, -1), (13, 2), (12, 1), (11, -2),  # before the AI change: 6 trades
                                                                    (9, 3), (8, 2), (7, 4), (6, -1), (5, 3), (4, 2), (3, 1),  # after AI change (7 trades), before WF
                                                                    (1, 1), (0.5, -2))]  # after WF (2 trades)
+        from bson import ObjectId
+        for c in changes:
+            c["_id"] = ObjectId()
         eng = _Engine(changes, trades, equity=1005.0)
         tl = asyncio.run(evolution.timeline(eng))
         assert tl["total"] == 3 and tl["ai_changes"] == 1 and tl["first_at"] == changes[0]["ts"] and tl["equity"] == 1005.0

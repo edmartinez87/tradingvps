@@ -153,7 +153,7 @@ class FxEngine:
     async def get_settings(self) -> FxSettings:
         return FxSettings.model_validate(await self.db.settings.find_one({"_id": "main"}))
 
-    async def update_settings(self, patch: dict, source: str = "manual", summary: str = "") -> FxSettings:
+    async def update_settings(self, patch: dict, source: str = "manual", summary: str = "", extra: dict = None) -> FxSettings:
         current = (await self.get_settings()).model_dump()
         before = dict(current)
         current.update({k: v for k, v in patch.items() if v is not None})
@@ -161,7 +161,7 @@ class FxEngine:
         await self.db.settings.update_one({"_id": "main"}, {"$set": s.model_dump()})
         await self.log("INFO", "Configuración actualizada")
         self.scan_event.set()
-        await evolution.record(self, source, evolution.diff(before, s.model_dump()), summary)
+        await evolution.record(self, source, evolution.diff(before, s.model_dump()), summary, extra)
         return s
 
     async def log(self, level: str, message: str):

@@ -5,6 +5,7 @@ from models import now_iso
 from performance import performance
 from fx.shadow import shadow_stats as fx_shadow_stats
 from shadow import recent_rejections
+import evolution
 from ai_advisor import advise, FX_MARKET, label as ai_label
 import review
 from fx.models import FxSettingsUpdate
@@ -36,6 +37,7 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
         "by_session indica si conviene ampliar o recortar sessions_allowed; undersized = sombras simuladas con lote mínimo forzado (capital insuficiente).")
     if engine.news and engine.news.latest:
         ctx["noticias"] = {"mercado": engine.news.latest["market"], "alertas": engine.news.latest.get("alerts", [])[:5]}
+    ctx["evolucion"] = await evolution.ai_context(engine)
     wf_latest = await engine.db.wf_checks.find_one({"_id": "latest"}, {"_id": 0, "ran_at": 1, "results": 1})
     if wf_latest and wf_latest.get("results"):
         ctx["walk_forward_pares_aplicados"] = {"revisado": wf_latest["ran_at"], "pares": {s: {k: r[k] for k in ("verdict", "wfe", "oos", "previous_verdict")}

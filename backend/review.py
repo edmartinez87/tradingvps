@@ -8,6 +8,7 @@ from ai_advisor import advise, label as ai_label
 from optimizer import optimize, walk_forward, WF_CANDLES
 from profiles import ai_policy, PROFILES
 from shadow import recent_rejections
+import evolution
 from fx.market import SESSION_NAMES
 import notify
 
@@ -48,6 +49,7 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
                                                          "by_confidence sirve para calibrar ai_min_confidence con evidencia.")
     if engine.news and engine.news.latest:
         ctx["noticias"] = {"mercado": engine.news.latest["market"], "alertas": engine.news.latest.get("alerts", [])[:5]}
+    ctx["evolucion"] = await evolution.ai_context(engine)
     wf_latest = await db.wf_checks.find_one({"_id": "latest"}, {"_id": 0, "ran_at": 1, "results": 1})
     if wf_latest and wf_latest.get("results"):
         ctx["walk_forward_pares_aplicados"] = {"revisado": wf_latest["ran_at"], "pares": {s: {k: r[k] for k in ("verdict", "wfe", "oos", "previous_verdict")}
@@ -59,8 +61,38 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
     return ctx
 
 
+async def apply_ai_reverts(engine, res: dict, source: str) -> dict:
+    """Undo the evolution events the AI asked for, only when the timeline backs it (verdict PEOR with enough trades)."""
+    applied = {}
+    ids = res.get("revert") or []
+    if not ids:
+        return applied
+    by_id = {e["id"]: e for e in (await evolution.timeline(engine))["events"]}
+    for eid in ids:
+        ev = by_id.get(eid)
+        if not ev:
+            res["notes"].append(f"La IA pidió deshacer un cambio que no existe ({eid[:8]}…); descartado.")
+            continue
+        if ev["verdict"] != "PEOR":
+            res["notes"].append(f"No se deshizo el cambio «{ev['source_label']}» del {evolution._fmt_day(ev['ts'])}: sin evidencia suficiente de que empeorara el rendimiento ({ev['verdict'].lower()}).")
+            continue
+        try:
+            out = await evolution.revert(engine, eid, source, "la IA lo deshizo por empeorar el rendimiento")
+        except ValueError as e:
+            res["notes"].append(f"No se pudo deshacer el cambio del {evolution._fmt_day(ev['ts'])}: {e}")
+            continue
+        for k in out["reverted"]:
+            applied[k] = {"antes": ev["changes"][k]["despues"], "despues": ev["changes"][k]["antes"]}
+        res["notes"].insert(0, f"Deshecho el cambio «{ev['source_label']}» del {evolution._fmt_day(ev['ts'])} ({ev['after']['trades']} operaciones después con PnL medio "
+                                f"{ev['after']['avg_pnl']:+.2f} frente a {ev['before']['avg_pnl']:+.2f} antes).")
+    return applied
+
+
 async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy: dict = None, available=AVAILABLE_SYMBOLS,
                            model=SettingsUpdate, allowed=ALLOWED_AI_KEYS, source: str = "optimize_all"):
+    applied = await apply_ai_reverts(engine, res, source)
+    original = before
+    before = {**before, **{k: v["despues"] for k, v in applied.items()}}
     patch = {k: v for k, v in res["changes"].items() if k in allowed}
     for k, cap in (policy or ai_policy(settings.risk_profile))["caps"].items():
         if k in patch:
@@ -76,14 +108,13 @@ async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy:
         else:
             patch["disabled_strategies"] = dis
             patch["strategy"] = "all"
-    applied = {}
     if patch:
         try:
             after = (await engine.update_settings(model.model_validate(patch).model_dump(), source, res.get("summary", ""))).model_dump(exclude={"bot_running"})
-            applied = {k: {"antes": before[k], "despues": after[k]} for k in patch if before.get(k) != after.get(k)}
+            applied.update({k: {"antes": before[k], "despues": after[k]} for k in patch if before.get(k) != after.get(k)})
         except Exception as e:
             res["notes"].append(f"Cambios propuestos no válidos y descartados: {str(e)[:120]}")
-    return applied, {k: before[k] for k in applied}
+    return applied, {k: original.get(k, before.get(k)) for k in applied}
 
 
 def _fmt(k, v) -> str:

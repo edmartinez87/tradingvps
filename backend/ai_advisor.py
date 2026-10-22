@@ -249,6 +249,7 @@ FX_MARKET = {
 
 def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
     caps, lev = policy["caps"], market["lev"]
+    MIN_TRADES_EVOLUTION = 5  # mirrors evolution.MIN_TRADES (kept local to avoid a circular import)
     return (
         f"Eres el director de inversiones de {market['desc']}. "
         "Recibes métricas reales y de backtest y debes DECIDIR cambios concretos de configuración para mejorar la expectativa "
@@ -264,6 +265,9 @@ def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
         f"posiciones por encima de {caps['max_positions']}; mantén al menos 2 pares activos y al menos 1 estrategia activa. "
         f"(4) Para apagar una estrategia usa disabled_strategies (lista completa de claves apagadas; claves válidas: {STRATEGY_KEYS_TXT}) y deja strategy en 'all'. "
         "(5) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
+        f"(6) Revisa evolucion (historial de cambios con su rendimiento posterior): si un cambio tiene veredicto PEOR con al menos {MIN_TRADES_EVOLUTION} operaciones "
+        "después y el empeoramiento no se explica por el mercado, deshazlo devolviendo su id en revert y justifícalo en summary; nunca deshagas cambios PENDIENTE "
+        "ni ya deshechos, y no deshagas un cambio solo para proponer lo contrario en changes. "
         + market["extra_rule"] +
         "Redacta summary y notes para el usuario final: frases completas y breves (máximo 2 por nota), en español claro y sin claves internas "
         "(di «SL/TP optimizados» en vez de symbol_params, «sesiones permitidas» en vez de sessions_allowed, «sobreajustado» en vez de SOBREAJUSTADO; "
@@ -271,6 +275,7 @@ def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
         "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
         '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), disabled_strategies (lista), risk_per_trade, '
         f'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{{sl_atr,tp_atr,atr_period}}){market["extra_keys"]}>}},'
+        '"revert":[<ids de cambios de evolucion a deshacer, normalmente vacío>],'
         '"notes":["recomendaciones adicionales en español que no son cambios de configuración"]}'
     )
 
@@ -291,8 +296,10 @@ async def advise(scope: str, context: dict, policy: dict = None, market: dict = 
         raise ValueError(f"Respuesta IA no válida: {text[:200]}")
     data = json.loads(match.group(0))
     changes = data.get("changes") or {}
+    revert = data.get("revert") or []
     return {
         "summary": _clip(data.get("summary", ""), 1200),
         "changes": changes if isinstance(changes, dict) else {},
+        "revert": [str(x) for x in revert if isinstance(x, (str, int))][:3] if isinstance(revert, list) else [],
         "notes": [_clip(n, 420) for n in (data.get("notes") or [])][:6],
     }

@@ -294,6 +294,16 @@ async def get_evolution():
     return await evolution.timeline(engine)
 
 
+@api.post("/evolution/{event_id}/revert")
+async def revert_evolution(event_id: str):
+    try:
+        out = await evolution.revert(engine, event_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    await engine.log("INFO", f"Cambio deshecho manualmente: {', '.join(out['reverted'])}")
+    return out
+
+
 @api.get("/news")
 async def get_news():
     return {"latest": news.latest, "summary": news.summary()}
