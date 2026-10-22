@@ -317,7 +317,7 @@ class TestEngineExtra:
         tick = requests.get(f"{MOCK}/users/current/accounts/x/symbols/GBPUSD/current-tick", headers={"auth-token": "mocktoken"}, timeout=10).json()
         p0 = (tick["bid"] + tick["ask"]) / 2
         acc = mstate()["accounts"][0]["_id"]
-        link = "AIT_deadbeef_o"
+        link, since = "AIT_deadbeef_o", datetime.now(timezone.utc).isoformat()
         r = requests.post(f"{MOCK}/users/current/accounts/{acc}/trade", headers={"auth-token": "mocktoken"},
                           json={"actionType": "ORDER_TYPE_SELL", "symbol": "GBPUSD", "volume": 0.02, "stopLoss": round(p0 + 0.01, 5), "takeProfit": round(p0 - 0.02, 5),
                                 "clientId": link, "magic": 777001}, timeout=10)
@@ -327,8 +327,8 @@ class TestEngineExtra:
             time.sleep(2)
         pos = s.get(f"{FX}/positions", timeout=30).json()
         assert len(pos) == 1 and pos[0]["link_id"] == link and pos[0]["strategy"] == "adoptada" and pos[0]["side"] == "short" and pos[0]["qty"] == 0.02
-        assert any("ADOPTADA REAL SHORT GBPUSD" in m and "sin registro local" in m for m in logs(s))
-        assert not any("GBPUSD: posición externa detectada" in m for m in logs(s))
+        assert any("ADOPTADA REAL SHORT GBPUSD" in m and "sin registro local" in m for m in logs(s, since))
+        assert not any("GBPUSD: posición externa detectada" in m for m in logs(s, since))
         assert s.post(f"{FX}/positions/close-all", timeout=120).status_code == 200
         time.sleep(1)
         assert mstate()["positions"] == []

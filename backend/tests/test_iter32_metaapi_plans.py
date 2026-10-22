@@ -94,7 +94,7 @@ class TestPlanFlow:
         assert c["metaapi_account_id"] == accs[0]["_id"]
 
     def test_04_saving_same_values_keeps_link(self, s, saved):
-        r = s.put(f"{FX}/config", json={**CFG, "metaapi_plan": "g1-regular", "hfm_alert_after_sec": 60}, timeout=30)
+        r = s.put(f"{FX}/config", json={**CFG, "metaapi_plan": "g1-regular", "hfm_alert_after_sec": 180}, timeout=30)
         assert r.status_code == 200, r.text
         c = r.json()
         assert c["metaapi_account_id"] and c["hfm_current_plan"] == "g1-regular"

@@ -30,7 +30,7 @@ async def main(symbol: str, side: str, ai: bool):
     tp = c + 3 * atr if side == "long" else c - 3 * atr
     sig = _signal(side, row, sl, tp, "trend_ema", ["Señal de prueba inyectada manualmente"], 5, int(row["ts"]) + 1)
     await eng._handle_signal(symbol, sig, s, df, 0, "4h")
-    print(await db.fx_signals.find_one(sort=[("_id", -1)], projection={"_id": 0, "indicators": 0}))
+    print(await db.fx_signals.find_one({"symbol": symbol, "strategy": "trend_ema"}, sort=[("_id", -1)], projection={"_id": 0, "indicators": 0}))
     print("open positions:", await db.fx_positions.count_documents({}))
     await eng.market.aclose()
 

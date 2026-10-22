@@ -1,0 +1,39 @@
+{
+  "summary": "RETEST of the HIGH from iteration_32 (unknown trade result + failed verification). Backend only. FIXED and verified end-to-end: user's exact scenario (DISCONNECTED_DURING_TRADE executed + 40x GET /positions 503) → log ERROR 'orden REAL con resultado desconocido … no se pudo verificar en HFM … adoptará por su identificador AIT_xxxxxxxx_o', no 'verificado: no quedó ninguna orden' / 'rechazada', fx_pending_orders doc with _id=link and all fields; after clear_fault the position was adopted in ~2 s with the real strategy, signal_id, SL/TP/qty from the mock, signal executed=true + 'confirmada por su identificador', pending consumed, shadows removed, single ADOPTADA log, no duplicate after several monitor cycles, manual close creates a live trade. Orphan AIT_deadbeef_o adopted as 'adoptada' short 0.02 ('sin registro local'), while a 'manual-1' position on the same symbol is warned once as 'posición externa detectada' and left untouched (not closed by the bot). Unit: open() → kind unknown, attempts=1, link_id AIT_<8hex>_o, 'no se pudo verificar en HFM'; the 45 s RECONCILE_BUDGET_SEC is enforced (positions_hang=25 / read_timeout=20 → raised after 46.5 s with 'sin respuesta en 45 s', order sent exactly once). Pending expiry: a 3h-old pending is deleted with the INFO log, a fresh one kept; reset_account clears pending_orders. Migration present and hfm_alert_after_sec=180. Regression: iter35 (16), iter34 (15), iter18, iter33, iter32, iter21 (10) all pass; my new file 5/5.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "fx/engine.py open_position (kind unknown)", "issue": "db.pending_orders.insert_one runs inside the except handler without protection: a Mongo error (or a duplicate _id, e.g. empty link_id '' if it ever happens twice) would escape as an unhandled exception instead of the 'resultado desconocido' result. Use update_one(upsert=True) or try/except and skip the insert when link is empty."},
+      {"endpoint": "fx/engine.py _adopt_live (orphan without pending)", "issue": "Adopted orphans get expires_at=None (no time exit) and atr=|entry-sl| fallback; acceptable but worth documenting in the UI/log."},
+      {"endpoint": "fx/live.py _with_retries", "issue": "Engine lock is held for up to 45 s during verification (monitor / manual close blocked meanwhile). By design, documented in RECONCILE_BUDGET_SEC comment."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter36_unknown_adoption.py",
+    "/app/backend/tests/test_iter35_metaapi_resilience_extra.py",
+    "/app/backend/tests/test_iter34_metaapi_resilience.py",
+    "/app/test_reports/pytest/iter36.xml",
+    "/app/test_reports/pytest/iter33_regression.xml"
+  ],
+  "action_items": [
+    "Optional: guard the pending_orders insert in open_position (upsert / try-except, skip when link_id is empty).",
+    "Test hygiene: tests/test_iter18_fx_live.py test_08 is flaky when the running REAL bot emits its own signal concurrently (inject prints the last signal, which was a natural AUDUSD ema_pullback) → assert on the injected symbol's signal instead of the last one; failure cascaded to test_09/test_10 and to iter33 test_06 (max_drawdown) in the combined run. All pass when run in isolation."
+  ],
+  "critical_code_review_comments": [
+    "HIGH from iteration_32 is fixed: verification failure (MetaApiError or 45 s budget) keeps kind='unknown', never retried, attempts=1, link_id attached.",
+    "is_our_link regex ^AIT_[0-9a-f]{8}_o$ correctly rejects close links (_c), uppercase hex and foreign clientIds.",
+    "_adopt_live re-checks the DB under the lock, so no double registration with open_position; verified no duplicate after multiple monitor cycles.",
+    "pending_orders insert not protected (see minor)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter36_unknown_adoption.py (new)",
+    "/app/backend/tests/test_iter32_metaapi_plans.py (test_04 now saves hfm_alert_after_sec=180 instead of 60: it was polluting fx_config and made iter35 test_08 fail)"
+  ],
+  "success_rate": {"backend": "100% (all scenarios; 1 test-pollution failure and 1 race-flaky regression test explained, both test-side)", "frontend": "not tested (backend only)"},
+  "seed_data_creation": "None persistent. Mock trades/pending docs created during tests and cleaned. fx_config.hfm_alert_after_sec restored 60→180 via PUT /api/fx/config (was set to 60 by test_iter32 test_04).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run FX tests with -n 0 and one file group at a time; starting the FX bot in REAL during tests can produce natural signals that race with scripts/fx_inject_signal.py. Final state: FX paper, HFM config cleared (metaapi_base_url ''), mock reset, fx_pending_orders empty, hfm_alert_after_sec=180, crypto bot running in paper (restarted once by iter21's backend restart).",
+  "rca of the issue": "iter35 test_08 failure at start of this run: fx_config.hfm_alert_after_sec was 60 because test_iter32_metaapi_plans.py::test_04 PUTs hfm_alert_after_sec=60 (migration already applied, so it never reverts). Fixed in the test."
+}

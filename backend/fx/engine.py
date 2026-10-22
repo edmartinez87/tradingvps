@@ -604,9 +604,10 @@ class FxEngine:
                 except MetaApiError as e:
                     if e.kind == "unknown":
                         link = getattr(e, "link_id", "") or ""
-                        await self.db.pending_orders.insert_one({"_id": link, "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "signal_id": signal_id,
-                                                                 "atr": sig["atr"], "sl": sl, "tp": tp, "lots": lots, "leverage": leverage, "expires_at": expires_at,
-                                                                 "created_at": now_iso()})
+                        if link:
+                            await self.db.pending_orders.update_one({"_id": link}, {"$set": {
+                                "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "signal_id": signal_id, "atr": sig["atr"], "sl": sl, "tp": tp,
+                                "lots": lots, "leverage": leverage, "expires_at": expires_at, "created_at": now_iso()}}, upsert=True)
                         reason = f"resultado desconocido: {e.msg[:120]}"
                         await self.log("ERROR", f"{symbol}: orden REAL con resultado desconocido · {e.msg[:160]} · si HFM la ejecutó, el bot la adoptará por su identificador {link}")
                         await self.tg(f"❓ <b>Orden REAL con resultado desconocido · {symbol}</b>\n{e.msg[:250]}\nSi HFM llegó a ejecutarla, el bot la detectará por su identificador "
