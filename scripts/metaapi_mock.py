@@ -1,7 +1,7 @@
 """Local MetaApi.cloud mock (provisioning + client API) for end-to-end testing of the HotForex REAL executor.
 Run: python3 scripts/metaapi_mock.py  (port 8012)  · token: mocktoken · accepts any MT login/server.
 Helpers: POST /mock/price/{symbol}?price=X · POST /mock/close/{position_id}?reason=sl|tp · POST /mock/connection?connected=false · GET /mock/state · POST /mock/reset
-         POST /mock/fault?trade_hang=3&trade_code=ERR_TRADE_TIMED_OUT&trade_execute=true&times=1&positions_hang=3&positions_times=1 (fault injection)
+         POST /mock/fault?trade_hang=3&trade_code=ERR_TRADE_TIMED_OUT&trade_execute=true&times=1&positions_hang=3&positions_times=1&positions_status=503 (fault injection)
 """
 import sys
 import time
@@ -27,7 +27,7 @@ def reset():
     state.clear()
     state.update({"accounts": {}, "balance": BALANCE, "positions": {}, "deals": {}, "prices": {}, "seq": 1000, "trade_allowed": True, "connected": True,
                   "balance_deals": [], "orders": [], "faults": {"trade_hang": 0.0, "trade_code": "", "trade_code_num": -10, "trade_times": 0, "trade_execute": False,
-                                                                "positions_hang": 0.0, "positions_times": 0}})
+                                                                "positions_hang": 0.0, "positions_times": 0, "positions_status": 0, "positions_after_trade": 0}})
 
 
 reset()
@@ -157,6 +157,8 @@ async def positions(acc_id: str):
     if f["positions_times"] > 0:
         f["positions_times"] -= 1
         await asyncio.sleep(f["positions_hang"])
+        if f["positions_status"]:
+            return JSONResponse({"error": "InjectedFault", "message": "Injected fault"}, status_code=f["positions_status"])
     if not state["connected"]:
         return _not_connected()
     out = []
@@ -209,6 +211,8 @@ async def trade(acc_id: str, request: Request):
     if f["trade_times"] > 0:
         f["trade_times"] -= 1
         fault = dict(f)
+        if fault["positions_after_trade"]:
+            f["positions_times"] = fault["positions_after_trade"]
         if fault["trade_code"] and not fault["trade_execute"]:
             return _retcode(fault["trade_code"], fault["trade_code_num"], "Injected fault")
     res = await _trade(body, action)
@@ -294,12 +298,14 @@ async def orders_by_time(acc_id: str, start: str, end: str, limit: int = 200):
 # ---------- helpers ----------
 @app.post("/mock/fault")
 async def set_fault(trade_hang: float = 0.0, trade_code: str = "", trade_code_num: int = -10, trade_execute: bool = False, times: int = 1,
-                    positions_hang: float = 0.0, positions_times: int = 0):
+                    positions_hang: float = 0.0, positions_times: int = 0, positions_status: int = 0,
+                    positions_after_trade: int = 0):
     """Fault injection for the next `times` trade requests: hang `trade_hang` seconds after executing (client timeout → result unknown),
     and/or answer with `trade_code` (executed first when trade_execute=true, otherwise without executing). `positions_hang` delays the next
-    `positions_times` GET /positions calls."""
+    `positions_times` GET /positions calls (and answers with HTTP `positions_status`, e.g. 503, when set); `positions_after_trade` arms that
+    many failing GET /positions calls right after the faulted trade (MetaApi stops answering at the moment of the order)."""
     state["faults"].update(trade_hang=trade_hang, trade_code=trade_code, trade_code_num=trade_code_num, trade_execute=trade_execute, trade_times=times,
-                           positions_hang=positions_hang, positions_times=positions_times)
+                           positions_hang=positions_hang, positions_times=positions_times, positions_status=positions_status, positions_after_trade=positions_after_trade)
     return {"ok": True, "faults": state["faults"]}
 @app.post("/mock/price/{symbol}")
 async def set_price(symbol: str, price: float):

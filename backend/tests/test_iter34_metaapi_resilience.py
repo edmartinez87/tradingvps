@@ -231,25 +231,32 @@ def inject(sym, side):
     return out.stdout + out.stderr
 
 
-def logs(s):
-    return [l["message"] for l in s.get(f"{FX}/dashboard", timeout=60).json()["logs"]]
+def logs(s, since: str = ""):
+    return [l["message"] for l in s.get(f"{FX}/dashboard", timeout=60).json()["logs"] if l["ts"] >= since]
+
+
+def now_s() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
 
 
 class TestEngine:
     def test_01_transient_then_success(self, s, live):
         fault(trade_code="TRADE_RETCODE_DISCONNECTED_BEFORE_TRADE", trade_code_num=-10, times=1)
+        since = now_s()
         out = inject("EURUSD", "long")
         assert "'executed': True" in out, out[-800:]
-        msgs = logs(s)
+        msgs = logs(s, since)
         assert any("EURUSD: orden REAL ejecutada en el intento 2" in m for m in msgs), msgs[:10]
         assert not any("EURUSD: orden REAL rechazada" in m for m in msgs)
         assert len(mstate()["positions"]) == 1
 
     def test_02_timeout_executed_reconciled(self, s, live):
         fault(trade_code="ERR_TRADE_TIMED_OUT", trade_code_num=-7, trade_execute="true", times=1)
+        since = now_s()
         out = inject("USDJPY", "short")
         assert "'executed': True" in out, out[-800:]
-        msgs = logs(s)
+        msgs = logs(s, since)
         assert any("USDJPY: orden REAL confirmada en HFM" in m and "localizada por clientId" in m for m in msgs), msgs[:10]
         assert len(mstate()["positions"]) == 2
         pos = s.get(f"{FX}/positions", timeout=30).json()
@@ -257,9 +264,10 @@ class TestEngine:
 
     def test_03_persistent_outage_no_false_rejection(self, s, live):
         fault(trade_code="TRADE_RETCODE_CONNECTION", trade_code_num=10031, times=3)
+        since = now_s()
         out = inject("GBPUSD", "long")
         assert "'executed': False" in out or "No ejecutada" in out, out[-800:]
-        msgs = logs(s)
+        msgs = logs(s, since)
         assert any("GBPUSD: orden REAL no enviada" in m and "HFM/MetaApi no disponible tras 3 intento" in m for m in msgs), msgs[:10]
         assert not any("GBPUSD: orden REAL rechazada" in m for m in msgs), "an outage must not be reported as a broker rejection"
         assert len(mstate()["positions"]) == 2

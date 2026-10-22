@@ -16,7 +16,7 @@ from fx import risk
 from fx.ai import evaluate_signal
 from ai_advisor import label as ai_label
 from fx.backtest import build_fx_df
-from fx.live import FxLiveBroker
+from fx.live import FxLiveBroker, is_our_link
 from fx.metaapi import MetaApiError
 from fx.shadow import open_shadow, monitor_shadows
 import evolution
@@ -31,6 +31,7 @@ HFM_HEALTH_SEC = 60
 HFM_HEALTH_RETRY_SEC = 15
 HFM_REMIND_SEC = 6 * 3600
 TRANSIENT_TG_SEC = 30 * 60
+PENDING_TTL_SEC = 2 * 3600
 HFM_OK_STATES, HFM_OK_CONN = ("DEPLOYED", ""), ("CONNECTED", "")
 BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado", "SESION": "sesión"}
 NEWS_STRATEGY = {"news_event": {"name": "Noticia macro", "rules": "Dato de alto impacto publicado con sorpresa clara frente a la previsión; Claude fija la dirección y la confianza, el precio debe confirmar en los primeros minutos. SL/TP por ATR 15m y cierre máximo por tiempo.", "basis": "Trading de noticias: el flujo posterior a sorpresas macro (tipos, NFP, IPC) tiende a persistir durante horas."}}
@@ -240,7 +241,7 @@ class FxEngine:
             initial = info["equity"] if info else (self.cfg.hfm_verified_equity if self.cfg else None)
         initial = initial or INITIAL_BALANCE
         async with self.lock:
-            for col in ("positions", "trades", "signals", "equity", "news_trades", "shadow_positions", "shadow_trades", "cash_flows"):
+            for col in ("positions", "trades", "signals", "equity", "news_trades", "shadow_positions", "shadow_trades", "cash_flows", "pending_orders"):
                 await self.db[col].delete_many({})
             await self._new_account(initial)
         await self.log("INFO", f"Estadísticas reiniciadas · capital inicial ${initial:,.2f} · modo {self.mode_label}")
@@ -361,11 +362,57 @@ class FxEngine:
             await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
         if ex:
             for pid, xp in ex.items():
-                if pid not in local_ids and pid not in self._external_warned:
+                if pid in local_ids:
+                    continue
+                if is_our_link(xp.get("client_id")):
+                    await self._adopt_live(pid, xp, settings, tickers)
+                elif pid not in self._external_warned:
                     self._external_warned.add(pid)
                     await self.log("RISK", f"{self.broker.our_symbol(xp['symbol'])}: posición externa detectada en HFM (no gestionada por el bot) · {xp['volume']:.2f} lotes")
+        if ex is not None:
+            await self._expire_pending(now)
         await monitor_shadows(self, tickers, settings, now)
         await self._update_account_metrics(settings)
+
+    async def _adopt_live(self, pid: str, xp: dict, settings: FxSettings, tickers: dict):
+        """A broker position carries our clientId but has no DB record (order with unknown result, restored backup…): manage it like any other."""
+        async with self.lock:
+            if await self.db.positions.find_one({"order_id": pid}):
+                return
+            symbol = self.broker.our_symbol(xp["symbol"])
+            if symbol not in SPECS:
+                if pid not in self._external_warned:
+                    self._external_warned.add(pid)
+                    await self.log("ERROR", f"{xp['symbol']}: posición en HFM con identificador del bot pero símbolo desconocido · no se puede gestionar")
+                return
+            pend = await self.db.pending_orders.find_one_and_delete({"_id": xp["client_id"]}) or {}
+            entry = xp["entry"] or (tickers.get(symbol) or {}).get("price") or 0.0
+            sl = float(xp["sl"] or pend.get("sl") or 0.0)
+            tp = float(xp["tp"] or pend.get("tp") or 0.0)
+            leverage = int(pend.get("leverage") or ((await self._broker_info()) or {}).get("leverage") or settings.leverage)
+            margin = xp["volume"] * SPECS[symbol]["contract"] * risk.base_usd(symbol, tickers, entry) / max(leverage, 1)
+            pos = Position(symbol=symbol, side=xp["side"], strategy=pend.get("strategy") or "adoptada", entry_price=entry, qty=xp["volume"], leverage=leverage,
+                           margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=float(pend.get("atr") or abs(entry - sl) or SPECS[symbol]["pip"] * 10), fees=abs(xp["commission"]),
+                           mark_price=xp["mark"] or entry, signal_id=pend.get("signal_id"), expires_at=pend.get("expires_at"), live=True, order_id=pid,
+                           link_id=xp["client_id"], opened_at=str(xp.get("time") or now_iso()).replace("Z", "+00:00"))
+            res = await self.db.positions.insert_one(pos.to_mongo())
+            pos.id = str(res.inserted_id)
+            if pend.get("signal_id"):
+                await self.db.signals.update_one({"_id": ObjectId(pend["signal_id"])}, {"$set": {"executed": True, "note": "Ejecutada en HFM · confirmada por su identificador (clientId) tras un resultado desconocido"}})
+                await self.db.shadow_positions.delete_many({"signal_id": pend["signal_id"]})
+        why = "orden con resultado desconocido confirmada en HFM" if pend else "posición en HFM con identificador del bot sin registro local"
+        f = lambda v: fmt_price(symbol, v)  # noqa: E731
+        await self.log("ORDER", f"ADOPTADA REAL {pos.side.upper()} {symbol} @ {f(entry)} · {pos.qty:.2f} lotes · SL {f(sl) if sl else '—'} · TP {f(tp) if tp else '—'} · {why}")
+        await self.tg(f"✅ <b>Posición REAL adoptada · {pos.side.upper()} {symbol}</b> @ {f(entry)}\n{pos.qty:.2f} lotes · SL {f(sl) if sl else '—'} · TP {f(tp) if tp else '—'}\n{why.capitalize()}. El bot la gestiona con normalidad.", "orders")
+        if not sl:
+            await self.log("ERROR", f"{symbol}: la posición adoptada no tiene stop loss en HFM · revísala manualmente")
+
+    async def _expire_pending(self, now: datetime):
+        async for d in self.db.pending_orders.find({}):
+            if (now - datetime.fromisoformat(d["created_at"])).total_seconds() < PENDING_TTL_SEC:
+                continue
+            await self.db.pending_orders.delete_one({"_id": d["_id"]})
+            await self.log("INFO", f"{d['symbol']}: en 2 h no apareció en HFM ninguna posición con el identificador {d['_id']} · la orden se da por no ejecutada")
 
     async def _hfm_health(self, synced: bool):
         """Watches the MetaApi account (terminal state + client API) in REAL mode; alerts once per outage, reminds every 6 h, confirms recovery."""
@@ -555,6 +602,16 @@ class FxEngine:
                         return None, reason
                     r = await self.broker.open(symbol, sig["side"], lots, sl, tp)
                 except MetaApiError as e:
+                    if e.kind == "unknown":
+                        link = getattr(e, "link_id", "") or ""
+                        await self.db.pending_orders.insert_one({"_id": link, "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "signal_id": signal_id,
+                                                                 "atr": sig["atr"], "sl": sl, "tp": tp, "lots": lots, "leverage": leverage, "expires_at": expires_at,
+                                                                 "created_at": now_iso()})
+                        reason = f"resultado desconocido: {e.msg[:120]}"
+                        await self.log("ERROR", f"{symbol}: orden REAL con resultado desconocido · {e.msg[:160]} · si HFM la ejecutó, el bot la adoptará por su identificador {link}")
+                        await self.tg(f"❓ <b>Orden REAL con resultado desconocido · {symbol}</b>\n{e.msg[:250]}\nSi HFM llegó a ejecutarla, el bot la detectará por su identificador "
+                                      f"({link}) en cuanto MetaApi responda y la gestionará con normalidad (el SL/TP ya viaja en la orden).", "orders")
+                        return None, reason
                     if e.kind == "transient":
                         reason = f"HFM/MetaApi no disponible tras {e.attempts} intento(s): {e.msg[:120]}"
                         await self.log("RISK", f"{symbol}: orden REAL no enviada · {reason} · verificado: no quedó ninguna orden abierta")
@@ -564,9 +621,9 @@ class FxEngine:
                     await self.tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{e.msg[:300]}", "orders")
                     return None, f"orden REAL rechazada: {e.msg[:120]}"
                 except Exception as e:
-                    await self.log("ERROR", f"{symbol}: orden REAL rechazada por HFM/MetaApi · {str(e)[:160]}")
-                    await self.tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{str(e)[:300]}", "orders")
-                    return None, f"orden REAL rechazada: {str(e)[:120]}"
+                    await self.log("ERROR", f"{symbol}: orden REAL no enviada · {str(e)[:160]}")
+                    await self.tg(f"⚠️ <b>Orden REAL no enviada · {symbol}</b>\n{str(e)[:300]}", "orders")
+                    return None, f"orden REAL no enviada: {str(e)[:120]}"
                 if r.get("note"):
                     await self.log("RISK", f"{symbol}: orden REAL {r['note']} · posición {r['position_id']} localizada por clientId")
                 elif r.get("attempts", 1) > 1:
@@ -628,7 +685,11 @@ class FxEngine:
                         await self.log("RISK", f"{p.symbol}: cierre REAL ejecutado en el intento {cr_close['attempts']} tras fallos temporales de HFM/MetaApi")
                 except Exception as e:
                     if getattr(e, "code", "") != "TRADE_RETCODE_POSITION_CLOSED":
-                        kind = "HFM/MetaApi no disponible tras varios intentos" if getattr(e, "kind", "") == "transient" else "cierre REAL fallido"
+                        k = getattr(e, "kind", "")
+                        if k == "unknown":
+                            await self.log("ERROR", f"{p.symbol}: cierre REAL con resultado desconocido · {str(e)[:160]} · se comprobará en HFM en la siguiente sincronización")
+                            return None
+                        kind = "HFM/MetaApi no disponible tras varios intentos" if k == "transient" else "cierre REAL fallido"
                         await self.log("ERROR", f"{p.symbol}: {kind} · {str(e)[:160]} · la posición sigue abierta en HFM con su SL/TP; se reintentará")
                         return None
                 cr = None

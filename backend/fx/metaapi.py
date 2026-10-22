@@ -119,6 +119,7 @@ class MetaApi:
                         await asyncio.sleep(min(wait, 10.0))
                         attempt += 1
                         continue
+                    err.attempts = attempt + 1
                     raise err
                 elif r.status_code in RETRY_HTTP:
                     err = MetaApiError(r.status_code, f"MetaApi {r.status_code}: servicio temporalmente no disponible", kind="unknown" if trade else "transient")

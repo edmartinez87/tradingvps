@@ -11,9 +11,11 @@ from fx.symbols import SPECS
 logger = logging.getLogger("fx.live")
 _REASON_RE = re.compile(r"\[(sl|tp)\b", re.I)
 _LINK_RE = re.compile(r"^AIT_([0-9a-f]{8})_")
+_LINK_OPEN_RE = re.compile(r"^AIT_[0-9a-f]{8}_o$")
 BALANCE_DEAL_TYPES = {"DEAL_TYPE_BALANCE", "DEAL_TYPE_CREDIT", "DEAL_TYPE_BONUS", "DEAL_TYPE_CORRECTION"}
 BALANCE_DEAL_LABELS = {"DEAL_TYPE_BALANCE": "depósito/retiro", "DEAL_TYPE_CREDIT": "crédito del bróker", "DEAL_TYPE_BONUS": "bono", "DEAL_TYPE_CORRECTION": "corrección"}
 RETRY_DELAYS = (4.0, 10.0)  # transient broker/terminal failures: 3 attempts in ~15 s
+RECONCILE_BUDGET_SEC = 45.0  # max time spent verifying an order with unknown result (engine lock is held meanwhile)
 
 
 def new_link() -> str:
@@ -24,6 +26,11 @@ def new_link() -> str:
 def close_link(link_id: str) -> str:
     m = _LINK_RE.match(link_id or "")
     return f"AIT_{m.group(1) if m else uuid.uuid4().hex[:8]}_c"
+
+
+def is_our_link(client_id) -> bool:
+    """True for positions opened by this bot (clientId AIT_<8hex>_o), even if the DB record is missing."""
+    return bool(_LINK_OPEN_RE.match(str(client_id or "")))
 
 
 def q_step(v: float, step: float) -> float:
@@ -116,23 +123,25 @@ class FxLiveBroker:
         pos = await self.api.find_position_by_client_id(self.account_id, link, self.region)
         if pos:
             return {"id": str(pos.get("id"))}
-        try:
-            order = await self.api.order_filled_by_client_id(self.account_id, link, self.region)
-        except MetaApiError as e:
-            logger.warning(f"hfm reconcile orders {link}: {e.msg}")
-            order = None
+        order = await self.api.order_filled_by_client_id(self.account_id, link, self.region)
         return {"id": str(order.get("positionId") or "")} if order and order.get("positionId") else None
 
     async def _with_retries(self, send, on_unknown):
         """Runs a trade request: 'unknown' results are verified with `on_unknown` (returns a result when it did execute), 'transient' failures are
-        retried with backoff, definitive rejections propagate at once. The raised error carries `.attempts`."""
+        retried with backoff, definitive rejections propagate at once. If the verification itself fails the error stays 'unknown' (never retried:
+        the order may exist at the broker). The raised error carries `.attempts`."""
         attempts = 0
         while True:
             try:
                 return await send(), attempts + 1, None
             except MetaApiError as e:
                 if e.kind == "unknown":
-                    done = await on_unknown()
+                    try:
+                        done = await asyncio.wait_for(on_unknown(), RECONCILE_BUDGET_SEC)
+                    except (MetaApiError, asyncio.TimeoutError) as ve:
+                        detail = ve.msg[:80] if isinstance(ve, MetaApiError) else f"sin respuesta en {RECONCILE_BUDGET_SEC:.0f} s"
+                        e.msg, e.attempts = f"{e.msg} · no se pudo verificar en HFM ({detail})", attempts + 1
+                        raise e
                     if done is not None:
                         return done, attempts + 1, f"confirmada en HFM tras «{e.msg[:90]}»"
                     e.kind, e.msg = "transient", f"{e.msg} · verificado en HFM: no se ejecutó"
@@ -161,7 +170,11 @@ class FxLiveBroker:
             found = await self._reconcile_open(links[-1])
             return {"positionId": found["id"], "orderId": "", "reconciled": True} if found else None
 
-        res, attempts, note = await self._with_retries(send, on_unknown)
+        try:
+            res, attempts, note = await self._with_retries(send, on_unknown)
+        except MetaApiError as e:
+            e.link_id = links[-1] if links else ""
+            raise
         link = links[-1]
         self.invalidate()
         pos = await self._wait_position(res.get("positionId")) if res.get("positionId") else None

@@ -73,7 +73,7 @@ def live(s, mock):
     s.post(f"{FX}/bot/stop", timeout=30)
     s.post(f"{FX}/mode", json={"mode": "paper", "confirm": "", "reset_stats": True}, timeout=60)
     s.put(f"{FX}/config", json={"clear_hfm": True}, timeout=30)
-    s.put(f"{FX}/config", json={"metaapi_base_url": "", "mt_symbol_suffix": "", "hfm_alert_after_sec": 60}, timeout=30)
+    s.put(f"{FX}/config", json={"metaapi_base_url": "", "mt_symbol_suffix": "", "hfm_alert_after_sec": 180}, timeout=30)
 
 
 def _logs(s, n=40):
