@@ -1,0 +1,21 @@
+{
+  "summary": "Iteration 33 (HotForex account switch / rebase) frontend E2E tested at 1920x800 against the MetaApi mock. All 7 review items pass: (1) header live-demo-badge 'MODO REAL · HFM · CUENTA DEMO' with no red live-mode-badge; KPIs Balance $1,000.00 and Operaciones 2. (2) livemode-badge 'REAL · CUENTA DEMO · HFMARKETSGLOBAL-DEMO'; hfm-switch-account shows 'Estadísticas actuales: 12345678@HFMarketsGlobal-Demo'; rebase button is enabled; no hfm-account-changed. (3) Changing to 87654321@HFMarketsGlobal-Live2 → save, link and test each show the correct toast. The header switches to the red 'MODO REAL · HFM LIVE' badge, livemode-badge to 'REAL · HFMARKETSGLOBAL-LIVE2', and hfm-account-changed appears with the exact text; the block turns amber (border-amber-500/40 bg-amber-500/10). (4) After mock deposit -700 (balance 1000→300): the dialog title is correct, cancel closes it with no change, and confirm shows the toast 'Cuenta cambiada · capital inicial 300.00 USD · 2 operaciones anteriores conservadas'; the changed warning disappears and the text reads 'Estadísticas actuales: 87654321@HFMarketsGlobal-Live2'. (5) Dashboard: Balance $300.00, Equidad $300.00, Retorno 0.00%, Operaciones 2, PnL diario $0.00, Pico $300. In the Historial tab both trade rows show 'PERIODO ANTERIOR' with title 'Periodo anterior · 12345678@HFMarketsGlobal-Demo'. (6) With the bot running, POST /api/fx/account/rebase returns 409 'Detén el bot antes de cambiar de cuenta'; the bot was stopped afterwards with 0 positions. (7) hfm-plan-picker is visible, Probar conexión shows 'tipo Cloud G2 · fiabilidad alta', and there were no console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Ajustes → HFM → hfm-rebase-dialog", "issues": ["The dialog shows '(última verificación: 1,000.00 USD)' from the last Probar conexión, but the account equity is now 300 (the rebase correctly used 300). This can mislead the user about the new capital; consider fetching live equity when the dialog opens or adding a hint to test again."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter33_account_switch.py"],
+  "action_items": ["Optional: refresh or show live equity in hfm-rebase-dialog instead of the stale hfm_verified_equity"],
+  "critical_code_review_comments": ["HfmSwitchAccount: the rebase button only requires hfm_verified_at. It is enabled even when there is no account change; that is harmless but could rebase by accident. Consider asking for extra confirmation when !account_changed."],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped as requested; 409 guard verified via curl)", "frontend": "100%"},
+  "test_credentials": "Panel password BlackCat2233@ (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Mock balance changed to 300 via /mock/deposit?amount=-700. Account is now linked to 87654321@HFMarketsGlobal-Live2 and rebased to 300 USD; the 2 trades are tagged as the previous period.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "End state: REAL mode with 87654321@HFMarketsGlobal-Live2 (live, red badge), bot stopped, 0 positions, mock balance 300, stats rebased (initial 300). The trades carry period 'Periodo anterior · 12345678@HFMarketsGlobal-Demo'. To restore the demo state, set login 12345678 / server HFMarketsGlobal-Demo, then link, test and deposit +700."
+}

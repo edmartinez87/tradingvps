@@ -52,7 +52,7 @@ export function HfmSwitchAccount({ config, account, onDone }) {
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display text-amber-200">Re-basar el capital a la cuenta {current}</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2 text-slate-400">
-              <span className="block">Capital inicial, pico de equidad, límite diario y depósitos netos pasan a la equidad actual de la cuenta vinculada{config.hfm_verified_equity ? <> (última verificación: <b className="text-slate-200">{fmt(config.hfm_verified_equity, config.hfm_currency)}</b>)</> : ""}.</span>
+              <span className="block">Capital inicial, pico de equidad, límite diario y depósitos netos pasan a la equidad actual de la cuenta vinculada{account?.exchange_synced ? <> (<b className="text-slate-200">{fmt(account.equity, account.currency)}</b> ahora mismo)</> : config.hfm_verified_equity ? <> (última verificación: <b className="text-slate-200">{fmt(config.hfm_verified_equity, config.hfm_currency)}</b>)</> : ""}.</span>
               <span className="block">Se conservan: operaciones cerradas (marcadas como «periodo anterior»), operaciones cerradas/días/drawdown de las fases del plan, configuración aprendida, Evolución y walk-forward. La curva de equidad se desplaza para quedar continua.</span>
               <span className="block">Requiere bot detenido y sin posiciones abiertas.</span>
             </AlertDialogDescription>
