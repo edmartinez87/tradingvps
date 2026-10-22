@@ -65,7 +65,17 @@ async def price_of(symbol: str) -> float:
 GROUP_SUFFIXES = ("", "b", "r", "c", "x", ".r")
 
 
+# in the Zero group ("b") metals are NOT base+suffix (real HFM quirk reported by the user: XAUUSDb → 404): they are GOLDb and XAGUSD.b
+ODD_NAMES = {"b": {"XAUUSD": "GOLDb", "XAGUSD": "XAGUSD.b"}}
+
+
 def _split(symbol: str):
+    for suf, names in ODD_NAMES.items():
+        for base, odd in names.items():
+            if symbol == odd:
+                return base, suf
+            if symbol == f"{base}{suf}":
+                return symbol, None  # the plain base+suffix name does not exist in that group
     for base in SPECS:
         if symbol.startswith(base) and symbol[len(base):] in GROUP_SUFFIXES:
             return base, symbol[len(base):]
@@ -198,7 +208,7 @@ async def specification(acc_id: str, symbol: str):
 async def symbols(acc_id: str):
     if not state["connected"]:
         return _not_connected()
-    return [f"{base}{suf}" for base in SPECS for suf in GROUP_SUFFIXES if suf != ".r"]
+    return [ODD_NAMES.get(suf, {}).get(base, f"{base}{suf}") for base in SPECS for suf in GROUP_SUFFIXES if suf != ".r"]
 
 
 @app.get("/users/current/accounts/{acc_id}/symbols/{symbol}/current-tick")

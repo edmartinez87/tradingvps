@@ -127,10 +127,13 @@ class TestFxLive:
         assert r.status_code == 200, r.text
         d = r.json()
         assert d["missing"] == [] and all(v["ok"] and v["bid"] and v["min_lot"] == 0.01 for v in d["symbols"].values())
+        # a bogus suffix: names are resolved from the account's symbol list to the tradable variant (iter 37), remembered in mt_symbol_map
         s.put(f"{FX}/config", json={"mt_symbol_suffix": ".zz"}, timeout=30)
         d = s.post(f"{FX}/hfm/symbols", timeout=120).json()
-        assert len(d["missing"]) == len(d["symbols"]) and d["suffix"] == ".zz" and d["symbols"]["EURUSD"]["broker_symbol"] == "EURUSD.zz"
-        assert s.put(f"{FX}/config", json={"mt_symbol_suffix": ""}, timeout=30).json()["mt_symbol_suffix"] == ""
+        assert d["missing"] == [] and d["suffix"] == ".zz" and d["symbols"]["EURUSD"]["broker_symbol"] == "EURUSD" and d["symbols"]["EURUSD"]["resolved"] is True
+        assert len(d["resolved"]) == len(d["symbols"]) and s.get(f"{FX}/config", timeout=30).json()["mt_symbol_map"]["EURUSD"] == "EURUSD"
+        c = s.put(f"{FX}/config", json={"mt_symbol_suffix": ""}, timeout=30).json()
+        assert c["mt_symbol_suffix"] == "" and c["mt_symbol_map"] == {}
         # redeploy keeps account and resets verification until re-tested
         r = s.post(f"{FX}/hfm/redeploy", timeout=60)
         assert r.status_code == 200 and r.json()["account"]["state"] == "DEPLOYED"

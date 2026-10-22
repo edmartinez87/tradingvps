@@ -21,6 +21,7 @@ class FxConfig(BaseModel):
     mt_server: str = ""
     mt_platform: str = "mt5"
     mt_symbol_suffix: str = ""
+    mt_symbol_map: Dict[str, str] = {}
     metaapi_region: str = "new-york"
     metaapi_base_url: str = ""
     metaapi_account_id: str = ""
@@ -154,7 +155,7 @@ class FxConfigStore:
                 continue
             patch[k] = v.strip() if isinstance(v, str) else v
         if body.clear_hfm:
-            patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", metaapi_base_url="", mt_symbol_suffix="",
+            patch.update(metaapi_token="", mt_login="", mt_password="", mt_server="", metaapi_account_id="", metaapi_base_url="", mt_symbol_suffix="", mt_symbol_map={},
                          hfm_state="", hfm_connection="", hfm_broker="", hfm_account_type="", hfm_reliability="",
                          hfm_trade_allowed=None, hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None,
                          hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None)
@@ -177,7 +178,8 @@ class FxConfigStore:
         if changed and not body.clear_hfm:
             patch.update(hfm_verified_at=None, hfm_verified_equity=None, hfm_state="", hfm_connection="", hfm_trade_allowed=None)
             if changed - {"metaapi_token", "mt_password"}:
-                patch.update(metaapi_account_id="", hfm_account_type="", hfm_reliability="", hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None)
+                patch.update(metaapi_account_id="", hfm_account_type="", hfm_reliability="", hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked=None,
+                             hfm_symbols_checked_at=None, mt_symbol_map={})
         if "mt_symbol_suffix" in patch and patch["mt_symbol_suffix"] != self.cfg.mt_symbol_suffix and not body.clear_hfm:
-            patch.update(hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None)
+            patch.update(hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None, mt_symbol_map={})
         return patch

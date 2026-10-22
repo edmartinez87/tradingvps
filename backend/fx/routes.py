@@ -525,11 +525,11 @@ async def hfm_test(body: HfmTestRequest = None):
 async def _probe_symbols():
     """After a successful connection test: detect the account-type suffix, apply it and re-check tradability of every active pair (never fails the test)."""
     c = fx_store.cfg
-    broker = FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix)
+    broker = FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix, c.mt_symbol_map)
     try:
         det = await _detect_suffix(broker, apply=True)
         if det.get("applied"):
-            broker.suffix = det["suffix"]
+            broker.suffix, broker.symbol_map = det["suffix"], {}
         return det, await _check_symbols(broker)
     except MetaApiError as e:
         return {"suffix": None, "hint": f"No se pudo comprobar el sufijo de símbolos: {e.msg[:120]}"}, None
@@ -625,7 +625,7 @@ async def hfm_symbols():
     c = fx_store.cfg
     if not (c.metaapi_token and c.metaapi_account_id):
         raise HTTPException(400, "Vincula y verifica primero la cuenta en MetaApi")
-    broker = engine.broker or FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix)
+    broker = engine.broker or FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix, c.mt_symbol_map)
     try:
         return await _check_symbols(broker)
     finally:
@@ -641,12 +641,16 @@ async def _check_symbols(broker: FxLiveBroker) -> dict:
     errors = [sym for sym, r in rows.items() if r.get("transient")]
     missing = [sym for sym, r in rows.items() if not r["quoted"] and not r.get("transient")]
     disabled = [sym for sym, r in rows.items() if r["quoted"] and not r["ok"]]
+    resolved = {sym: r["broker_symbol"] for sym, r in rows.items() if r.get("resolved")}
     bad = missing + disabled
-    await fx_store.update({"hfm_symbols_bad": None if errors else bad, "hfm_symbols_checked": None if errors else list(s.symbols), "hfm_symbols_checked_at": now_iso()})
+    symbol_map = {k: v for k, v in broker.symbol_map.items() if k in s.symbols}
+    await fx_store.update({"hfm_symbols_bad": None if errors else bad, "hfm_symbols_checked": None if errors else list(s.symbols), "hfm_symbols_checked_at": now_iso(),
+                           "mt_symbol_map": symbol_map})
     await engine.log("RISK" if bad or errors else "INFO", f"Símbolos HFM comprobados · {len(rows) - len(bad) - len(errors)}/{len(rows)} operables"
+                     + (f" · nombres resueltos en la cuenta: {', '.join(f'{k} → {v}' for k, v in resolved.items())}" if resolved else "")
                      + (f" · sin cotización: {', '.join(missing)}" if missing else "") + (f" · NO operables con el sufijo «{broker.suffix}»: {', '.join(disabled)} ({SUFFIX_HINT})" if disabled else "")
                      + (f" · sin respuesta de MetaApi (repite la comprobación): {', '.join(errors)}" if errors else ""))
-    return {"suffix": broker.suffix, "symbols": rows, "missing": missing, "disabled": disabled, "errors": errors, "checked_at": fx_store.cfg.hfm_symbols_checked_at}
+    return {"suffix": broker.suffix, "symbols": rows, "missing": missing, "disabled": disabled, "errors": errors, "resolved": resolved, "checked_at": fx_store.cfg.hfm_symbols_checked_at}
 
 
 @router.post("/hfm/detect-suffix")
@@ -654,7 +658,7 @@ async def hfm_detect_suffix(apply: bool = True):
     c = fx_store.cfg
     if not (c.metaapi_token and c.metaapi_account_id):
         raise HTTPException(400, "Vincula y verifica primero la cuenta en MetaApi")
-    broker = engine.broker or FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix)
+    broker = engine.broker or FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix, c.mt_symbol_map)
     try:
         det = await _detect_suffix(broker, apply)
     except MetaApiError as e:
@@ -676,7 +680,7 @@ async def _detect_suffix(broker: FxLiveBroker, apply: bool) -> dict:
         det["hint"] = f"Sufijo de símbolos correcto: {shown} (cuenta HFM {kind})"
         await fx_store.update({"hfm_suffix_kind": kind})
     elif apply:
-        await fx_store.update({"mt_symbol_suffix": det["suffix"], "hfm_suffix_kind": kind})
+        await fx_store.update({"mt_symbol_suffix": det["suffix"], "hfm_suffix_kind": kind, "mt_symbol_map": {}})
         det["applied"] = True
         det["hint"] = f"Sufijo de símbolos detectado y aplicado: {shown} (cuenta HFM {kind}) · tus pares se enviarán como {det['probe']}{det['suffix']}"
         await engine.log("INFO", f"Sufijo de símbolos HFM detectado: {shown} · cuenta {kind} · aplicado automáticamente")

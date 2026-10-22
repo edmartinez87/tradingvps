@@ -39,6 +39,12 @@ TRADE_MODE_FULL = "SYMBOL_TRADE_MODE_FULL"
 TRADE_MODE_TXT = {TRADE_MODE_FULL: "operable", "SYMBOL_TRADE_MODE_DISABLED": "deshabilitado", "SYMBOL_TRADE_MODE_CLOSEONLY": "solo cierre",
                   "SYMBOL_TRADE_MODE_LONGONLY": "solo compras", "SYMBOL_TRADE_MODE_SHORTONLY": "solo ventas"}
 SUFFIX_PROBE = "EURUSD"
+# alternative root names brokers use for the same instrument (matched on the account's symbol list, case/punctuation-insensitive)
+SYMBOL_ALIASES = {"XAUUSD": ["GOLD"], "XAGUSD": ["SILVER"]}
+
+
+def _norm(name: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(name or "").upper())
 
 
 def trade_mode_txt(mode) -> str:
@@ -60,9 +66,10 @@ def q_floor(v: float, step: float) -> float:
 
 
 class FxLiveBroker:
-    def __init__(self, token: str, account_id: str, region: str, base_url: str = "", suffix: str = ""):
+    def __init__(self, token: str, account_id: str, region: str, base_url: str = "", suffix: str = "", symbol_map: dict = None):
         self.api = MetaApi(token, region, base_url)
         self.account_id, self.region, self.suffix = account_id, region, suffix or ""
+        self.symbol_map = dict(symbol_map or {})  # our symbol → broker name when it is not simply symbol+suffix (HFM metals, dotted suffixes…)
         self._info = {"ts": 0.0, "data": None}
         self._positions = {"ts": 0.0, "data": []}
         self.last_error = None
@@ -71,10 +78,33 @@ class FxLiveBroker:
         await self.api.aclose()
 
     def broker_symbol(self, symbol: str) -> str:
-        return f"{symbol}{self.suffix}"
+        return self.symbol_map.get(symbol) or f"{symbol}{self.suffix}"
 
     def our_symbol(self, broker_symbol: str) -> str:
+        for ours, theirs in self.symbol_map.items():
+            if theirs == broker_symbol:
+                return ours
         return broker_symbol[:-len(self.suffix)] if self.suffix and broker_symbol.endswith(self.suffix) else broker_symbol
+
+    async def resolve_symbol(self, symbol: str):
+        """`symbol+suffix` is unknown to the server: find the name this account group really uses (HFM: XAUUSDb may be GOLDb, XAUUSD.b…)
+        among the account's symbols, preferring tradable variants that carry the suffix. Returns the broker name or None."""
+        names = await self.api.symbols(self.account_id, self.region)
+        aliases = [symbol] + SYMBOL_ALIASES.get(symbol, [])
+        cands = [n for n in names if any(_norm(n).startswith(a) for a in aliases) and len(_norm(n)) <= len(symbol) + 6]
+        cands.sort(key=lambda n: (0 if self.suffix and self.suffix.upper() in _norm(n)[len(symbol) - 1:] else 1, len(n), n))
+        for n in cands[:6]:
+            if n == f"{symbol}{self.suffix}":
+                continue
+            try:
+                spec = await self.api.spec(self.account_id, n, self.region, max_age=0)
+            except MetaApiError as e:
+                if e.status not in (400, 404):
+                    raise
+                continue
+            if (spec.get("tradeMode") or TRADE_MODE_FULL) == TRADE_MODE_FULL:
+                return n
+        return None
 
     def invalidate(self):
         self._info["ts"] = self._positions["ts"] = 0.0
@@ -113,8 +143,9 @@ class FxLiveBroker:
                 "digits": int(s.get("digits") if s.get("digits") is not None else SPECS[symbol]["digits"]), "tick": float(s.get("tickSize") or 0),
                 "contract": float(s.get("contractSize") or SPECS[symbol]["contract"]), "symbol": self.broker_symbol(symbol)}
 
-    async def check_symbol(self, symbol: str) -> dict:
-        """Quote AND tradability: HFM lists every account group's symbols, but only the ones with your suffix are tradable (others → ERR_TRADE_DISABLED)."""
+    async def check_symbol(self, symbol: str, resolve: bool = True) -> dict:
+        """Quote AND tradability: HFM lists every account group's symbols, but only the ones with your suffix are tradable (others → ERR_TRADE_DISABLED).
+        An unknown name is looked up in the account's symbol list once (`resolve`) and remembered in `symbol_map`."""
         try:
             spec = await self.api.spec(self.account_id, self.broker_symbol(symbol), self.region, max_age=0)
             lot = self._lot_from(symbol, spec)
@@ -122,9 +153,20 @@ class FxLiveBroker:
             mode = spec.get("tradeMode") or TRADE_MODE_FULL
             ok = mode == TRADE_MODE_FULL
             return {"ok": ok, "quoted": True, "broker_symbol": lot["symbol"], "min_lot": lot["min"], "lot_step": lot["step"], "digits": lot["digits"],
-                    "contract": lot["contract"], "bid": tick.get("bid"), "ask": tick.get("ask"), "trade_mode": trade_mode_txt(mode),
+                    "contract": lot["contract"], "bid": tick.get("bid"), "ask": tick.get("ask"), "trade_mode": trade_mode_txt(mode), "resolved": symbol in self.symbol_map,
                     "error": None if ok else f"cotiza pero NO es operable en esta cuenta ({trade_mode_txt(mode)}) · sufijo de símbolos incorrecto"}
         except MetaApiError as e:
+            if e.status in (400, 404) and resolve:
+                try:
+                    alt = await self.resolve_symbol(symbol)
+                except MetaApiError:
+                    alt = None
+                if alt:
+                    self.symbol_map[symbol] = alt
+                    return await self.check_symbol(symbol, resolve=False)
+                self.symbol_map.pop(symbol, None)
+                return {"ok": False, "quoted": False, "transient": False, "broker_symbol": self.broker_symbol(symbol), "trade_mode": None,
+                        "error": f"{e.msg} · no existe en esta cuenta con ningún nombre conocido ({', '.join([symbol] + SYMBOL_ALIASES.get(symbol, []))}) · desactívalo en Pares activos"}
             # 400/404 = the broker does not know the symbol; anything else (timeout, 429, 5xx) is a temporary failure, not a verdict
             return {"ok": False, "quoted": False, "transient": e.status not in (400, 404), "broker_symbol": self.broker_symbol(symbol), "trade_mode": None, "error": e.msg}
 

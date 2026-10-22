@@ -25,6 +25,7 @@ function SymbolsCheck({ data }) {
   const rows = Object.entries(data.symbols);
   const disabled = data.disabled || [];
   const errors = data.errors || [];
+  const resolved = Object.entries(data.resolved || {});
   const bad = data.missing.length + disabled.length;
   const head = bad
     ? [data.missing.length ? `${data.missing.length} par(es) sin cotización en HFM: ${data.missing.join(", ")}` : "",
@@ -34,10 +35,15 @@ function SymbolsCheck({ data }) {
   return (
     <div data-testid="hfm-symbols-result" className="rounded-sm border border-[#1E293B] bg-[#0B1220] p-3 font-mono text-[11px] text-slate-300">
       <p data-testid="hfm-symbols-summary" className={bad ? (disabled.length ? "text-rose-300" : "text-amber-300") : errors.length ? "text-amber-300" : "text-emerald-400"}>{head}</p>
+      {resolved.length > 0 && (
+        <p data-testid="hfm-symbols-resolved" className="mt-1 text-sky-300">
+          Nombres resueltos en tu cuenta: {resolved.map(([k, v]) => `${k} → ${v}`).join(", ")}
+        </p>
+      )}
       <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3">
         {rows.map(([sym, r]) => (
           <span key={sym} data-testid={`hfm-symbol-${sym}`} className={r.ok ? "text-slate-300" : "text-rose-300"}>
-            {r.broker_symbol}{r.ok ? ` · ${r.bid} / ${r.ask} · mín ${r.min_lot}` : ` · ${r.error}`}
+            {r.resolved ? `${sym} → ${r.broker_symbol}` : r.broker_symbol}{r.ok ? ` · ${r.bid} / ${r.ask} · mín ${r.min_lot}` : ` · ${r.error}`}
           </span>
         ))}
       </div>

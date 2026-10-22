@@ -104,10 +104,12 @@ class FxEngine:
         if key != self._broker_key:
             if self.broker:
                 await self.broker.aclose()
-            self.broker = FxLiveBroker(*key) if cfg.metaapi_token and cfg.metaapi_account_id else None
+            self.broker = FxLiveBroker(*key, symbol_map=cfg.mt_symbol_map) if cfg.metaapi_token and cfg.metaapi_account_id else None
             self._broker_key = key
             self.broker_error = None
             self.hfm = _fresh_health()
+        elif self.broker and self.broker.symbol_map != cfg.mt_symbol_map:
+            self.broker.symbol_map = dict(cfg.mt_symbol_map)
         if not self.live:
             self.hfm = _fresh_health()
 

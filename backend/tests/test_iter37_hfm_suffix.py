@@ -237,3 +237,63 @@ class TestCheckRobustness:
             assert check(s, "symbols")["ok"] is True
         finally:
             s.put(f"{FX}/settings", json={"symbols": original}, timeout=30)
+
+
+class TestOddSymbolNames:
+    """User report: with suffix «b» every pair works except gold/silver → 'XAUUSDb · MetaApi 404: Specified symbol not found'.
+    The mock Zero group names them GOLDb and XAGUSD.b: the bot must resolve them from the account's symbol list."""
+
+    def test_11_check_resolves_metals_from_symbol_list(self, s, zero):
+        group("b")
+        assert s.post(f"{FX}/hfm/detect-suffix", timeout=120).json()["suffix"] == "b"
+        d = s.post(f"{FX}/hfm/symbols", timeout=120).json()
+        assert d["missing"] == [] and d["disabled"] == [] and d["errors"] == [], d
+        assert d["resolved"] == {"XAUUSD": "GOLDb", "XAGUSD": "XAGUSD.b"}, d["resolved"]
+        assert d["symbols"]["XAUUSD"]["ok"] and d["symbols"]["XAUUSD"]["broker_symbol"] == "GOLDb" and d["symbols"]["XAUUSD"]["resolved"] is True
+        assert d["symbols"]["XAGUSD"]["broker_symbol"] == "XAGUSD.b" and d["symbols"]["EURUSD"]["broker_symbol"] == "EURUSDb" and not d["symbols"]["EURUSD"]["resolved"]
+        cfg = s.get(f"{FX}/config", timeout=30).json()
+        assert cfg["mt_symbol_map"] == {"XAUUSD": "GOLDb", "XAGUSD": "XAGUSD.b"} and cfg["hfm_symbols_bad"] == []
+        assert check(s, "symbols")["ok"] is True
+        assert any("nombres resueltos en la cuenta: XAUUSD → GOLDb" in m for m in logs(s))
+
+    def test_12_test_connection_also_resolves_and_premium_clears_map(self, s, zero):
+        d = s.post(f"{FX}/hfm/test", json={}, timeout=180).json()
+        assert d["symbols"]["resolved"] == {"XAUUSD": "GOLDb", "XAGUSD": "XAGUSD.b"} and d["symbols"]["missing"] == []
+        group("")
+        d = s.post(f"{FX}/hfm/test", json={}, timeout=180).json()
+        assert d["suffix"]["suffix"] == "" and d["symbols"]["resolved"] == {} and d["symbols"]["symbols"]["XAUUSD"]["broker_symbol"] == "XAUUSD"
+        assert s.get(f"{FX}/config", timeout=30).json()["mt_symbol_map"] == {}
+        group("b")
+        assert s.post(f"{FX}/hfm/test", json={}, timeout=180).json()["symbols"]["resolved"] == {"XAUUSD": "GOLDb", "XAGUSD": "XAGUSD.b"}
+
+    def test_13_truly_missing_symbol_is_reported(self, s, zero):
+        """A name that exists under no alias must stay 'sin cotización' with an actionable hint (no false resolution)."""
+        from fx.live import FxLiveBroker
+        import asyncio
+        b = FxLiveBroker("mocktoken", mstate()["accounts"][0]["_id"], "new-york", MOCK, "b")
+        loop = asyncio.new_event_loop()
+        r = loop.run_until_complete(b.check_symbol("NZDJPY"))
+        loop.run_until_complete(b.aclose())
+        assert r["ok"] is False and r["quoted"] is False and r["transient"] is False and "ningún nombre conocido" in r["error"] and "NZDJPY" in r["error"]
+
+    def test_14_live_order_uses_resolved_name_and_maps_back(self, s, zero):
+        d = s.post(f"{FX}/hfm/symbols", timeout=120).json()
+        assert d["resolved"]["XAUUSD"] == "GOLDb"
+        r = s.post(f"{FX}/mode", json={"mode": "live", "confirm": "REAL", "reset_stats": True}, timeout=60)
+        assert r.status_code == 200, r.text
+        since = now_s()
+        out = inject("XAUUSD", "long")
+        assert "'executed': True" in out, out[-600:]
+        time.sleep(1)
+        mp = mstate()["positions"]
+        assert len(mp) == 1 and mp[0]["symbol"] == "GOLDb", mp
+        pos = s.get(f"{FX}/positions", timeout=30).json()
+        assert len(pos) == 1 and pos[0]["symbol"] == "XAUUSD" and pos[0]["live"], pos
+        time.sleep(7)  # monitor sync: the GOLDb broker position must map back to XAUUSD, not be flagged as external
+        assert not any("posición externa detectada" in m for m in logs(s, since))
+        assert len(s.get(f"{FX}/positions", timeout=30).json()) == 1
+        assert s.post(f"{FX}/positions/close-all", timeout=120).status_code == 200
+        time.sleep(1)
+        assert mstate()["positions"] == []
+        tr = [t for t in s.get(f"{FX}/trades", timeout=30).json() if t["closed_at"] >= since]
+        assert tr and tr[0]["symbol"] == "XAUUSD" and tr[0]["live"]
