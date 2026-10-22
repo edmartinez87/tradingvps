@@ -11,6 +11,10 @@ services:
       dockerfile: deploy/backend.Dockerfile
     restart: unless-stopped
     env_file: backend.env
+    environment:
+      - BACKUP_DIR=/data/backups
+    volumes:
+      - ./backups:/data/backups
     depends_on:
       - mongo
     ports:

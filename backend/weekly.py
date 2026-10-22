@@ -2,6 +2,8 @@ import logging
 from datetime import datetime, timezone, timedelta
 from models import now_iso
 from shadow import AI_KINDS
+from evolution import AI_SOURCES, SOURCES
+import evolution
 import notify
 
 logger = logging.getLogger("weekly")
@@ -55,11 +57,45 @@ async def build_weekly(engine, db) -> dict:
                  "ready_to_advance": checkin["ready_to_advance"], "days_running": checkin["days_running"], "last_30d": checkin["last_30d"]},
         "news": engine.news.summary() if engine.news else None,
         "risk_profile": settings.risk_profile,
+        "evolution": await evolution.week_summary(engine, since),
     }
 
 
 def _sym(k: str) -> str:
     return k.replace("USDT", "")
+
+
+VERDICT_ICON = {"MEJOR": "🟢 Mejoró", "PEOR": "🔴 Empeoró", "IGUAL": "⚪ Igual", "PENDIENTE": "⏳ Pendiente"}
+
+
+def _evolution_lines(ev: dict, currency: str) -> list:
+    from review import LABELS
+    items = ev.get("changes") or []
+    if not items:
+        return []
+    head = f"\n🧬 <b>Evolución</b> · {ev['total']} cambio{'s' if ev['total'] != 1 else ''} esta semana"
+    parts = [f"{ev['ai_changes']} por la IA"] if ev["ai_changes"] else []
+    parts += [f"{ev['better']} mejoraron"] if ev["better"] else []
+    parts += [f"{ev['worse']} empeoraron"] if ev["worse"] else []
+    parts += [f"{ev['pending']} pendientes"] if ev["pending"] else []
+    parts += [f"{ev['reverted_by_ai']} deshecho{'s' if ev['reverted_by_ai'] != 1 else ''} por la IA"] if ev["reverted_by_ai"] else []
+    parts += [f"{ev['reverted_manual']} deshecho{'s' if ev['reverted_manual'] != 1 else ''} a mano"] if ev["reverted_manual"] else []
+    lines = [head + (" (" + " · ".join(parts) + ")" if parts else "")]
+    for it in sorted(items, key=lambda x: x["ts"]):
+        day = datetime.fromisoformat(it["ts"]).strftime("%d/%m")
+        keys = ", ".join(LABELS.get(k, k) for k in it["keys"][:4]) + (" …" if len(it["keys"]) > 4 else "")
+        if it["is_revert"]:
+            who = "por la IA" if it["source"] in AI_SOURCES else "a mano"
+            orig = f" del {datetime.fromisoformat(it['revert_of_ts']).strftime('%d/%m')}" if it.get("revert_of_ts") else ""
+            lines.append(f"↩️ {day} Deshecho {who}{orig} ({SOURCES.get(it.get('revert_of_source'), it.get('revert_of_source') or 'cambio')}) · {keys}")
+            continue
+        a = it["after"]
+        perf = f" · {a['pnl']:+.2f} {currency} en {a['trades']} ops" if a["trades"] else " · sin operaciones aún"
+        tail = ""
+        if it["reverted_at"]:
+            tail = " → deshecho por la IA" if it.get("reverted_by") in AI_SOURCES else " → deshecho a mano"
+        lines.append(f"{VERDICT_ICON.get(it['verdict'], it['verdict'])} · {day} {it['source_label']} · {keys}{perf}{tail}")
+    return lines
 
 
 def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
@@ -96,6 +132,8 @@ def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
             lines.append("Por filtro: " + " · ".join(detail))
     elif sig["total"] and w.get("shadow_supported", True):
         lines.append("Valor del filtro: aún sin operaciones sombra cerradas esta semana.")
+    if w.get("evolution"):
+        lines.extend(_evolution_lines(w["evolution"], currency))
     lines.append(f"\n📋 <b>Plan</b> · {pl['message']}")
     l30 = pl["last_30d"]
     lines.append(f"Últimos 30 días: {l30['pnl']:+.2f} {currency} · {l30['trades']} ops · PF {l30['profit_factor'] if l30['profit_factor'] is not None else '—'} · día {pl['days_running']}")

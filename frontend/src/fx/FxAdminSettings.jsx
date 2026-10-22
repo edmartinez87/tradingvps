@@ -10,10 +10,11 @@ import HfmSection from "./HfmSection";
 import FxNewsSection from "./FxNewsSection";
 import LiveModeSection from "@/components/bot/admin/LiveModeSection";
 import AutoReviewSection from "@/components/bot/admin/AutoReviewSection";
+import BackupSection from "@/components/bot/admin/BackupSection";
 import { fmtDateTime } from "@/lib/api";
 
 const AUTO_REVIEW_DESC = "La IA revisa el rendimiento real del bot forex, el chequeo del plan y los backtests en lotes y pips, y ajusta pares, estrategias, sesiones y SL/TP dentro de los topes de tu perfil de riesgo forex (riesgo ≤ 1.5 %, apalancamiento ≤ 1:100 o el del perfil, mínimo 2 pares). Se dispara a las 08:00 UTC del día programado, independiente de la revisión del bot cripto, y te avisa por Telegram.";
-const WEEKLY_DESC = "PnL y pips netos de la semana, mejores y peores pares, decisiones del filtro IA y estado del plan de crecimiento forex. Usa el aviso «Resumen diario y semanal».";
+const WEEKLY_DESC = "PnL y pips netos de la semana, mejores y peores pares, decisiones del filtro IA, evolución (qué cambios mejoraron, cuáles empeoraron y cuáles deshizo la IA) y estado del plan de crecimiento forex. Usa el aviso «Resumen diario y semanal».";
 
 const HFM_LIVE_LABELS = {
   exchange: "HFM",
@@ -58,6 +59,7 @@ export default function FxAdminSettings({ account, refresh }) {
         <AiSection config={config} onSave={save} />
         <TelegramSection config={config} onSave={save} weeklyDesc={WEEKLY_DESC} />
         <AccountSection account={account} refresh={refresh} currency="USD" />
+        <BackupSection />
       </div>
     </div>
   );

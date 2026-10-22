@@ -105,3 +105,4 @@ frontend/node_modules/.cache/default-development/5.pack
 
 # VPS backups (deploy/backup.sh)
 deploy/backups/
+backend/backups/

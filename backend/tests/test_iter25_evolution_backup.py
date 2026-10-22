@@ -186,17 +186,20 @@ class TestEvolutionApi:
 
 
 class TestBackupKit:
-    def test_endpoint_auth_and_validation(self):
+    def test_cron_backup_auth_and_native_archive(self):
+        import backup
         h = {"Authorization": f"Bearer {_secret()}"}
-        files = {"file": ("cryptobot-2026-06-01.archive.gz", b"\x1f\x8b" + b"x" * 500, "application/octet-stream")}
-        assert requests.post(f"{BASE_URL}/api/cron/backup", headers={"Authorization": "Bearer nope"}, files=files, timeout=30).status_code == 401
-        assert requests.post(f"{BASE_URL}/api/cron/backup", headers=h, files={"file": ("e.gz", b"", "application/octet-stream")}, timeout=30).status_code == 400
-        r = requests.post(f"{BASE_URL}/api/cron/backup", headers=h, files=files, timeout=30)
-        assert r.status_code == 200 and r.json()["sent"] is False and "Telegram" in r.json()["reason"] and r.json()["size_mb"] == 0.0
+        assert requests.post(f"{BASE_URL}/api/cron/backup", headers={"Authorization": "Bearer nope"}, json={}, timeout=30).status_code == 401
+        r = requests.post(f"{BASE_URL}/api/cron/backup", headers=h, json={"telegram": True}, timeout=60)
+        assert r.status_code == 200
+        out = r.json()
+        assert out["filename"].endswith(".json.gz") and out["size_mb"] >= 0 and out["sent"] is False and "Telegram" in out["reason"]
+        assert (backup.DIR / out["filename"]).is_file()
         from pymongo import MongoClient
         env = dict(l.strip().split("=", 1) for l in open("/app/backend/.env") if "=" in l and not l.startswith("#"))
         meta = MongoClient(env["MONGO_URL"].strip('"'))[env["DB_NAME"].strip('"')].meta.find_one({"_id": "backup"})
-        assert meta and meta["filename"] == "cryptobot-2026-06-01.archive.gz" and meta["sent"] is False and meta["last_at"]
+        assert meta and meta["filename"] == out["filename"] and meta["sent"] is False and meta["last_at"] and meta["source"] == "auto"
+        (backup.DIR / out["filename"]).unlink()
 
     def test_notify_send_document_exists(self):
         import notify
@@ -211,11 +214,15 @@ class TestBackupKit:
             assert subprocess.run(["bash", "-n", f"/app/deploy/{f}"], capture_output=True).returncode == 0, f
             assert os.access(f"/app/deploy/{f}", os.X_OK)
         bk = open("/app/deploy/backup.sh").read()
-        assert "mongodump" in bk and "--gzip" in bk and "/api/cron/backup" in bk and "-mtime" in bk and 'date -u +%u)" = "7"' in bk and "BACKUP_PASSWORD" in bk
+        assert "/api/cron/backup" in bk and '"telegram": true' in bk and "mongodump" not in bk
         rs = open("/app/deploy/restore.sh").read()
-        assert "mongorestore" in rs and "--drop" in rs and "docker compose stop backend" in rs
+        assert "/api/cron/restore" in rs and "mongorestore" not in rs and 'read -rp' in rs
         inst = open("/app/deploy/install.sh").read()
-        assert "0 3 * * *" in inst and "backup.sh" in inst and "grep -v 'backup.sh'" in inst
+        assert "0 3 * * *" in inst and "backup.sh" in inst and "grep -v 'backup.sh'" in inst and "mkdir -p backups" in inst
+        compose = open("/app/deploy/docker-compose.yml").read()
+        assert "BACKUP_DIR=/data/backups" in compose and "./backups:/data/backups" in compose
         readme = open("/app/deploy/README.md").read()
-        assert "backup.sh" in readme and "restore.sh" in readme and "Telegram" in readme and "14 días" in readme
-        assert "deploy/backups/" in open("/app/.gitignore").read()
+        assert "backup.sh" in readme and "restore.sh" in readme and "Telegram" in readme and "14 días" in readme and "Copias de seguridad" in readme
+        gi = open("/app/.gitignore").read()
+        assert "deploy/backups/" in gi and "backend/backups/" in gi
+        assert "backup-nightly" in open("/app/.emergent/crons.yml").read()

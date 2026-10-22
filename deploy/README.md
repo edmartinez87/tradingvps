@@ -21,14 +21,17 @@ y copia de seguridad nocturna de MongoDB (03:00 UTC, los domingos también por T
 | `bash cron-walk-forward.sh` | revalidar ahora con walk-forward los pares con SL/TP optimizados (Bybit y HotForex) |
 | `bash cron-weekly-summary.sh` | enviar ahora el resumen semanal por Telegram (Bybit y HotForex) |
 | `bash backup.sh` | copia de seguridad ahora en `backups/` (añade `--telegram` para enviarla también por Telegram) |
-| `bash restore.sh backups/<archivo>` | restaurar una copia (detiene el bot, reemplaza la base de datos y lo reinicia) |
+| `bash restore.sh backups/<archivo>` | restaurar una copia (.json.gz) · reemplaza la base de datos y deja ambos bots detenidos |
 
 Archivos sensibles (no se suben a git): `deploy/.env`, `deploy/backend.env`, `deploy/backups/`.
 **Haz copia de `backend.env`**: `CREDENTIAL_ENCRYPTION_KEY` cifra las claves de Bybit guardadas;
 si se pierde habrá que volver a introducirlas.
 
 Copias de seguridad:
-- Cada noche a las 03:00 UTC `backup.sh` guarda `backups/cryptobot-AAAA-MM-DD.archive.gz` (mongodump comprimido) y borra las de más de 14 días (`BACKUP_KEEP_DAYS`).
-- Los domingos envía la copia del día por Telegram al chat configurado (aviso "Conexión/sistema"); el bot de Telegram admite hasta 50 MB.
-- La copia contiene las claves API cifradas con `CREDENTIAL_ENCRYPTION_KEY` (sin esa clave no se pueden leer). Si quieres cifrar además el archivo antes de enviarlo,
-  exporta `BACKUP_PASSWORD=...` en el cron (`BACKUP_PASSWORD=xxx /bin/bash backup.sh`); el archivo llegará como `.enc` y `restore.sh` pedirá la contraseña.
+- Cada noche a las 03:00 UTC `backup.sh` pide al backend una copia completa de la base de datos (ambos bots) en `backups/cryptobot-AAAA-MM-DD_HHMMSS.json.gz`
+  (formato propio del bot, sin mongodump) y borra las de más de 14 días (`BACKUP_KEEP_DAYS` en backend.env; siempre conserva las 3 últimas).
+- Los domingos el backend envía la copia del día por Telegram al chat configurado (aviso "Conexión/sistema"); el bot de Telegram admite hasta 50 MB.
+- Desde el panel (Ajustes → Copias de seguridad) puedes crear una copia ahora, descargar la última (o cualquiera guardada) y restaurar una copia
+  guardada o un archivo de tu disco. Para restaurar hay que detener ambos bots; la clave de acceso actual se conserva y los bots quedan detenidos.
+- La copia contiene las claves API cifradas con `CREDENTIAL_ENCRYPTION_KEY` (sin esa clave no se pueden leer) y la clave del panel como hash.
+  Restaura siempre en una instalación con la misma `CREDENTIAL_ENCRYPTION_KEY` o vuelve a introducir las claves API después.

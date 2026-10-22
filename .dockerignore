@@ -9,3 +9,4 @@ test_reports
 memory
 tests
 **/__pycache__
+backend/backups

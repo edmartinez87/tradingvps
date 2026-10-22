@@ -102,6 +102,24 @@ async def timeline(engine, limit: int = 40) -> dict:
             "first_at": events[-1]["ts"] if events else None, "equity": acc["equity"], "min_trades": MIN_TRADES}
 
 
+async def week_summary(engine, since: str) -> dict:
+    """Changes of the last week for the Telegram weekly summary: what improved, what got worse and what the AI undid."""
+    tl = await timeline(engine, 60)
+    items = []
+    for e in tl["events"]:
+        if e["ts"] < since:
+            continue
+        items.append({"id": e["id"], "ts": e["ts"], "source": e["source"], "source_label": e["source_label"], "ai": e["ai"], "keys": list(e["changes"]),
+                      "verdict": e["verdict"], "after": e["after"], "before": e["before"], "reverted_at": e.get("reverted_at"), "reverted_by": e.get("reverted_by"),
+                      "revert_of_ts": e.get("revert_of_ts"), "revert_of_source": e.get("revert_of_source"), "is_revert": bool(e.get("revert_of"))})
+    changes = [i for i in items if not i["is_revert"]]
+    reverts = [i for i in items if i["is_revert"]]
+    return {"changes": items, "total": len(changes), "ai_changes": sum(1 for i in changes if i["ai"]),
+            "better": sum(1 for i in changes if i["verdict"] == "MEJOR"), "worse": sum(1 for i in changes if i["verdict"] == "PEOR"),
+            "pending": sum(1 for i in changes if i["verdict"] == "PENDIENTE"),
+            "reverted_by_ai": sum(1 for i in reverts if i["source"] in AI_SOURCES), "reverted_manual": sum(1 for i in reverts if i["source"] not in AI_SOURCES)}
+
+
 async def ai_context(engine, limit: int = 12) -> dict:
     """Compact timeline for the AI advisor: lets it judge (and undo) changes that made results worse."""
     tl = await timeline(engine, limit)

@@ -20,3 +20,10 @@ crons:
     method: POST
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
+  - name: backup-nightly
+    description: "Crea cada noche a las 03:00 UTC una copia de seguridad completa de la base de datos (ambos bots) y los domingos la envía por Telegram"
+    cron: "0 3 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/backup"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

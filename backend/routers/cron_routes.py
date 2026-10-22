@@ -11,6 +11,7 @@ from pymongo.errors import DuplicateKeyError
 import notify
 import wfcheck
 import weekly
+import backup
 from review import run_auto_review
 from deps import engine, db, store, fx_engine, fx_store
 from fx.wfcheck import KIT as FX_WF_KIT
@@ -126,35 +127,72 @@ async def cron_weekly_summary(request: Request):
 TELEGRAM_MAX_MB = 49
 
 
+async def _send_backup(rec: dict) -> dict:
+    """Forwards a stored archive to Telegram as a document (≤ 49 MB) and records the outcome in db.meta.backup."""
+    name, size_mb = rec["filename"], rec["size_mb"]
+    upd = {"sent": False, "error": None, "sent_at": None}
+    if not notify.is_on("system"):
+        upd["error"] = "Telegram desactivado o aviso 'system' apagado"
+    elif size_mb > TELEGRAM_MAX_MB:
+        upd["error"] = f"{size_mb} MB supera el límite de Telegram ({TELEGRAM_MAX_MB} MB)"
+        await notify.notify(f"🗄 <b>Copia de seguridad</b> {name} generada ({size_mb} MB) pero supera el límite de Telegram; queda guardada en el servidor.", "system")
+    else:
+        caption = (f"🗄 <b>Copia de seguridad semanal</b> · {name} · {size_mb} MB\n"
+                   "Restaurar: Ajustes → Copias de seguridad → Restaurar desde archivo (o <code>bash deploy/restore.sh archivo</code>)")
+        try:
+            data = await asyncio.to_thread((backup.DIR / name).read_bytes)
+            await notify.send_document(data, name, caption)
+            upd.update(sent=True, sent_at=datetime.now(timezone.utc).isoformat())
+            for bot in (CRYPTO, FX):
+                await bot["engine"].log("INFO", f"Copia de seguridad {name} ({size_mb} MB) enviada por Telegram")
+        except Exception as e:
+            upd["error"] = str(e)[:200]
+    await db.meta.update_one({"_id": "backup"}, {"$set": upd}, upsert=True)
+    return upd
+
+
 @router.post("/backup")
-async def cron_backup(request: Request, file: UploadFile = File(...)):
-    """deploy/backup.sh uploads the nightly mongodump archive here (weekly) so the backend can forward it to Telegram as a document."""
+async def cron_backup(request: Request):
+    """Nightly 03:00 UTC (deploy/backup.sh or the platform cron): creates an archive in BACKUP_DIR, prunes old ones and, on Sundays or with
+    {"telegram": true}, sends it to Telegram as a document."""
     _auth(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    try:
+        rec = await backup.create(db, "auto")
+    except Exception as e:
+        logger.exception("cron backup")
+        for bot in (CRYPTO, FX):
+            await bot["engine"].log("ERROR", f"Copia de seguridad nocturna falló: {str(e)[:160]}")
+        raise HTTPException(500, f"No se pudo crear la copia: {str(e)[:160]}")
+    for bot in (CRYPTO, FX):
+        await bot["engine"].log("INFO", f"Copia de seguridad nocturna creada · {rec['filename']} · {rec['size_mb']} MB"
+                                        + (f" · borradas {len(rec['removed'])} antiguas" if rec["removed"] else ""))
+    out = {"filename": rec["filename"], "size_mb": rec["size_mb"], "removed": rec["removed"], "sent": False, "reason": None}
+    if body.get("telegram") or datetime.now(timezone.utc).isoweekday() == 7:
+        res = await _send_backup(rec)
+        out.update(sent=res["sent"], reason=res["error"])
+    return out
+
+
+@router.post("/restore")
+async def cron_restore(request: Request, file: UploadFile = File(...)):
+    """deploy/restore.sh uploads an archive here; both bots are stopped, the database replaced and the state reloaded."""
+    _auth(request)
+    from routers.backup_routes import perform_restore
     data = await file.read()
     if not data:
         raise HTTPException(400, "Archivo vacío")
-    size_mb = round(len(data) / 1048576, 2)
-    name = (file.filename or "backup.archive.gz")[:120]
-    rec = {"_id": "backup", "last_at": datetime.now(timezone.utc).isoformat(), "filename": name, "size_mb": size_mb, "sent": False, "error": None}
-    if not notify.is_on("system"):
-        rec["error"] = "Telegram desactivado o aviso 'system' apagado"
-        await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
-        return {"sent": False, "size_mb": size_mb, "reason": rec["error"]}
-    if size_mb > TELEGRAM_MAX_MB:
-        rec["error"] = f"{size_mb} MB supera el límite de Telegram ({TELEGRAM_MAX_MB} MB)"
-        await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
-        await notify.notify(f"🗄 <b>Copia de seguridad</b> {name} generada ({size_mb} MB) pero supera el límite de Telegram; queda guardada en el VPS (deploy/backups/).", "system")
-        raise HTTPException(413, rec["error"])
-    caption = (f"🗄 <b>Copia de seguridad semanal</b> · {name} · {size_mb} MB\n"
-               "Restaurar en el VPS: <code>cd deploy && bash restore.sh &lt;archivo&gt;</code>")
     try:
-        await notify.send_document(data, name, caption)
+        backup.parse(data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    try:
+        out = await perform_restore(data, f"restore.sh · {(file.filename or 'archivo')[:80]}")
     except Exception as e:
-        rec["error"] = str(e)[:200]
-        await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
-        raise HTTPException(424, f"Telegram: {rec['error']}")
-    rec["sent"] = True
-    await db.meta.update_one({"_id": "backup"}, {"$set": rec}, upsert=True)
-    for bot in (CRYPTO, FX):
-        await bot["engine"].log("INFO", f"Copia de seguridad {name} ({size_mb} MB) enviada por Telegram")
-    return {"sent": True, "size_mb": size_mb}
+        logger.exception("cron restore")
+        raise HTTPException(500, f"La restauración falló: {str(e)[:160]}")
+    return {**out, "bots_stopped": True}

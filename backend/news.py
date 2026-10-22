@@ -107,11 +107,14 @@ class NewsAgent:
     async def configure(self, cfg):
         self.cfg = cfg
 
-    async def init(self):
+    async def reload(self):
         doc = await self.db.news.find_one({"_id": "latest"}, {"_id": 0})
         self.latest = doc
         self._seen_alerts = {a["key"] for a in (doc or {}).get("alerts", [])}
         self._last_risk = (doc or {}).get("market", {}).get("risk")
+
+    async def init(self):
+        await self.reload()
         self.task = asyncio.create_task(self._loop())
 
     async def _loop(self):

@@ -7,7 +7,7 @@ import { BTN_OUT } from "./SecuritySection";
 
 const strip = (html) => html.replace(/<\/?b>/g, "");
 
-const DEFAULT_DESC = "PnL de la semana, mejores y peores pares, valor del filtro IA (operaciones sombra) y estado del plan. Usa el aviso «Resumen diario y semanal».";
+const DEFAULT_DESC = "PnL de la semana, mejores y peores pares, valor del filtro IA (operaciones sombra), evolución (qué cambios mejoraron, cuáles empeoraron y cuáles deshizo la IA) y estado del plan. Usa el aviso «Resumen diario y semanal».";
 
 export default function WeeklySummaryCard({ ready, desc = DEFAULT_DESC }) {
   const [preview, setPreview] = useState(null);

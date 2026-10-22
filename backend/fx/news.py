@@ -55,13 +55,17 @@ class FxNewsAgent:
     async def configure(self, cfg):
         self.cfg = cfg
 
-    async def init(self):
+    async def reload(self):
         doc = await self.db.news.find_one({"_id": "latest"}, {"_id": 0})
         self.latest = doc
         self._seen_alerts = {a["key"] for a in (doc or {}).get("alerts", [])}
         self._last_risk = (doc or {}).get("market", {}).get("risk")
+        self._processed = set()
         async for d in self.db.news_trades.find({}, {"key": 1}).sort("_id", -1).limit(300):
             self._processed.add(d["key"])
+
+    async def init(self):
+        await self.reload()
         self.task = asyncio.create_task(self._loop())
 
     async def _loop(self):

@@ -51,6 +51,7 @@ if [ ! -f backend.env ]; then
 fi
 
 echo "==> [4/6] Construyendo e iniciando contenedores (la primera vez tarda 5-10 min)"
+mkdir -p backups
 docker compose up -d --build
 
 echo "==> [5/6] Crons: revisión IA (08:00 UTC), walk-forward semanal (lunes 07:00 UTC), resumen semanal (domingo 20:00 UTC) y copia de seguridad nocturna (03:00 UTC; los domingos también por Telegram)"

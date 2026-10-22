@@ -17,7 +17,10 @@ ALLOWED_AI_KEYS = {"symbols", "disabled_strategies", "risk_per_trade", "max_posi
                    "trailing_enabled", "htf_filter", "symbol_params"}
 LABELS = {"symbols": "Pares", "strategy": "Estrategia", "disabled_strategies": "Estrategias apagadas", "risk_per_trade": "Riesgo/op %",
           "max_positions": "Máx. posiciones", "leverage": "Apalancamiento", "ai_min_confidence": "Confianza mín. IA", "trailing_enabled": "Trailing",
-          "htf_filter": "Filtro TF superior", "symbol_params": "Parámetros SL/TP", "sessions_allowed": "Sesiones permitidas"}
+          "htf_filter": "Filtro TF superior", "symbol_params": "Parámetros SL/TP", "sessions_allowed": "Sesiones permitidas",
+          "timeframe": "Temporalidad", "signal_mode": "Criterios de entrada", "daily_loss_limit": "Límite pérdida diaria %", "ai_enabled": "Filtro IA",
+          "scan_interval_sec": "Intervalo de escaneo", "close_before_weekend": "Cierre fin de semana", "min_lot_max_risk": "Tope riesgo lote mínimo %",
+          "risk_profile": "Perfil de riesgo"}
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
                   "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21"}
 _plan_cache: dict = {}
