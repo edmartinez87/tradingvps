@@ -1,0 +1,17 @@
+{
+  "summary": "Iteration 35 - FX ai_news_weight + shadow news_risk calibration. Backend: test_iter39 (6) + regression test_iter24/test_iter15 = 40/40 pass; new test_iter40_news_weight_api.py 4/4 pass (GET default, PUT bajo persists, PUT alto 422 without changing value, revert to normal; crypto /api/settings has no ai_news_weight; /api/fx/performance shadow.ai_by_news_risk is a list (empty in preview); fx.review.ALLOWED_AI_KEYS contains key, crypto review.ALLOWED_AI_KEYS does not, LABELS ok, advisor_system(FX) mentions ai_news_weight & ai_by_news_risk). Shadow injection: fx_inject_signal EURUSD long noai x2 -> 2nd BLOQUEADA -> latest fx_shadow_positions doc has news_risk='SIN_DATO'; close-all closed 1. apply_ai_changes sanitization verified by code review (review.py L107-108 pops invalid ai_news_weight before model validation). Frontend (/hotforex): select settings-ai-news-weight-select shows 'Normal · …', choosing 'Bajo · solo restan confianza' + settings-save-button -> toast 'Configuración guardada', API = bajo, reload shows Bajo, reverted to Normal (API = normal). Rendimiento tab renders shadow-stats/shadow-empty without errors, shadow-ai-by-news-risk absent (no rows) as expected. Docs FAQ (FX) contains the new question and mentions «Peso de las noticias en la IA»; crypto (/bybit) has no select and the FAQ is absent (45 questions). No page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter40_news_weight_api.py", "/app/backend/tests/test_iter39_ai_news_weight.py", "/app/test_reports/pytest/iter35.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor docs inconsistency: FAQ '¿Qué puede cambiar la IA por su cuenta?' (faqContent.js L44) lists 'sesiones permitidas' for FX but not the new 'peso de las noticias en la IA'; consider adding it.",
+    "shadow.ai_by_news_risk only counts closed shadows of AI kinds (RECHAZADA/BAJA_CONFIANZA); the table will stay hidden until such shadows close - expected, but in preview it cannot be visually verified with real rows."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter40_news_weight_api.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Injected 2 EURUSD paper signals on FX (1 executed then closed via close-all, PnL -0.36 USD paper; 1 BLOQUEADA -> open shadow with news_risk SIN_DATO). ai_news_weight left at 'normal'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "/ is a bot selector; crypto dashboard is /bybit (crypto bot was already RUNNING, not touched). FX dashboard /hotforex, FX bot stopped/paper. Docs FAQ tab: docs-tab-faq, questions docs-faq-q-<n>. ai_policy lives in profiles.py / fx/profiles.py (not ai_advisor)."
+}
