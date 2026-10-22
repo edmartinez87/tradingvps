@@ -837,7 +837,7 @@ class FxEngine:
                 "change_24h": t.get("change_pct", 0), "sessions": market_status()["sessions"],
                 "recent_changes": [round(x, 3) for x in (closes.pct_change().dropna() * 100).tolist()],
                 "open_positions": len(open_syms), "daily_pnl_pct": acc["daily_pnl_pct"],
-                "news": news_ctx,
+                "news": news_ctx, "news_weight": settings.ai_news_weight,
             }
             try:
                 res = await evaluate_signal(symbol, settings.timeframe, sig, ctx)

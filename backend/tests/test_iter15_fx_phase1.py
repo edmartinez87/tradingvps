@@ -135,11 +135,12 @@ def test_paper_cycle_and_isolation(s):
     print("mark", m1, "->", p2.get("mark_price"), "upnl", p2.get("unrealized_pnl"))
     assert p2.get("mark_price") is not None
 
-    # duplicate -> blocked
+    # duplicate -> blocked (the running paper bot may open other pairs meanwhile: count only EURUSD)
     inject("EURUSD", "long")
-    assert len(get(s, f"{FX}/positions").json()) == 1
+    assert len([x for x in get(s, f"{FX}/positions").json() if x["symbol"] == "EURUSD"]) == 1
     sigs = get(s, f"{FX}/signals").json()
-    assert sigs[0]["ai_decision"] == "BLOQUEADA", sigs[0]
+    sig = next(x for x in sigs if x["symbol"] == "EURUSD")
+    assert sig["ai_decision"] == "BLOQUEADA", sig
 
     # crypto isolation
     crypto_now = get(s, f"{BASE_URL}/api/dashboard").json()

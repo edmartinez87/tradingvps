@@ -41,6 +41,9 @@ export const FX_BRAND = {
     : "Precios y velas de Yahoo Finance (sin API key): pares spot y futuros de oro (GC=F) y plata (SI=F) que replican el spot. En modo REAL las órdenes y el PnL vienen de tu cuenta HFM vía MetaApi."),
   resetHint: "Se borrarán posiciones, historial, señales, operaciones de noticias y curva de equidad. En paper el balance vuelve al capital inicial configurado (por defecto $500); en REAL las estadísticas parten de la equidad actual de HFM.",
 };
+export const NEWS_WEIGHT_LABELS = { normal: "Normal · las alertas generales pueden rechazar", bajo: "Bajo · solo restan confianza" };
+const EXTRA_SELECTS = [{ k: "ai_news_weight", label: "Peso de las noticias en la IA", options: ["normal", "bajo"], render: (o) => NEWS_WEIGHT_LABELS[o] || o,
+  hint: "Cuánto pesan las alertas generales de mercado (no específicas del par) en el veredicto de la IA por señal. La optimización con IA lo calibra sola con las operaciones sombra «Rechazos de la IA por riesgo de noticias»." }];
 const EXTRA_TOGGLES = [{ k: "close_before_weekend", label: "Cerrar antes del fin de semana", hint: "Cierra todo 30 min antes del cierre del viernes (evita gaps del domingo)" }];
 const EXTRA_NUMS = [{ k: "min_lot_max_risk", label: "Riesgo máx. lote mínimo (%)", step: 0.5, min: 0, max: 10,
   hint: "Si el tamaño ideal queda por debajo de 0.01 lotes (típico en oro/plata con poco capital), se abre el lote mínimo siempre que su riesgo no supere este % de la equidad. 0 = nunca." }];
@@ -184,7 +187,7 @@ export default function FxDashboard({ onLogout }) {
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active} leverageMax={500} maxPositions={12} extraToggles={EXTRA_TOGGLES} extraNums={EXTRA_NUMS}
-            extraChips={SESSION_CHIPS(meta)} fmtLeverage={fmtLev}
+            extraChips={SESSION_CHIPS(meta)} extraSelects={EXTRA_SELECTS} fmtLeverage={fmtLev}
             onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")}
             onProfile={(level) => act(() => http.post("/profile", { level }), `Perfil de riesgo aplicado: ${meta?.profiles?.[level]?.name || level}`)} />
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />

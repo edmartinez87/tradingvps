@@ -16,6 +16,8 @@ AI_KINDS = ("RECHAZADA", "BAJA_CONFIANZA")
 async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, kind: str, acc: dict,
                       ai_confidence: int = 0, ai_risk: str = "-", risk_factor: float = 1.0, note: str = ""):
     tickers = engine.market.tickers
+    news_ctx = engine.news.context(symbol) if getattr(engine, "news", None) else None
+    news_risk = ((news_ctx or {}).get("mercado") or {}).get("risk") or "SIN_DATO"
     entry = tickers.get(symbol, {}).get("price") or sig["price"]
     sl, tp = entry - (sig["price"] - sig["sl"]), entry + (sig["tp"] - sig["price"])
     lots, margin, real_risk = risk.position_size(acc["equity"], acc["available"], settings.risk_per_trade * risk_factor, entry, sl,
@@ -29,7 +31,8 @@ async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, 
            "kind": kind, "note": note[:200], "ai_confidence": ai_confidence, "ai_risk": ai_risk, "entry_price": entry, "qty": lots,
            "leverage": settings.leverage, "margin": margin, "risk_pct": real_risk, "undersized": undersized, "sl": sl, "tp": tp, "initial_sl": sl,
            "atr": sig["atr"], "fees": risk.spread_cost(symbol, lots, tickers), "breakeven": False, "risk_factor": risk_factor,
-           "session": "+".join(x["id"] for x in market_status()["sessions"] if x["open"]) or "ninguna", "live": engine.live, "mark_price": entry, "unrealized_pnl": 0.0, "opened_at": now_iso()}
+           "session": "+".join(x["id"] for x in market_status()["sessions"] if x["open"]) or "ninguna", "news_risk": news_risk, "live": engine.live,
+           "mark_price": entry, "unrealized_pnl": 0.0, "opened_at": now_iso()}
     await engine.db.shadow_positions.insert_one(doc)
     return doc
 
@@ -79,5 +82,6 @@ async def shadow_stats(db) -> dict:
         "by_confidence": [{"key": label, **_agg([r for r in ai_rows if lo <= r["ai_confidence"] <= hi])} for lo, hi, label in BUCKETS],
         "by_strategy": _by(rows, "strategy"), "by_symbol": _by(rows, "symbol"),
         "by_session": _by([r for r in rows if r.get("session")], "session"),
+        "ai_by_news_risk": _by([r for r in ai_rows if r.get("news_risk")], "news_risk"),
         "undersized": sum(1 for r in rows if r.get("undersized")),
     }

@@ -242,8 +242,13 @@ FX_MARKET = {
     "lev": lambda v: f"1:{v}",
     "extra_rule": ("(6) sessions_allowed es la lista de sesiones en las que el bot puede ABRIR posiciones (ids válidos: sydney, tokyo, london, newyork; "
                    "lista vacía = todas). Solo restringe sesiones con evidencia: session_stats del backtest con ≥ 15 operaciones por sesión descartada "
-                   "o rendimiento_real; Londres y Nueva York concentran la liquidez y suelen ser las mejores. "),
-    "extra_keys": ", sessions_allowed (lista de ids)",
+                   "o rendimiento_real; Londres y Nueva York concentran la liquidez y suelen ser las mejores. "
+                   "(7) Calibra el filtro IA SOLO con las operaciones sombra (rendimiento_real.shadow): cambia ai_min_confidence únicamente con ≥ 30 sombras "
+                   "RECHAZADA/BAJA_CONFIANZA y según by_confidence (sube el mínimo si los tramos bajos pierden, bájalo si los tramos justo por debajo del mínimo ganan de forma consistente); "
+                   "ai_news_weight ('normal' o 'bajo') regula cuánto pesan las alertas generales de mercado en el veredicto por señal: ponlo en 'bajo' solo si ai_by_news_risk "
+                   "muestra que las señales rechazadas con riesgo ALTO habrían ganado (pnl > 0) con ≥ 20 sombras, y devuélvelo a 'normal' si con ≥ 20 sombras pierden. "
+                   "Sin esa muestra, no toques el filtro IA y explica en notes cuántas sombras faltan. "),
+    "extra_keys": ", sessions_allowed (lista de ids), ai_news_weight ('normal'|'bajo')",
 }
 
 

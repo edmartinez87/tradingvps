@@ -38,7 +38,7 @@ const Sel = ({ label, value, onChange, options, render, testId }) => (
   </div>
 );
 
-export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [], extraChips = [], fmtLeverage }) {
+export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [], extraChips = [], extraSelects = [], fmtLeverage }) {
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -127,6 +127,16 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
           </div>
         ))}
       </div>
+      {extraSelects.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {extraSelects.map((x) => (
+            <div key={x.k} data-testid={`settings-${x.k.replace(/_/g, "-")}`}>
+              <Sel label={x.label} value={form[x.k] ?? x.options[0]} onChange={(v) => set(x.k, v)} options={x.options} render={x.render} testId={`settings-${x.k.replace(/_/g, "-")}-select`} />
+              {x.hint && <p className="mt-1 text-[11px] text-slate-500">{x.hint}</p>}
+            </div>
+          ))}
+        </div>
+      )}
       {extraChips.map((c) => {
         const sel = form[c.k] || [];
         return (

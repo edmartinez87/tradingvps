@@ -17,7 +17,7 @@ ALLOWED_AI_KEYS = {"symbols", "disabled_strategies", "risk_per_trade", "max_posi
                    "trailing_enabled", "htf_filter", "symbol_params"}
 LABELS = {"symbols": "Pares", "strategy": "Estrategia", "disabled_strategies": "Estrategias apagadas", "risk_per_trade": "Riesgo/op %",
           "max_positions": "Máx. posiciones", "leverage": "Apalancamiento", "ai_min_confidence": "Confianza mín. IA", "trailing_enabled": "Trailing",
-          "htf_filter": "Filtro TF superior", "symbol_params": "Parámetros SL/TP", "sessions_allowed": "Sesiones permitidas",
+          "htf_filter": "Filtro TF superior", "symbol_params": "Parámetros SL/TP", "sessions_allowed": "Sesiones permitidas", "ai_news_weight": "Peso de las noticias en la IA",
           "timeframe": "Temporalidad", "signal_mode": "Criterios de entrada", "daily_loss_limit": "Límite pérdida diaria %", "ai_enabled": "Filtro IA",
           "scan_interval_sec": "Intervalo de escaneo", "close_before_weekend": "Cierre fin de semana", "min_lot_max_risk": "Tope riesgo lote mínimo %",
           "risk_profile": "Perfil de riesgo"}
@@ -104,6 +104,8 @@ async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy:
         patch.pop("symbols")
     if "sessions_allowed" in patch and not isinstance(patch["sessions_allowed"], list):
         patch.pop("sessions_allowed")
+    if "ai_news_weight" in patch and patch["ai_news_weight"] not in ("normal", "bajo"):
+        patch.pop("ai_news_weight")
     if "disabled_strategies" in patch:
         dis = [x for x in (patch["disabled_strategies"] if isinstance(patch["disabled_strategies"], list) else []) if x in STRATEGY_KEYS and x != "all"]
         if len(dis) >= len(STRATEGY_KEYS) - 1:

@@ -47,6 +47,15 @@ def _parse(text: str) -> dict:
         return json.loads(re.sub(r"(?<=[^\\])\n", " ", raw))
 
 
+def _weight_line(weight) -> str:
+    """'bajo' = the shadow results showed the filter rejecting profitable signals on days of market-wide alerts (set by the AI review or the user)."""
+    if weight != "bajo":
+        return ""
+    return ("Peso de las noticias: BAJO (calibrado con los resultados sombra). Las alertas generales de mercado que no afecten específicamente a las divisas "
+            "de este par solo deben restar confianza, no justificar por sí solas un rechazo; rechaza si el riesgo es específico del par, hay un sesgo claro "
+            "en contra en sus divisas o un evento de alto impacto inminente.\n")
+
+
 def _build_prompt(symbol: str, timeframe: str, sig: dict, ctx: dict) -> str:
     spec = SPECS[symbol]
     stop_pips = pips(symbol, abs(sig["price"] - sig["sl"]))
@@ -62,7 +71,7 @@ def _build_prompt(symbol: str, timeframe: str, sig: dict, ctx: dict) -> str:
         f"Cambio 24h: {ctx.get('change_24h', 0):.2f}% | Sesiones activas: {sess}\n"
         f"Últimos cierres (% cambio por vela, más reciente al final): {ctx.get('recent_changes')}\n"
         f"Cuenta: {ctx.get('open_positions')} posiciones abiertas, PnL diario {ctx.get('daily_pnl_pct', 0):.2f}%\n"
-        + _news_lines(ctx.get("news")) +
+        + _news_lines(ctx.get("news")) + _weight_line(ctx.get("news_weight")) +
         "¿Ejecutar esta operación?"
     )
 

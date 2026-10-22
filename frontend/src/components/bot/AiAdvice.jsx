@@ -10,6 +10,7 @@ export const LABELS = {
   sessions_allowed: "Sesiones permitidas", timeframe: "Temporalidad", signal_mode: "Criterios de entrada", daily_loss_limit: "Límite de pérdida diaria (%)",
   ai_enabled: "Filtro IA", scan_interval_sec: "Intervalo de escaneo (s)", close_before_weekend: "Cierre antes del fin de semana", min_lot_max_risk: "Tope riesgo lote mínimo (%)",
   risk_profile: "Perfil de riesgo", auto_review_enabled: "Revisión IA automática", auto_review_apply: "Aplicar cambios de la revisión",
+  ai_news_weight: "Peso de las noticias en la IA",
 };
 export const fmtVal = (k, v) => {
   if (v == null) return "—";
@@ -19,6 +20,7 @@ export const fmtVal = (k, v) => {
   if (k === "sessions_allowed") return v.map((s) => SESSION_NAMES[s] || s).join(", ") || "todas";
   if (k === "signal_mode") return { strict: "Estrictos", relaxed: "Relajados", aggressive: "Agresivos" }[v] || v;
   if (k === "risk_profile") return ["Conservador", "Moderado", "Activo", "Agresivo", "Máximo"][v] ?? v;
+  if (k === "ai_news_weight") return { normal: "Normal", bajo: "Bajo" }[v] || v;
   if (Array.isArray(v)) return v.map((s) => s.replace("USDT", "")).join(", ") || "ninguno";
   if (typeof v === "object") return Object.entries(v).map(([s, p]) => `${s.replace("USDT", "")}: SL ${p.sl_atr}× TP ${p.tp_atr}× ATR ${p.atr_period}`).join(" · ") || "ninguno";
   return String(v);

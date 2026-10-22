@@ -4,6 +4,8 @@ from models import STRATEGY_KEYS, SIGNAL_MODES
 from fx.symbols import AVAILABLE, DEFAULT_SYMBOLS
 from fx.market import SESSION_IDS
 
+NEWS_WEIGHTS = ("normal", "bajo")  # weight of market-wide news alerts in the per-signal AI verdict
+
 FX_TIMEFRAMES = ["5m", "15m", "1h", "4h"]
 
 
@@ -18,6 +20,7 @@ class FxSettings(BaseModel):
     daily_loss_limit: float = 5.0
     ai_enabled: bool = True
     ai_min_confidence: int = 60
+    ai_news_weight: str = "normal"
     scan_interval_sec: int = 120
     trailing_enabled: bool = True
     htf_filter: bool = True
@@ -38,6 +41,13 @@ class FxSettings(BaseModel):
     @classmethod
     def _sessions(cls, v):
         return [s for s in dict.fromkeys(v or []) if s in SESSION_IDS]
+
+    @field_validator("ai_news_weight")
+    @classmethod
+    def _news_weight(cls, v):
+        if v not in NEWS_WEIGHTS:
+            raise ValueError("Peso de noticias inválido (normal o bajo)")
+        return v
 
     @field_validator("signal_mode")
     @classmethod
@@ -98,6 +108,7 @@ class FxSettingsUpdate(BaseModel):
     daily_loss_limit: Optional[float] = Field(default=None, ge=1, le=20)
     ai_enabled: Optional[bool] = None
     ai_min_confidence: Optional[int] = Field(default=None, ge=0, le=100)
+    ai_news_weight: Optional[str] = Field(default=None, pattern="^(normal|bajo)$")
     scan_interval_sec: Optional[int] = Field(default=None, ge=30, le=900)
     trailing_enabled: Optional[bool] = None
     htf_filter: Optional[bool] = None

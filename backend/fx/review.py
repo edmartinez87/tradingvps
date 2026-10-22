@@ -17,7 +17,7 @@ from fx.backtest import run_backtest
 from fx.plan import plan_stats
 
 logger = logging.getLogger("fx.review")
-ALLOWED_AI_KEYS = review.ALLOWED_AI_KEYS | {"sessions_allowed"}
+ALLOWED_AI_KEYS = review.ALLOWED_AI_KEYS | {"sessions_allowed", "ai_news_weight"}
 job: dict = {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None, "step": ""}
 
 
@@ -34,7 +34,9 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
         "Motivos: RECHAZADA / BAJA_CONFIANZA (filtro IA), BLOQUEADA (tope de posiciones, par abierto, límite diario, HFM desconectado), NOTICIAS, "
         "SESION (fuera de las sesiones permitidas), ERROR (fallo de IA), NO_EJECUTADA (orden no abierta: lote mínimo, bróker). "
         "filter_value > 0 = el filtro evitó pérdidas netas; < 0 = dejó escapar ganancias. by_confidence calibra ai_min_confidence; "
-        "by_session indica si conviene ampliar o recortar sessions_allowed; undersized = sombras simuladas con lote mínimo forzado (capital insuficiente).")
+        "by_session indica si conviene ampliar o recortar sessions_allowed; undersized = sombras simuladas con lote mínimo forzado (capital insuficiente). "
+        "ai_by_news_risk = sombras de señales rechazadas por la IA según el riesgo general de mercado por noticias (ALTO/MEDIO/BAJO) en el momento del rechazo: "
+        "pnl > 0 en ALTO con muestra suficiente = la IA rechaza señales rentables en días de alertas generales → ai_news_weight 'bajo'; pnl < 0 = el filtro acierta → 'normal'.")
     if engine.news and engine.news.latest:
         ctx["noticias"] = {"mercado": engine.news.latest["market"], "alertas": engine.news.latest.get("alerts", [])[:5]}
     ctx["evolucion"] = await evolution.ai_context(engine)

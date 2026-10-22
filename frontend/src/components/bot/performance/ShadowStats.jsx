@@ -2,6 +2,7 @@ import { Ghost } from "lucide-react";
 import { TH, TD } from "../PositionsTable";
 import { fmtSignedUsd, pnlClass, STRATEGY_LABELS, SESSION_NAMES } from "@/lib/api";
 
+const NEWS_RISK = { ALTO: "Alto (alertas generales)", MEDIO: "Medio", BAJO: "Bajo", SIN_DATO: "Sin dato de noticias" };
 const KIND = { RECHAZADA: "Rechazadas por IA", BAJA_CONFIANZA: "IA aprobó, confianza baja", BLOQUEADA: "Bloqueadas por riesgo", NOTICIAS: "Bloqueadas por noticias", FUNDING: "Bloqueadas por funding", SESION: "Fuera de sesión", ERROR: "Error de IA", NO_EJECUTADA: "Aprobadas, no abiertas" };
 const sessionLabel = (k) => k.split("+").map((s) => SESSION_NAMES[s] || (s === "ninguna" ? "Sin sesión" : s)).join(" + ");
 
@@ -67,6 +68,7 @@ export default function ShadowStats({ data }) {
             <Table title="Por estrategia" label="Estrategia" rows={data.by_strategy} render={(k) => STRATEGY_LABELS[k] || k} testId="shadow-by-strategy" />
             <Table title="Por par" label="Par" rows={data.by_symbol} testId="shadow-by-symbol" />
             {data.by_session?.length > 0 && <Table title="Por sesión del mercado" label="Sesión" rows={data.by_session} render={sessionLabel} testId="shadow-by-session" />}
+            {data.ai_by_news_risk?.length > 0 && <Table title="Rechazos de la IA por riesgo de noticias" label="Riesgo de mercado" rows={data.ai_by_news_risk} render={(k) => NEWS_RISK[k] || k} testId="shadow-ai-by-news-risk" />}
           </div>
         </>
       )}
