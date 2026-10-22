@@ -1,5 +1,5 @@
 import { ShieldCheck, Sparkles } from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
+import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { Panel } from "./Panel";
 import { fmtUsd, STRATEGY_LABELS, MODE_LABELS, activeStrategies } from "@/lib/api";
 
@@ -17,7 +17,10 @@ export default function BotPanel({ settings: s, meta, account, equity, profileAc
   const active = activeStrategies(s);
   const profile = profileActive != null ? meta?.profiles?.[profileActive] : null;
   const used = Math.min(100, Math.max(0, (-account.daily_pnl_pct / s.daily_loss_limit) * 100));
-  const curve = equity.map((e) => ({ t: e.ts, v: e.equity }));
+  const nd0 = equity.length ? equity[0].net_deposits || 0 : 0;
+  const hasFlows = equity.some((e) => (e.net_deposits || 0) !== nd0);
+  const curve = equity.map((e) => ({ t: e.ts, v: e.equity, a: Math.round((e.equity - ((e.net_deposits || 0) - nd0)) * 100) / 100 }));
+  const SERIES = { v: "Equidad", a: "Sin aportes" };
 
   return (
     <Panel testId="bot-plan-panel" title="Plan de trading" icon={ShieldCheck} className="lg:col-span-3" bodyClass="p-4 space-y-4 overflow-y-auto thin-scroll max-h-[540px]" delay={180}>
@@ -71,13 +74,13 @@ export default function BotPanel({ settings: s, meta, account, equity, profileAc
 
       <div>
         <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-slate-500">
-          <span>Curva de equidad</span>
+          <span>Curva de equidad{hasFlows && <span data-testid="equity-legend" className="ml-2 normal-case tracking-normal"><span className="text-amber-400">— equidad</span> <span className="ml-1.5 text-sky-400">╌ sin aportes</span></span>}</span>
           <span className="num text-slate-300">{fmtUsd(account.equity)}</span>
         </div>
         <div data-testid="equity-mini-chart" className="mt-2 h-24">
           {curve.length > 1 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={curve} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+              <ComposedChart data={curve} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#F7A600" stopOpacity={0.35} />
@@ -86,9 +89,10 @@ export default function BotPanel({ settings: s, meta, account, equity, profileAc
                 </defs>
                 <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
                 <Tooltip contentStyle={{ background: "#0D111A", border: "1px solid #1E293B", fontFamily: "IBM Plex Mono", fontSize: 11 }}
-                  labelFormatter={(l) => new Date(l).toLocaleString("es-ES")} formatter={(v) => [fmtUsd(v), "Equidad"]} />
+                  labelFormatter={(l) => new Date(l).toLocaleString("es-ES")} formatter={(v, name) => [fmtUsd(v), SERIES[name] || name]} />
                 <Area type="monotone" dataKey="v" stroke="#F7A600" strokeWidth={1.5} fill="url(#eqFill)" isAnimationActive={false} />
-              </AreaChart>
+                {hasFlows && <Line data-testid="equity-adjusted-line" type="monotone" dataKey="a" stroke="#38BDF8" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} />}
+              </ComposedChart>
             </ResponsiveContainer>
           ) : (
             <p className="pt-6 text-center text-[12px] text-slate-500">Se dibuja tras unos minutos de actividad</p>

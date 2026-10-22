@@ -9,7 +9,7 @@ from indicators import build_df, trend_label, htf_trend
 from strategies import evaluate, STRATEGY_INFO
 from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
 from ai_advisor import evaluate_signal, label as ai_label
-from plan import SCENARIOS, build_checkin
+from plan import SCENARIOS, build_checkin, contributions as plan_contributions
 from notify import notify as tg
 from bybit import BybitClient, BybitError
 from live import LiveBroker
@@ -196,7 +196,8 @@ class TradingEngine:
                   "return_pct": round(a["pnl"] / (s["equity"] - a["pnl"]) * 100, 2) if s["equity"] - a["pnl"] > 0 else 0}
         days = (datetime.now(timezone.utc) - datetime.fromisoformat(acc["created_at"])).days
         rate = SCENARIOS.get(settings.plan_scenario, SCENARIOS["base"])["rate"]
-        return build_checkin(s, acc, last30, settings, rate, days)
+        contrib = await plan_contributions(self.db, acc, settings, rate)
+        return build_checkin(s, acc, last30, settings, rate, days, contributions=contrib)
 
     async def _monitor_loop(self):
         while True:

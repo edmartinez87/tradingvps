@@ -56,7 +56,8 @@ async def build_weekly(engine, db) -> dict:
                    "by_kind": {k: {"trades": sum(1 for r in shadows if r["kind"] == k), "value": round(-sum(r["pnl"] for r in shadows if r["kind"] == k), 2)}
                                for k in sorted({r["kind"] for r in shadows})}},
         "plan": {"phase_name": checkin["phase_name"], "message": checkin["message"], "warnings": checkin["warnings"],
-                 "ready_to_advance": checkin["ready_to_advance"], "days_running": checkin["days_running"], "last_30d": checkin["last_30d"]},
+                 "ready_to_advance": checkin["ready_to_advance"], "days_running": checkin["days_running"], "last_30d": checkin["last_30d"],
+                 "contributions": checkin.get("contributions")},
         "news": engine.news.summary() if engine.news else None,
         "risk_profile": settings.risk_profile,
         "evolution": await evolution.week_summary(engine, since),
@@ -141,6 +142,10 @@ def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
     lines.append(f"\n📋 <b>Plan</b> · {pl['message']}")
     l30 = pl["last_30d"]
     lines.append(f"Últimos 30 días: {l30['pnl']:+.2f} {currency} · {l30['trades']} ops · PF {l30['profit_factor'] if l30['profit_factor'] is not None else '—'} · día {pl['days_running']}")
+    ct = pl.get("contributions")
+    if ct and (ct["target"] > 0 or ct["total_deposited"] or ct["total_withdrawn"]):
+        vs = ct.get("capital_vs_plan")
+        lines.append(f"💰 Aportes: {ct['message']}" + (f" · capital {vs:+.2f} {currency} vs plan" if vs is not None and ct["target"] > 0 else ""))
     for wn in pl["warnings"]:
         lines.append(f"⚠️ {wn}")
     if w["news"] and w["news"].get("ready"):

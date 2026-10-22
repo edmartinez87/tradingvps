@@ -50,6 +50,13 @@ def build_plan(req: dict, bt: dict) -> dict:
     return {**core.build_plan(req, bt, SCENARIOS), "currency": CURRENCY}
 
 
-def build_checkin(s: dict, acc: dict, last30: dict, settings, days: int) -> dict:
-    rate = SCENARIOS.get(settings.plan_scenario, SCENARIOS["base"])["rate"]
-    return core.build_checkin(s, acc, last30, settings, rate, days, CURRENCY)
+def _rate(settings) -> float:
+    return SCENARIOS.get(settings.plan_scenario, SCENARIOS["base"])["rate"]
+
+
+async def contributions(db, acc: dict, settings) -> dict:
+    return await core.contributions(db, acc, settings, _rate(settings), CURRENCY)
+
+
+def build_checkin(s: dict, acc: dict, last30: dict, settings, days: int, contrib: dict = None) -> dict:
+    return core.build_checkin(s, acc, last30, settings, _rate(settings), days, CURRENCY, contrib)

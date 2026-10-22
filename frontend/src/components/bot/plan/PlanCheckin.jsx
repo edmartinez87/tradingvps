@@ -2,6 +2,7 @@ import { ArrowRight, CheckCircle2, Circle, AlertTriangle, CalendarCheck } from "
 import { Button } from "@/components/ui/button";
 import { fmtUsd, fmtSignedUsd, pnlClass } from "@/lib/api";
 import AiAdvice from "../AiAdvice";
+import PlanContributions from "./PlanContributions";
 
 const STATUS_CLS = {
   done: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
@@ -58,6 +59,7 @@ export default function PlanCheckin({ checkin: c, onAdvance, onRefresh }) {
             <p className={`num mt-1 text-lg font-semibold ${pnlClass(c.last_30d.pnl)}`}>{fmtSignedUsd(c.last_30d.pnl)}</p>
             <p className="num text-[11px] text-slate-500">{c.last_30d.trades} ops · acierto {c.last_30d.win_rate}% · PF {c.last_30d.profit_factor ?? "—"} · retorno {c.last_30d.return_pct}%</p>
           </div>
+          <PlanContributions c={c.contributions} />
           {c.warnings.map((w, i) => (
             <p key={i} data-testid={`plan-warning-${i}`} className="flex gap-2 rounded-sm border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11.5px] leading-snug text-rose-200"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{w}</p>
           ))}

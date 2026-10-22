@@ -245,7 +245,8 @@ class FxEngine:
         acc = await self.db.account.find_one({"_id": "main"})
         last30 = await last30_stats(self.db, s["equity"])
         days = (datetime.now(timezone.utc) - datetime.fromisoformat(acc["created_at"])).days
-        return fx_plan.build_checkin(s, acc, last30, settings, days)
+        contrib = await fx_plan.contributions(self.db, acc, settings)
+        return fx_plan.build_checkin(s, acc, last30, settings, days, contrib)
 
     # ---------- monitor ----------
     async def _monitor_loop(self):

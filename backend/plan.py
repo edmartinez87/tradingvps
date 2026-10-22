@@ -198,7 +198,43 @@ async def last30_stats(db, equity: float) -> dict:
             "return_pct": round(a["pnl"] / (equity - a["pnl"]) * 100, 2) if equity - a["pnl"] > 0 else 0}
 
 
-def build_checkin(s: dict, acc: dict, last30: dict, settings, rate_pct: float, days: int, currency: str = "USDT") -> dict:
+async def contributions(db, acc: dict, settings, rate_pct: float, currency: str = "USDT") -> dict:
+    """Real deposits/withdrawals (cash_flows) against the monthly contribution committed in the plan, per calendar month since the account
+    started, plus the capital the projection expected by now."""
+    target = round(float(settings.plan_monthly_deposit or 0), 2)
+    flows = await db.cash_flows.find({}, {"_id": 0, "ts": 1, "amount": 1}).to_list(5000)
+    start, now = datetime.fromisoformat(acc["created_at"]), datetime.now(timezone.utc)
+    months, y, m = [], start.year, start.month
+    while (y, m) <= (now.year, now.month):
+        key = f"{y:04d}-{m:02d}"
+        dep = sum(f["amount"] for f in flows if f["amount"] > 0 and f["ts"][:7] == key)
+        wd = sum(-f["amount"] for f in flows if f["amount"] < 0 and f["ts"][:7] == key)
+        months.append({"month": key, "deposited": round(dep, 2), "withdrawn": round(wd, 2), "target": target,
+                       "met": target <= 0 or dep >= target - 0.005, "current": (y, m) == (now.year, now.month)})
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    months = months[-12:]
+    cur = months[-1]
+    total_dep = round(sum(f["amount"] for f in flows if f["amount"] > 0), 2)
+    total_wd = round(sum(-f["amount"] for f in flows if f["amount"] < 0), 2)
+    months_met = sum(1 for mo in months if mo["met"]) if target > 0 else 0
+    elapsed = max(0, (now - start).days // 30)
+    pr = project(acc["initial_balance"], rate_pct, settings.plan_target_monthly, target) if rate_pct and rate_pct > 0 else None
+    expected = pr["series"][elapsed - 1]["capital"] if pr and pr["series"] and elapsed >= 1 else acc["initial_balance"] + (target * elapsed)
+    expected = round(expected, 2)
+    if target <= 0:
+        msg = (f"El plan no incluye aporte mensual · aportes netos reales {acc.get('net_deposits', 0):+,.2f} {currency}" if flows
+               else "El plan no incluye aporte mensual.")
+    elif cur["met"]:
+        msg = f"Aporte de este mes cumplido ({fmt_usd(cur['deposited'])} de {fmt_usd(target)}) · {months_met} de {len(months)} meses cumplidos"
+    else:
+        msg = (f"Este mes llevas {fmt_usd(cur['deposited'])} de {fmt_usd(target)} (faltan {fmt_usd(target - cur['deposited'])}) · "
+               f"{months_met} de {len(months)} meses cumplidos")
+    return {"target": target, "currency": currency, "months": months, "this_month": cur, "months_met": months_met, "months_total": len(months),
+            "total_deposited": total_dep, "total_withdrawn": total_wd, "net_deposits": round(float(acc.get("net_deposits") or 0), 2),
+            "expected_to_date": round(target * len(months), 2), "elapsed_months": elapsed, "expected_capital": expected, "message": msg}
+
+
+def build_checkin(s: dict, acc: dict, last30: dict, settings, rate_pct: float, days: int, currency: str = "USDT", contributions: dict = None) -> dict:
     rate = rate_pct / 100 if rate_pct and rate_pct > 0 else SCENARIOS["base"]["rate"] / 100
     target_capital = settings.plan_target_monthly / (rate * PHASE_INFO["ingreso"]["risk"] * WITHDRAW_PCT / 100)
     cur = PHASE_ORDER[min(settings.plan_phase, len(PHASE_ORDER) - 1)]
@@ -226,10 +262,12 @@ def build_checkin(s: dict, acc: dict, last30: dict, settings, rate_pct: float, d
         message = f"Cumples los {current['total']} criterios de «{current['name']}». Puedes avanzar a «{nxt}»."
     else:
         message = f"Fase actual: {current['name']} · {current['met']} de {current['total']} criterios cumplidos."
+    if contributions:
+        contributions = {**contributions, "capital_vs_plan": round(s["equity"] - contributions["expected_capital"], 2)}
     return {"phase": settings.plan_phase, "phase_key": cur, "phase_name": current["name"], "ready_to_advance": ready,
             "goal_met": goal_met, "next_phase_name": nxt, "next_phase_risk": phases[settings.plan_phase + 1]["risk"] if ready else None,
             "message": message, "phases": phases, "warnings": warnings, "days_running": days,
-            "target_capital": round(target_capital, 2), "last_30d": last30}
+            "target_capital": round(target_capital, 2), "last_30d": last30, "contributions": contributions}
 
 
 def fmt_usd(v: float) -> str:
