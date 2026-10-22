@@ -42,7 +42,8 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
            "rendimiento_real": await performance(db), "chequeo_plan": await engine.checkin(settings, acc),
            "motivos_rechazo_recientes_ia": await recent_rejections(db)}
     ctx["rendimiento_real"]["shadow"]["_explicacion"] = ("Operaciones sombra: qué habría pasado si se hubieran ejecutado las señales rechazadas por la IA "
-                                                         "(RECHAZADA, BAJA_CONFIANZA), bloqueadas por riesgo (BLOQUEADA), por noticias (NOTICIAS) o por funding extremo en contra (FUNDING). "
+                                                         "(RECHAZADA, BAJA_CONFIANZA), bloqueadas por riesgo (BLOQUEADA), por noticias (NOTICIAS), por funding extremo en contra (FUNDING), "
+                                                         "con error de IA (ERROR) o aprobadas pero no abiertas (NO_EJECUTADA: lote mínimo, margen, bróker). "
                                                          "filter_value > 0 = el filtro evitó pérdidas netas; < 0 = el filtro dejó escapar ganancias. "
                                                          "by_confidence sirve para calibrar ai_min_confidence con evidencia.")
     if engine.news and engine.news.latest:

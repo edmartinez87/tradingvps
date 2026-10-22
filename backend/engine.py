@@ -45,6 +45,7 @@ class TradingEngine:
         self.broker = None
         self._broker_key = None
         self.exchange_error = None
+        self._open_fail = None
         self._external_warned = set()
         self.news = None
         self.cfg = None
@@ -340,6 +341,7 @@ class TradingEngine:
             open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
             if symbol in open_syms or len(open_syms) >= settings.max_positions:
                 await self.log("RISK", f"{symbol}: apertura cancelada · límite de posiciones o par ya abierto")
+                self._open_fail = "límite de posiciones o par ya abierto"
                 return None
             price = self.market.tickers.get(symbol, {}).get("price") or sig["price"]
             long = sig["side"] == "long"
@@ -349,6 +351,7 @@ class TradingEngine:
             if self.live:
                 if not self.broker:
                     await self.log("ERROR", f"{symbol}: modo REAL sin credenciales de Bybit · orden no enviada")
+                    self._open_fail = "modo REAL sin credenciales de Bybit"
                     return None
                 try:
                     w = await self.broker.wallet(max_age=0)
@@ -356,11 +359,13 @@ class TradingEngine:
                     qty, margin = position_size(w["equity"], w["available"], risk_pct, entry, sl, settings.leverage, lot=lot)
                     if qty <= 0 or margin < 1:
                         await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit ({lot[0]}) o margen insuficiente")
+                        self._open_fail = f"tamaño por debajo del lote mínimo de Bybit ({lot[0]}) o margen insuficiente"
                         return None
                     r = await self.broker.open(symbol, sig["side"], qty, sl, tp, settings.leverage)
                 except Exception as e:
                     await self.log("ERROR", f"{symbol}: orden REAL rechazada por Bybit · {str(e)[:160]}")
                     await tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{str(e)[:300]}", "orders")
+                    self._open_fail = f"orden REAL rechazada: {str(e)[:120]}"
                     return None
                 entry, qty, fee = (r["entry"] or entry), r["qty"], r["fee"]
                 margin = qty * entry / settings.leverage
@@ -376,6 +381,7 @@ class TradingEngine:
                 qty, margin = position_size(s["equity"], s["available"], risk_pct, entry, sl, settings.leverage, symbol)
                 if qty <= 0 or margin < 1:
                     await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit o margen insuficiente · aumenta capital o riesgo")
+                    self._open_fail = "tamaño por debajo del lote mínimo de Bybit o margen insuficiente"
                     return None
                 fee = entry * qty * FEE_RATE
                 pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
@@ -508,19 +514,25 @@ class TradingEngine:
             block, kind = f_block, "FUNDING"
         risk_reason = " y ".join(r for r, f in (("riesgo de noticias", risk_factor), ("funding alto en contra", f_factor)) if f < 1)
         risk_factor = min(risk_factor, f_factor)
+        news_ctx = self.news.context(symbol) if self.news else None
+        context = {"mode": "REAL" if self.live else "PAPER", "htf_tf": htf_tf, "htf_trend": {1: "ALCISTA", -1: "BAJISTA", 0: "NEUTRAL"}.get(htf, "N/D"),
+                   "price_now": t0.get("price"), "change_24h": t0.get("change_pct"), "funding_rate": funding_rate, "funding_interval_h": funding_h,
+                   "funding_size_factor": f_factor, "news_size_factor": risk_factor, "open_positions": len(open_syms), "max_positions": settings.max_positions,
+                   "daily_pnl_pct": acc["daily_pnl_pct"], "equity": acc["equity"], "news_risk": (news_ctx or {}).get("mercado", {}).get("risk") if news_ctx else None,
+                   "news_pair": (news_ctx or {}).get("par") if news_ctx else None, "ai_enabled": settings.ai_enabled, "ai_min_confidence": settings.ai_min_confidence}
         if block:
             await self.log("RISK", f"{symbol}: señal descartada · {block}")
             res = await self.db.signals.insert_one(Signal(
                 symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,
                 price=sig["price"], sl=sig["sl"], tp=sig["tp"], score=sig["score"], reasons=sig["reasons"],
-                indicators=sig["indicators"], ai_decision=kind, note=f"Bloqueada por {BLOCK_BY.get(kind, 'riesgo')}: {block}", key=key,
+                indicators=sig["indicators"], ai_decision=kind, note=f"Bloqueada por {BLOCK_BY.get(kind, 'riesgo')}: {block}", key=key, context=context,
             ).to_mongo())
             await open_shadow(self, str(res.inserted_id), symbol, sig, settings, kind, acc["equity"], risk_factor=risk_factor)
             return
 
         signal = Signal(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,
                         price=sig["price"], sl=sig["sl"], tp=sig["tp"], score=sig["score"], reasons=sig["reasons"],
-                        indicators=sig["indicators"], ai_decision="SIN_IA", key=key)
+                        indicators=sig["indicators"], ai_decision="SIN_IA", key=key, context=context)
         approve, shadow_kind = True, None
         if settings.ai_enabled:
             await self.log("AI_EVAL", f"{ai_label()} evaluando {symbol} {sig['side'].upper()}...")
@@ -553,8 +565,13 @@ class TradingEngine:
         res = await self.db.signals.insert_one(signal.to_mongo())
         sid = str(res.inserted_id)
         if approve:
+            self._open_fail = None
             pos = await self.open_position(symbol, sig, settings, sid, risk_factor, risk_reason)
             if pos:
                 await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True}})
+            else:
+                reason = self._open_fail or "apertura cancelada"
+                await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"note": f"No ejecutada: {reason}"}})
+                await open_shadow(self, sid, symbol, sig, settings, "NO_EJECUTADA", acc["equity"], signal.ai_confidence, signal.ai_risk, risk_factor)
         elif shadow_kind:
             await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc["equity"], signal.ai_confidence, signal.ai_risk, risk_factor)

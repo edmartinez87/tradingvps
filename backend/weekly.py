@@ -7,6 +7,7 @@ import notify
 logger = logging.getLogger("weekly")
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
                   "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21"}
+KIND_NAMES = {"BLOQUEADA": "riesgo", "NOTICIAS": "noticias", "FUNDING": "funding", "SESION": "sesiones", "ERROR": "error IA", "NO_EJECUTADA": "no ejecutadas"}
 
 
 def _agg(rows: list) -> dict:
@@ -47,7 +48,9 @@ async def build_weekly(engine, db) -> dict:
         "best": [r for r in by_symbol if r["pnl"] > 0][:3], "worst": [r for r in reversed(by_symbol) if r["pnl"] < 0][:3],
         "signals": {"total": sum(signals.values()), "by_decision": signals},
         "shadow": {"trades": len(shadows), "filter_value": round(-sum(r["pnl"] for r in shadows), 2),
-                   "ai_trades": len(ai_shadow), "ai_value": round(-sum(r["pnl"] for r in ai_shadow), 2)},
+                   "ai_trades": len(ai_shadow), "ai_value": round(-sum(r["pnl"] for r in ai_shadow), 2),
+                   "by_kind": {k: {"trades": sum(1 for r in shadows if r["kind"] == k), "value": round(-sum(r["pnl"] for r in shadows if r["kind"] == k), 2)}
+                               for k in sorted({r["kind"] for r in shadows})}},
         "plan": {"phase_name": checkin["phase_name"], "message": checkin["message"], "warnings": checkin["warnings"],
                  "ready_to_advance": checkin["ready_to_advance"], "days_running": checkin["days_running"], "last_30d": checkin["last_30d"]},
         "news": engine.news.summary() if engine.news else None,
@@ -88,6 +91,9 @@ def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
         verb = "evitó pérdidas por" if sh["filter_value"] >= 0 else "dejó escapar"
         lines.append(f"Valor del filtro: {verb} <b>{abs(sh['filter_value']):.2f} {currency}</b> en {sh['trades']} operaciones sombra"
                      + (f" (IA: {sh['ai_value']:+.2f} {currency} en {sh['ai_trades']})" if sh["ai_trades"] else ""))
+        detail = [f"{KIND_NAMES.get(k, k)} {v['value']:+.2f}" for k, v in sh.get("by_kind", {}).items() if k not in AI_KINDS and v["trades"]]
+        if detail:
+            lines.append("Por filtro: " + " · ".join(detail))
     elif sig["total"] and w.get("shadow_supported", True):
         lines.append("Valor del filtro: aún sin operaciones sombra cerradas esta semana.")
     lines.append(f"\n📋 <b>Plan</b> · {pl['message']}")

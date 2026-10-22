@@ -3,6 +3,8 @@ import asyncio
 import logging
 from models import now_iso
 from performance import performance
+from fx.shadow import shadow_stats as fx_shadow_stats
+from shadow import recent_rejections
 from ai_advisor import advise, FX_MARKET, label as ai_label
 import review
 from fx.models import FxSettingsUpdate
@@ -23,9 +25,15 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
     ctx = {"mercado": "forex y metales (HFM, paper trading)" if not engine.live else "forex y metales (HFM, cuenta REAL vía MetaApi)",
            "settings_actuales": settings.model_dump(exclude={"bot_running"}), "cuenta": acc,
            "perfil_riesgo": {"nivel": pol["level"], "nombre": pol["name"], "topes_ia": pol["caps"]},
-           "rendimiento_real": await performance(engine.db), "chequeo_plan": await engine.checkin(settings, acc),
-           "sesiones": {"ahora": market_status()["sessions"], "permitidas": settings.sessions_allowed or "todas", "ids": SESSION_NAMES}}
-    ctx["rendimiento_real"].pop("shadow", None)
+           "rendimiento_real": await performance(engine.db, fx_shadow_stats), "chequeo_plan": await engine.checkin(settings, acc),
+           "sesiones": {"ahora": market_status()["sessions"], "permitidas": settings.sessions_allowed or "todas", "ids": SESSION_NAMES},
+           "motivos_rechazo_recientes_ia": await recent_rejections(engine.db)}
+    ctx["rendimiento_real"]["shadow"]["_explicacion"] = (
+        "Operaciones sombra: qué habría pasado si se hubieran ejecutado las señales no operadas, simuladas con lotes, spread HFM, trailing y cierre de fin de semana. "
+        "Motivos: RECHAZADA / BAJA_CONFIANZA (filtro IA), BLOQUEADA (tope de posiciones, par abierto, límite diario, HFM desconectado), NOTICIAS, "
+        "SESION (fuera de las sesiones permitidas), ERROR (fallo de IA), NO_EJECUTADA (orden no abierta: lote mínimo, bróker). "
+        "filter_value > 0 = el filtro evitó pérdidas netas; < 0 = dejó escapar ganancias. by_confidence calibra ai_min_confidence; "
+        "by_session indica si conviene ampliar o recortar sessions_allowed; undersized = sombras simuladas con lote mínimo forzado (capital insuficiente).")
     if engine.news and engine.news.latest:
         ctx["noticias"] = {"mercado": engine.news.latest["market"], "alertas": engine.news.latest.get("alerts", [])[:5]}
     wf_latest = await engine.db.wf_checks.find_one({"_id": "latest"}, {"_id": 0, "ran_at": 1, "results": 1})

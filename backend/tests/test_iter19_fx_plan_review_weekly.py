@@ -145,7 +145,7 @@ def test_fx_weekly_preview_and_send_without_telegram(s):
     assert r.status_code == 200, r.text
     w = r.json()
     assert w["text"].startswith("🏦 <b>HotForex AI</b>") and "Resumen semanal" in w["text"] and "pips" in w and "USDT" not in w["text"]
-    assert "plan" in w and "last_sent_at" in w and w["shadow_supported"] is False
+    assert "plan" in w and "last_sent_at" in w and "by_kind" in w["shadow"]
     cfg = s.get(f"{FX}/config", timeout=30).json()
     if not cfg.get("telegram_ready"):
         assert s.post(f"{FX}/weekly-summary/send", timeout=60).status_code == 424

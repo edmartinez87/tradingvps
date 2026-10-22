@@ -17,6 +17,7 @@ from fx.ai import evaluate_signal
 from ai_advisor import label as ai_label
 from fx.backtest import build_fx_df
 from fx.live import FxLiveBroker
+from fx.shadow import open_shadow, monitor_shadows
 from fx import plan as fx_plan
 from plan import last30_stats
 
@@ -184,7 +185,7 @@ class FxEngine:
             initial = info["equity"] if info else (self.cfg.hfm_verified_equity if self.cfg else None)
         initial = initial or INITIAL_BALANCE
         async with self.lock:
-            for col in ("positions", "trades", "signals", "equity", "news_trades"):
+            for col in ("positions", "trades", "signals", "equity", "news_trades", "shadow_positions", "shadow_trades"):
                 await self.db[col].delete_many({})
             await self._new_account(initial)
         await self.log("INFO", f"Estadísticas reiniciadas · capital inicial ${initial:,.2f} · modo {self.mode_label}")
@@ -305,6 +306,7 @@ class FxEngine:
                 if pid not in local_ids and pid not in self._external_warned:
                     self._external_warned.add(pid)
                     await self.log("RISK", f"{self.broker.our_symbol(xp['symbol'])}: posición externa detectada en HFM (no gestionada por el bot) · {xp['volume']:.2f} lotes")
+        await monitor_shadows(self, tickers, settings, now)
         await self._update_account_metrics(settings)
 
     async def _hfm_health(self, synced: bool):
@@ -650,24 +652,33 @@ class FxEngine:
         news_block, risk_factor = self.news.gate(symbol) if self.news else (None, 1.0)
         if not block and news_block:
             block, kind = news_block, "NOTICIAS"
+        t = self.market.tickers.get(symbol, {})
+        news_ctx = self.news.context(symbol) if self.news else None
+        context = {"mode": "REAL" if self.live else "PAPER", "sessions": [x["id"] for x in market_status()["sessions"] if x["open"]], "htf_tf": htf_tf,
+                   "htf_trend": {1: "ALCISTA", -1: "BAJISTA", 0: "NEUTRAL"}.get(htf, "N/D"), "price_now": t.get("price"), "change_24h": t.get("change_pct"),
+                   "spread_pips": round(pips(symbol, SPECS[symbol]["spread"]), 1), "sl_pips": round(pips(symbol, abs(sig["price"] - sig["sl"])), 1),
+                   "open_positions": len(open_syms), "max_positions": settings.max_positions, "daily_pnl_pct": acc["daily_pnl_pct"], "equity": acc["equity"],
+                   "news_risk": (news_ctx or {}).get("mercado", {}).get("risk") if news_ctx else None, "news_pair": (news_ctx or {}).get("par") if news_ctx else None,
+                   "news_size_factor": risk_factor, "ai_enabled": settings.ai_enabled, "ai_min_confidence": settings.ai_min_confidence}
         base = dict(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe, price=sig["price"], sl=sig["sl"], tp=sig["tp"],
-                    score=sig["score"], reasons=sig["reasons"], indicators=sig["indicators"], key=key)
+                    score=sig["score"], reasons=sig["reasons"], indicators=sig["indicators"], key=key, context=context)
         if block:
             await self.log("RISK", f"{symbol}: señal descartada · {block}")
-            await self.db.signals.insert_one(Signal(**base, ai_decision=kind, note=f"Bloqueada por {BLOCK_BY.get(kind, 'riesgo')}: {block}").to_mongo())
+            res = await self.db.signals.insert_one(Signal(**base, ai_decision=kind, note=f"Bloqueada por {BLOCK_BY.get(kind, 'riesgo')}: {block}").to_mongo())
+            if kind != "MERCADO":
+                await open_shadow(self, str(res.inserted_id), symbol, sig, settings, kind, acc, risk_factor=risk_factor, note=block)
             return
         signal = Signal(**base, ai_decision="SIN_IA")
-        approve = True
+        approve, shadow_kind = True, None
         if settings.ai_enabled:
             await self.log("AI_EVAL", f"{ai_label()} evaluando {symbol} {sig['side'].upper()}...")
             closes = df["close"].iloc[-22:-1]
-            t = self.market.tickers.get(symbol, {})
             ctx = {
-                "htf_tf": htf_tf, "htf_trend": {1: "ALCISTA", -1: "BAJISTA", 0: "NEUTRAL"}.get(htf, "N/D"),
+                "htf_tf": htf_tf, "htf_trend": context["htf_trend"],
                 "change_24h": t.get("change_pct", 0), "sessions": market_status()["sessions"],
                 "recent_changes": [round(x, 3) for x in (closes.pct_change().dropna() * 100).tolist()],
                 "open_positions": len(open_syms), "daily_pnl_pct": acc["daily_pnl_pct"],
-                "news": self.news.context(symbol) if self.news else None,
+                "news": news_ctx,
             }
             try:
                 res = await evaluate_signal(symbol, settings.timeframe, sig, ctx)
@@ -675,17 +686,25 @@ class FxEngine:
                 approve = res["decision"] == "APROBADA" and res["confidence"] >= settings.ai_min_confidence
                 if res["decision"] == "APROBADA" and not approve:
                     signal.note = f"Confianza {res['confidence']}% menor al mínimo ({settings.ai_min_confidence}%)"
+                    shadow_kind = "BAJA_CONFIANZA"
+                elif not approve:
+                    shadow_kind = "RECHAZADA"
             except Exception as e:
                 logger.exception("ai error")
-                signal.ai_decision, signal.note, approve = "ERROR", f"Error IA: {str(e)[:180]}", False
+                signal.ai_decision, signal.note, approve, shadow_kind = "ERROR", f"Error IA: {str(e)[:180]}", False, "ERROR"
             await self.log("AI_EVAL", f"{symbol}: {signal.ai_decision} · confianza {signal.ai_confidence}% · riesgo {signal.ai_risk}")
             await self.tg(f"🤖 <b>{ai_label()} · {symbol} {sig['side'].upper()}</b>: {signal.ai_decision} ({signal.ai_confidence}% · riesgo {signal.ai_risk})\n"
                           f"{signal.ai_reasoning[:300] or signal.note}", "ai")
         res = await self.db.signals.insert_one(signal.to_mongo())
+        sid = str(res.inserted_id)
         if approve:
             risk_reason = "riesgo de noticias" if risk_factor < 1 else ""
-            pos, reason = await self.open_position(symbol, sig, settings, str(res.inserted_id), risk_factor, risk_reason)
+            pos, reason = await self.open_position(symbol, sig, settings, sid, risk_factor, risk_reason)
             await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True} if pos else {"note": f"No ejecutada: {reason}"}})
+            if not pos:
+                await open_shadow(self, sid, symbol, sig, settings, "NO_EJECUTADA", acc, signal.ai_confidence, signal.ai_risk, risk_factor, note=reason or "")
+        elif shadow_kind:
+            await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc, signal.ai_confidence, signal.ai_risk, risk_factor, note=signal.note or signal.ai_reasoning)
 
     # ---------- news trading ----------
     async def news_trade(self, symbol: str, side: str, confidence: int, reasoning: str, event: dict, cfg) -> dict:
@@ -735,6 +754,7 @@ class FxEngine:
         pos, reason = await self.open_position(symbol, sig, settings, str(res.inserted_id), cfg.news_trade_risk_factor, "operación de noticias", expires_at=expires)
         if not pos:
             await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"note": f"No ejecutada: {reason}"}})
+            await open_shadow(self, str(res.inserted_id), symbol, sig, settings, "NO_EJECUTADA", acc, confidence, "MEDIO", cfg.news_trade_risk_factor, note=reason or "")
             return {"status": "OMITIDA", "reason": reason}
         await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True}})
         return {"status": "EJECUTADA", "reason": move_txt, "position_id": pos.id, "entry": price, "sl": sl, "tp": tp, "lots": pos.qty}

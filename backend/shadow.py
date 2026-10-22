@@ -3,7 +3,7 @@ from models import now_iso
 from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
 
 MAX_AGE_H = 72
-KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "FUNDING", "ERROR")
+KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "FUNDING", "ERROR", "NO_EJECUTADA")
 AI_KINDS = ("RECHAZADA", "BAJA_CONFIANZA")
 BUCKETS = [(0, 39, "<40%"), (40, 59, "40-59%"), (60, 79, "60-79%"), (80, 100, "80-100%")]
 

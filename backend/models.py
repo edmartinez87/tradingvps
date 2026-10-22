@@ -189,6 +189,7 @@ class Signal(BaseDocument):
     executed: bool = False
     note: str = ""
     key: str = ""
+    context: Dict[str, Any] = {}
     created_at: str = Field(default_factory=now_iso)
 
 

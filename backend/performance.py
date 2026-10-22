@@ -22,12 +22,12 @@ async def _group(db, field: str) -> list:
     return [_row(r) for r in await db.trades.aggregate(pipe).to_list(50)]
 
 
-async def performance(db) -> dict:
+async def performance(db, shadow=shadow_stats) -> dict:
     decisions = {r["_id"]: r["n"] async for r in db.signals.aggregate([{"$group": {"_id": "$ai_decision", "n": {"$sum": 1}}}])}
     return {
         "by_strategy": await _group(db, "strategy"), "by_symbol": await _group(db, "symbol"),
         "by_side": await _group(db, "side"), "by_reason": await _group(db, "reason"),
         "signals": {"total": sum(decisions.values()), "executed": await db.signals.count_documents({"executed": True}),
                     "by_decision": decisions},
-        "shadow": await shadow_stats(db),
+        "shadow": await shadow(db),
     }

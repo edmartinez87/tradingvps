@@ -10,6 +10,7 @@ from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequ
 from strategies import MODE_INFO
 from indicators import build_df
 from performance import performance
+from fx.shadow import shadow_stats as fx_shadow_stats
 from config import ConfigUpdate
 from ai_advisor import current as ai_current, friendly_error
 import notify
@@ -353,7 +354,7 @@ async def reset_account(body: ResetRequest = None):
 
 @router.get("/performance")
 async def get_performance():
-    return await performance(engine.db)
+    return await performance(engine.db, fx_shadow_stats)
 
 
 @router.delete("/logs")

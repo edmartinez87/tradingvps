@@ -9,7 +9,6 @@ async def build(engine, db) -> dict:
     w = await weekly.build_weekly(engine, db)
     rows = await db.trades.find({"closed_at": {"$gte": w["from"]}}, {"_id": 0, "symbol": 1, "side": 1, "entry_price": 1, "exit_price": 1}).to_list(5000)
     w["pips"] = round(sum(pips(r["symbol"], (r["exit_price"] - r["entry_price"]) * (1 if r["side"] == "long" else -1) - SPECS[r["symbol"]]["spread"]) for r in rows), 1)
-    w["shadow_supported"] = False
     return w
 
 

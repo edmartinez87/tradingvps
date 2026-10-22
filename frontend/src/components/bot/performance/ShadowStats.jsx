@@ -1,8 +1,9 @@
 import { Ghost } from "lucide-react";
 import { TH, TD } from "../PositionsTable";
-import { fmtSignedUsd, pnlClass, STRATEGY_LABELS } from "@/lib/api";
+import { fmtSignedUsd, pnlClass, STRATEGY_LABELS, SESSION_NAMES } from "@/lib/api";
 
-const KIND = { RECHAZADA: "Rechazadas por IA", BAJA_CONFIANZA: "IA aprobó, confianza baja", BLOQUEADA: "Bloqueadas por riesgo", NOTICIAS: "Bloqueadas por noticias", FUNDING: "Bloqueadas por funding", ERROR: "Error de IA" };
+const KIND = { RECHAZADA: "Rechazadas por IA", BAJA_CONFIANZA: "IA aprobó, confianza baja", BLOQUEADA: "Bloqueadas por riesgo", NOTICIAS: "Bloqueadas por noticias", FUNDING: "Bloqueadas por funding", SESION: "Fuera de sesión", ERROR: "Error de IA", NO_EJECUTADA: "Aprobadas, no abiertas" };
+const sessionLabel = (k) => k.split("+").map((s) => SESSION_NAMES[s] || (s === "ninguna" ? "Sin sesión" : s)).join(" + ");
 
 const Card = ({ label, value, hint, cls = "text-slate-100", testId }) => (
   <div data-testid={testId} className="min-w-[150px] flex-1 rounded-sm border border-[#1E293B] bg-[#0D111A] px-3 py-2.5">
@@ -42,8 +43,9 @@ export default function ShadowStats({ data }) {
       <div>
         <p className="flex items-center gap-1.5 font-display text-[14px] font-bold text-fuchsia-200"><Ghost className="h-4 w-4" /> Operaciones sombra · ¿acierta el filtro?</p>
         <p className="mt-1 text-[12px] leading-relaxed text-slate-400">
-          Cada señal rechazada por la IA o bloqueada por riesgo/noticias se simula igual que una operación real (mismo tamaño, SL, TP y trailing).
-          «Evitó» son las pérdidas que el filtro ahorró; «se perdió» las ganancias que dejó escapar. Valor neto positivo = el filtro suma. La IA recibe estos datos en «Optimizar todo con IA».
+          Cada señal que no se operó (rechazada por la IA, fuera de sesión, bloqueada por riesgo o noticias, con error o sin poder abrirse) se simula igual que una operación real
+          (mismo tamaño, SL, TP y trailing). «Evitó» son las pérdidas que el filtro ahorró; «se perdió» las ganancias que dejó escapar. Valor neto positivo = el filtro suma.
+          La IA recibe estos datos en la revisión automática semanal y en «Optimizar todo con IA».
         </p>
       </div>
       {t.trades === 0 ? (
@@ -51,7 +53,7 @@ export default function ShadowStats({ data }) {
       ) : (
         <>
           <div className="flex flex-wrap gap-2">
-            <Card label="Simuladas" value={t.trades} hint={`${data.open} abiertas`} testId="shadow-total" />
+            <Card label="Simuladas" value={t.trades} hint={`${data.open} abiertas${data.undersized ? ` · ${data.undersized} con lote mínimo forzado` : ""}${t.pips != null ? ` · ${t.pips > 0 ? "+" : ""}${t.pips} pips netos` : ""}`} testId="shadow-total" />
             <Card label="Acierto de las descartadas" value={`${t.win_rate}%`} testId="shadow-winrate" />
             <Card label="Pérdidas evitadas" value={fmtSignedUsd(t.avoided)} cls="text-emerald-400" testId="shadow-avoided" />
             <Card label="Ganancias perdidas" value={fmtSignedUsd(-t.missed)} cls="text-rose-400" testId="shadow-missed" />
@@ -64,6 +66,7 @@ export default function ShadowStats({ data }) {
             <Table title="Rechazos de la IA por confianza" label="Confianza IA" rows={data.by_confidence} testId="shadow-by-confidence" />
             <Table title="Por estrategia" label="Estrategia" rows={data.by_strategy} render={(k) => STRATEGY_LABELS[k] || k} testId="shadow-by-strategy" />
             <Table title="Por par" label="Par" rows={data.by_symbol} testId="shadow-by-symbol" />
+            {data.by_session?.length > 0 && <Table title="Por sesión del mercado" label="Sesión" rows={data.by_session} render={sessionLabel} testId="shadow-by-session" />}
           </div>
         </>
       )}
