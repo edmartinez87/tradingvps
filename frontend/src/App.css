@@ -101,11 +101,20 @@
 .thin-scroll::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
 .thin-scroll::-webkit-scrollbar-thumb:hover { background: #334155; }
 
+.docs-glow {
+  box-shadow: 0 0 0 0 rgba(247, 166, 0, 0.55), 0 0 18px rgba(247, 166, 0, 0.35);
+  animation: docs-glow 2.8s ease-in-out infinite;
+}
+@keyframes docs-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(247, 166, 0, 0.45), 0 0 14px rgba(247, 166, 0, 0.25); }
+  50% { box-shadow: 0 0 0 4px rgba(247, 166, 0, 0), 0 0 26px rgba(251, 146, 60, 0.55); }
+}
+
 ::selection {
   background: rgba(247, 166, 0, 0.35);
   color: #fff;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rise, .flash-up, .flash-down, .pulse-dot::after { animation: none; opacity: 1; transform: none; }
+  .rise, .flash-up, .flash-down, .pulse-dot::after, .docs-glow { animation: none; opacity: 1; transform: none; }
 }

@@ -11,6 +11,7 @@ import { usePolling } from "@/hooks/usePolling";
 import Header from "@/components/bot/Header";
 import Login from "@/components/bot/Login";
 import AdminSettings from "@/components/bot/AdminSettings";
+import Documentation from "@/components/docs/Documentation";
 import KpiStrip from "@/components/bot/KpiStrip";
 import Watchlist from "@/components/bot/Watchlist";
 import PriceChart from "@/components/bot/PriceChart";
@@ -81,9 +82,12 @@ function Dashboard({ onLogout }) {
     <div data-testid="dashboard" className="app-bg grain min-h-screen">
       <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} onSwitchBot={() => nav("/")}
         onSettings={() => setView((v) => (v === "settings" ? "panel" : "settings"))}
+        onDocs={() => setView((v) => (v === "docs" ? "panel" : "docs"))}
         onScan={() => act(() => http.post("/bot/scan"), "Escaneo solicitado")}
         onReset={() => act(() => http.post("/account/reset", {}), "Cuenta paper reiniciada")} />
-      {view === "settings" ? (
+      {view === "docs" ? (
+        <main className="mx-auto max-w-[1920px] p-4 md:p-6"><Documentation bot="crypto" onBack={() => setView("panel")} /></main>
+      ) : view === "settings" ? (
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><AdminSettings account={data.account} refresh={refresh} /></main>
       ) : (
       <main className="mx-auto max-w-[1920px] space-y-4 p-4 md:p-6">

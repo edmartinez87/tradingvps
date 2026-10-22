@@ -1,0 +1,114 @@
+// "Preguntas y respuestas" for both bots. `bot` = "crypto" | "fx". Grouped by category; `tags` feed the search box.
+export function buildFaq(bot) {
+  const fx = bot === "fx";
+  const cur = fx ? "USD" : "USDT";
+  const broker = fx ? "HFM" : "Bybit";
+  const faq = [
+    { cat: "General", q: "¿Qué hace exactamente este bot?", tags: ["resumen", "qué es"],
+      a: `Vigila ${fx ? "12 pares de forex y metales" : "hasta 12 pares de futuros perpetuos USDT"} las 24 horas, detecta entradas con cinco estrategias técnicas, consulta a la IA con todo el contexto (indicadores, tendencia superior, noticias${fx ? ", sesiones" : ", funding"}, estado de la cuenta) y, si pasa los filtros de riesgo, abre la operación con stop, objetivo y trailing. Después mide todo: lo que hizo, lo que no hizo (operaciones sombra) y cada cambio de configuración (Evolución).` },
+    { cat: "General", q: "¿Necesito dinero real para empezar?", tags: ["paper", "demo", "gratis"],
+      a: `No. Arranca en paper trading con una cuenta ficticia de $500 ${cur} y precios reales. Todo (IA, noticias, sombras, plan, evolución) funciona igual que en real. El plan de crecimiento recomienda no pasar a dinero real hasta superar la Fase 0: ≥ 60 operaciones, profit factor ≥ 1,3, drawdown ≤ 10 % y ≥ 28 días.` },
+    { cat: "General", q: "¿El bot garantiza beneficios?", tags: ["garantía", "riesgo", "pérdidas"],
+      a: "No. Ningún sistema lo hace. Lo que sí garantiza es disciplina: riesgo fijo por operación, stops siempre puestos, límite de pérdida diaria, sin sobreoperar y métricas honestas (las operaciones sombra y el walk-forward están ahí precisamente para no engañarse). Opera solo con capital que puedas permitirte perder." },
+    { cat: "General", q: "¿Puedo usar los dos bots a la vez?", tags: ["cripto", "forex", "ambos"],
+      a: "Sí. Son independientes (cuentas, ajustes, señales, historial y evolución separados) pero comparten la clave de acceso, la configuración de IA, Telegram y las copias de seguridad. Cambia entre ellos con «Cambiar bot»." },
+    { cat: "General", q: "¿Qué pasa si se reinicia el servidor o se corta la luz?", tags: ["reinicio", "caída", "24/7"],
+      a: "El bot guarda su estado en la base de datos: al arrancar recuerda si estaba activo y continúa; las posiciones abiertas conservan su stop y objetivo (en REAL están en el bróker, así que siguen protegidas aunque el servidor esté apagado). Lo único que no se ejecuta mientras está apagado es el trailing y la apertura de nuevas operaciones." },
+
+    { cat: "Operativa", q: "¿Por qué el bot no abre operaciones?", tags: ["no opera", "sin señales", "bloqueado"],
+      a: "Mira el Terminal y el feed de señales. Causas habituales: no hay configuraciones válidas (criterios Estrictos + filtro de tendencia superior son exigentes), la IA rechaza por baja confianza, estás al tope de posiciones, el par ya tiene una abierta, saltó el límite de pérdida diaria, hay bloqueo por noticias" + (fx ? ", estás fuera de las sesiones permitidas o el mercado está cerrado (fin de semana)" : " o por funding extremo") + ". Si quieres más actividad: criterios Relajados, más pares, temporalidad 15m o un perfil de riesgo superior." },
+    { cat: "Operativa", q: "¿Cada cuánto analiza el mercado?", tags: ["intervalo", "escaneo", "frecuencia"],
+      a: "Escanea todos los pares cada «Intervalo de escaneo» segundos (60 por defecto) y revisa las posiciones abiertas cada 5 s. «Escanear» en la cabecera fuerza un análisis inmediato. Las señales se generan al cierre de vela de la temporalidad elegida, así que en 1h no esperes varias señales por hora." },
+    { cat: "Operativa", q: "¿Cómo calcula el tamaño de cada operación?", tags: ["tamaño", "lotes", "riesgo", "equidad"],
+      a: `Riesgo % × equidad actual ÷ distancia al stop. La equidad se lee justo antes de enviar la orden (en REAL directamente del bróker), por lo que un depósito se refleja en la siguiente operación. ${fx ? "El resultado se redondea al paso de lotes del bróker (0,01); si el lote mínimo arriesga más de tu %, se usa igualmente solo si no supera el «Riesgo máx. lote mínimo»." : "La cantidad se ajusta al lote y al nocional mínimo de Bybit; el apalancamiento solo cambia el margen bloqueado, no el riesgo."}` },
+    { cat: "Operativa", q: "¿Qué es el trailing y cuándo actúa?", tags: ["trailing", "breakeven", "stop"],
+      a: "Cuando la operación gana +1R (una vez la distancia inicial al stop), el stop sube a breakeven (entrada). A partir de +1,5R sigue al precio a una distancia de ATR, bloqueando ganancias. En REAL el nuevo stop se envía al bróker cada vez que cambia." },
+    { cat: "Operativa", q: "¿Puedo cerrar una operación a mano?", tags: ["cerrar", "manual"],
+      a: "Sí: botón «Cerrar» en la fila de la posición o «Cerrar todas» (con confirmación). En REAL se envía una orden de cierre al bróker. También puedes cerrarla desde la app del bróker: el bot lo detecta y registra el resultado real." },
+    { cat: "Operativa", q: "¿Qué significa cada etiqueta del feed de señales?", tags: ["aprobada", "rechazada", "bloqueada", "etiquetas"],
+      a: "APROBADA: la IA dio luz verde y se abrió. RECHAZADA: la IA dijo no. BAJA_CONFIANZA: la IA aprobó pero por debajo de tu confianza mínima. BLOQUEADA: un filtro de riesgo lo impidió (tope de posiciones, par abierto, límite diario" + (fx ? ", conexión con HFM caída" : "") + "). NOTICIAS: evento macro o alerta crítica. " + (fx ? "SESION: fuera de las sesiones permitidas. MERCADO: mercado cerrado. " : "FUNDING: tasa de financiación extrema en contra. ") + "NO_EJECUTADA: aprobada pero la orden no pudo abrirse (lote mínimo, bróker). Todas las no operadas (salvo MERCADO) se simulan en la sombra." },
+    { cat: "Operativa", q: "¿Qué es el límite de pérdida diaria y cómo se reinicia?", tags: ["límite diario", "pausa"],
+      a: "Si el PnL del día (desde las 00:00 UTC) cae por debajo del % configurado, el bot deja de abrir hasta el día siguiente (las posiciones abiertas siguen gestionándose). Los depósitos y retiros no cuentan para este cálculo. Se reinicia automáticamente a las 00:00 UTC." },
+    fx ? { cat: "Operativa", q: "¿Qué pasa el fin de semana?", tags: ["fin de semana", "cierre", "mercado cerrado"],
+      a: "El mercado forex cierra el viernes por la tarde (hora de Nueva York) y abre el domingo. Con «Cerrar antes del fin de semana» activo, el bot cierra las posiciones abiertas antes del cierre para evitar el hueco de apertura (motivo FIN_SEMANA). Mientras el mercado está cerrado no se generan señales (etiqueta MERCADO)." }
+       : { cat: "Operativa", q: "¿Qué es el funding y por qué bloquea entradas?", tags: ["funding", "financiación"],
+      a: "En futuros perpetuos, cada 8 h (o 4 h/1 h en algunos pares) largos y cortos se pagan entre sí según la tasa de funding. Si abres a favor de quien paga, te cuesta dinero cada liquidación. El filtro reduce el tamaño si la tasa es ALTA en tu contra y bloquea si es EXTREMA; a favor nunca penaliza. Los umbrales se ajustan en Ajustes → Filtro de funding." },
+
+    { cat: "IA", q: "¿Qué IA usa y qué le cuesta?", tags: ["claude", "gemini", "modelo", "coste", "tokens"],
+      a: "Por defecto Claude Sonnet 5.5 mediante la llave universal de Emergent (sin configurar nada). Puedes cambiar a tu propia API key de Google Gemini en Ajustes → IA. Cada evaluación de señal, análisis de noticias o revisión consume tokens; el contador «IA hoy N · M ahorradas» de la tarjeta Evaluación IA muestra el uso diario. El bot evita llamadas inútiles (tope de posiciones, par abierto, límite diario, titulares repetidos)." },
+    { cat: "IA", q: "¿Puedo operar sin IA?", tags: ["sin ia", "desactivar"],
+      a: "Sí: desactiva «Filtro de IA» en Estrategia y riesgo (el perfil Máximo lo hace por defecto). Las señales se ejecutarán solo con los filtros técnicos y de riesgo. El agente de noticias y las revisiones automáticas seguirán usando la IA salvo que los apagues." },
+    { cat: "IA", q: "¿Qué información recibe la IA al evaluar una señal?", tags: ["contexto", "prompt"],
+      a: "La estrategia que disparó, precio, indicadores (RSI, ADX, MACD, EMAs, ATR), tendencia de la temporalidad superior, posiciones abiertas, PnL diario y equidad, resumen de noticias y riesgo del par" + (fx ? ", sesiones abiertas y spread" : ", tasa de funding interpretada") + ". Devuelve decisión, confianza (0-100), riesgo percibido y razonamiento, que verás en Evaluación IA." },
+    { cat: "IA", q: "¿Qué puede cambiar la IA por su cuenta?", tags: ["revisión automática", "topes", "cambios"],
+      a: `Solo lo permitido: pares, estrategias activas, riesgo por operación, posiciones máximas, apalancamiento, confianza mínima, trailing, filtro superior, parámetros SL/TP ${fx ? "y sesiones permitidas" : ""}; siempre dentro de topes (riesgo ≤ 1,5 %, ${fx ? "apalancamiento ≤ 1:100" : "apalancamiento ≤ 5x"}, posiciones ≤ 5, mínimo 2 pares) y con evidencia suficiente (20-30 operaciones reales para cambios estructurales). Nunca cambia el modo paper/real, el plan ni tus credenciales. Todo queda en Evolución con botón Deshacer, y puedes ponerla en modo «solo avisar».` },
+    { cat: "IA", q: "La IA aparece «sin servicio» en rojo, ¿qué hago?", tags: ["error ia", "saldo", "api key", "sin servicio"],
+      a: "El banner indica el motivo: API key inválida (revísala en Ajustes → IA), saldo/cuota agotados (recarga en tu proveedor; con la llave universal: Perfil → Manage plan → Universal Key → Add Balance), modelo no encontrado o error de red. Mientras tanto las señales se registran como ERROR y se simulan en la sombra. Al recuperarse, el banner desaparece y recibes un aviso por Telegram." },
+    { cat: "IA", q: "¿Qué es el «valor del filtro» de la IA?", tags: ["sombra", "valor del filtro", "shadow"],
+      a: "El PnL simulado, cambiado de signo, de las operaciones que la IA rechazó. Si rechazó operaciones que habrían perdido, el valor es positivo (te ahorró dinero); si rechazó ganadoras, negativo. Se desglosa por tramo de confianza para que ajustes tu confianza mínima con datos." },
+
+    { cat: "Riesgo y configuración", q: "¿Qué perfil de riesgo elijo?", tags: ["perfil", "conservador", "agresivo"],
+      a: "Empieza en Conservador o Moderado mientras validas en paper. Activo es el equilibrio (más pares, criterios relajados). Agresivo y Máximo (15m, sin filtro superior, riesgo 1,5-2 %, apalancamiento alto, IA relajada o apagada) solo tienen sentido con capital que puedas perder y tras ver resultados; por eso piden confirmación. Puedes partir de un perfil y afinar a mano (pasará a «Personalizado»)." },
+    { cat: "Riesgo y configuración", q: "¿Qué diferencia hay entre perfil de riesgo y escenario del plan?", tags: ["escenario", "prudente", "realista", "ambicioso"],
+      a: "El perfil de riesgo (Conservador…Máximo) cambia cómo opera el bot. El escenario del plan (Prudente / Realista / Ambicioso / Según backtest) solo es una hipótesis de rentabilidad mensual para proyectar cuánto tardarás en llegar a tu meta; no toca ningún ajuste." },
+    { cat: "Riesgo y configuración", q: "¿Debo aplicar los parámetros del optimizador?", tags: ["optimizador", "sl/tp", "aplicar"],
+      a: "Solo si el walk-forward del par sale ROBUSTO (o DUDOSO con mejora clara sobre la línea base). Un backtest brillante con veredicto SOBREAJUSTADO suele empeorar en real. La revalidación semanal vigila los parámetros aplicados y, con «Quitar sobreajustados», los retira sola." },
+    { cat: "Riesgo y configuración", q: "¿Qué pasa si cambio ajustes con el bot en marcha?", tags: ["cambiar ajustes", "en marcha"],
+      a: "Se aplican al siguiente escaneo; las posiciones abiertas mantienen su stop/objetivo originales. El cambio queda registrado en Evolución para medir su efecto. En REAL con el bot activo no se permite saltar a los perfiles 3-4 sin detenerlo." },
+    { cat: "Riesgo y configuración", q: "¿El apalancamiento aumenta mi riesgo?", tags: ["apalancamiento"],
+      a: "No directamente: el riesgo lo fija el % por operación y la distancia al stop. El apalancamiento solo determina cuánto margen se bloquea (y por tanto cuántas posiciones caben). Un apalancamiento alto con muchas posiciones sí te expone a una pérdida acumulada mayor si todas van mal a la vez; por eso existe el límite diario." },
+
+    { cat: "Datos y cuenta", q: "¿De dónde vienen los precios?", tags: ["datos", "yahoo", "bybit", "bitget", "precios"],
+      a: fx ? "De Yahoo Finance (sin API key): pares spot y futuros de oro y plata que replican el spot. Pueden tener unos segundos de retraso y no incluyen volumen real (el bot usa un volumen neutro). En REAL, las órdenes y el PnL vienen de HFM; las señales se siguen calculando con Yahoo, así que el precio de ejecución puede diferir ligeramente."
+            : "De la API pública v5 de Bybit. Si Bybit bloquea la región del servidor, el bot usa automáticamente los futuros perpetuos USDT de Bitget (precios casi idénticos) y lo indica en la cabecera. En REAL, órdenes, PnL y equidad vienen de tu cuenta de Bybit." },
+    { cat: "Datos y cuenta", q: "¿Cómo se tratan los depósitos y retiros?", tags: ["depósito", "retiro", "aportes", "estadísticas"],
+      a: "En REAL se detectan solos (cada minuto o al instante si la equidad salta); en paper los registras con «Depositar / Retirar». En ambos casos entran en la equidad (y por tanto en el tamaño de las próximas órdenes) pero se excluyen del PnL diario, del límite diario, del retorno total y del drawdown. El retorno total se calcula sobre el capital aportado (inicial + aportes netos) y el gráfico de equidad dibuja una línea «sin aportes» con el rendimiento puro." },
+    { cat: "Datos y cuenta", q: "¿Qué borra «Reiniciar cuenta»?", tags: ["reiniciar", "reset", "borrar"],
+      a: "Operaciones, posiciones, señales, curva de equidad, operaciones sombra y movimientos de la cuenta paper; la cuenta vuelve al capital que indiques. No borra ajustes, evolución, noticias ni configuración. En REAL solo reinicia las estadísticas con la equidad real y exige no tener posiciones abiertas." },
+    { cat: "Datos y cuenta", q: "¿Puedo exportar o guardar mis datos?", tags: ["exportar", "backup", "copia"],
+      a: "Sí: Ajustes → Copias de seguridad → «Crear copia ahora» y «Descargar». El archivo .json.gz contiene toda la base de datos de ambos bots (las API keys van cifradas). Puedes restaurarlo en la misma instalación desde el panel o con restore.sh." },
+
+    { cat: "Modo REAL", q: fx ? "¿Qué necesito para operar en real con HFM?" : "¿Qué necesito para operar en real con Bybit?", tags: ["real", "credenciales", "api key", "metaapi"],
+      a: fx ? "Una cuenta MT4/MT5 en HFM (demo o real), su login, contraseña MASTER y servidor, y un token de MetaApi.cloud (servicio que conecta MetaTrader con el bot; tiene plan gratuito para una cuenta). El bot despliega la cuenta en MetaApi y la verifica antes de dejarte cambiar de modo."
+            : "Una API key de Bybit con permisos de derivados (órdenes + lectura), sin permiso de retiro y, a ser posible, restringida a la IP del servidor. El servidor debe estar en una región donde Bybit permita el acceso a su API. Puedes practicar en el entorno Demo o Testnet antes de mainnet." },
+    { cat: "Modo REAL", q: "¿Qué comprueba la lista antes de pasar a REAL?", tags: ["checklist", "pasar a real"],
+      a: `Credenciales guardadas y verificadas${fx ? ", cuenta vinculada y conectada, trading permitido (contraseña master)" : ""}, bot detenido y sin posiciones abiertas. Además recomienda haber superado la Fase 0 del plan. Hay que escribir REAL para confirmar y las estadísticas se reinician con la equidad real.` },
+    { cat: "Modo REAL", q: "¿Qué pasa si se pierde la conexión con el bróker?", tags: ["desconexión", "caída", "conexión"],
+      a: fx ? "Si MetaApi pierde la conexión con HFM más de 60 s (configurable) aparece un banner rojo, llega un aviso por Telegram y el bot no abre nuevas operaciones hasta recuperarse (las abiertas siguen protegidas por su SL/TP en el bróker). Al volver, otro aviso."
+            : "Aparece un banner rojo «Bybit no responde» y el bot no envía órdenes hasta que vuelve; las posiciones abiertas conservan su stop y objetivo en el exchange." },
+    { cat: "Modo REAL", q: "¿Puedo tener operaciones manuales en la misma cuenta?", tags: ["manual", "externas", "posiciones externas"],
+      a: "Puedes, pero no es recomendable: el bot detecta posiciones que no gestiona y lo avisa en el log, pero no las toca ni las cuenta en sus estadísticas, y su equidad sí afecta al tamaño de las órdenes del bot. Lo ideal es una subcuenta o cuenta dedicada." },
+    { cat: "Modo REAL", q: "¿Cómo vuelvo a paper?", tags: ["volver a paper"],
+      a: "Detén el bot, cierra las posiciones y pulsa «Volver a paper» en Ajustes → Modo de operación. Las credenciales se conservan (puedes quitarlas con «Quitar») y la cuenta paper se reinicia a $500." },
+
+    { cat: "Telegram y avisos", q: "¿Cómo configuro Telegram?", tags: ["telegram", "botfather", "chat id"],
+      a: "1) En Telegram habla con @BotFather, crea un bot y copia el token. 2) Ajustes → Telegram: pega el token. 3) Envía cualquier mensaje a tu bot y pulsa «Detectar chat ID». 4) Activa los avisos que quieras y pulsa «Enviar prueba». Para un grupo, añade el bot al grupo y escribe en él antes de detectar." },
+    { cat: "Telegram y avisos", q: "¿Qué avisos existen?", tags: ["avisos", "notificaciones", "telegram"],
+      a: "Entradas, salidas y límite diario · Decisiones de la IA sobre cada señal · Resumen diario (00:00 UTC) y semanal (domingos 20:00 UTC) · Avisos del plan de crecimiento y depósitos · Revisión IA automática y revalidación walk-forward · Alertas de noticias graves · Conexión con el bróker, salud de la IA y copias de seguridad. Cada uno se activa por separado." },
+    { cat: "Telegram y avisos", q: "¿Qué incluye el resumen semanal?", tags: ["resumen semanal", "telegram", "domingo"],
+      a: "PnL y retorno de la semana (sin contar aportes), operaciones, acierto, profit factor y comisiones, mejores y peores pares, estrategias, decisiones de la IA y valor del filtro (sombras), evolución (qué cambios mejoraron, cuáles empeoraron y cuáles deshizo la IA), estado del plan con aportes, y riesgo de noticias" + (fx ? ", más los pips netos de la semana." : ".") },
+
+    { cat: "Plan de crecimiento", q: "¿Cómo se calculan los meses hasta la meta?", tags: ["meses", "meta", "proyección"],
+      a: "Capitalización mensual con la rentabilidad del escenario, aportes mensuales hasta la fase de ingreso, y riesgo 1 % → 1,5 % según la fase. El capital objetivo es el que, al 80 % de retiro, genera tu meta mensual. El escenario «Según backtest» usa la mediana de 3.000 simulaciones Monte Carlo sobre los resultados en R de tus backtests." },
+    { cat: "Plan de crecimiento", q: "¿Por qué el escenario «Según backtest» aparece deshabilitado?", tags: ["según backtest", "monte carlo", "deshabilitado"],
+      a: "Porque con tus ajustes actuales el backtest sale negativo o con muy pocas operaciones: no hay base para proyectar. Es información real, no un fallo. Prueba otras estrategias, criterios o parámetros y vuelve a calcular." },
+    { cat: "Plan de crecimiento", q: "¿Cuándo debo avanzar de fase?", tags: ["fase", "avanzar"],
+      a: "Cuando el chequeo muestre todos los criterios de la fase cumplidos con datos reales; aparecerá el botón «Avanzar a …», que también fija el riesgo recomendado de la nueva fase. Los aportes mensuales no bloquean el avance, pero verás si los estás cumpliendo." },
+
+    { cat: "Problemas frecuentes", q: "Aparece «Sin respuesta del motor» o errores 424", tags: ["error", "424", "motor"],
+      a: "424 significa que un servicio externo (IA, bróker, fuente de datos) no respondió; el mensaje indica cuál. Suele ser temporal. Si persiste, revisa Ajustes → IA («Probar conexión»), la conexión del bróker y el Terminal. Reiniciar el backend no borra nada." },
+    { cat: "Problemas frecuentes", q: "No puedo entrar: «Demasiados intentos»", tags: ["bloqueo", "login", "intentos"],
+      a: "Tras 5 intentos fallidos la IP queda bloqueada 15 minutos. Espera y vuelve a intentarlo. Si has olvidado la clave y tienes acceso al servidor: las copias de seguridad no sirven (al restaurar se conserva siempre la clave vigente); como último recurso, borra el documento «config» de la base de datos (colección config) y reinicia el backend para que se vuelva a sembrar desde INITIAL_PASSWORD de backend.env. Perderás la configuración de IA/Telegram/bróker, no las operaciones ni los ajustes del bot." },
+    { cat: "Problemas frecuentes", q: "Los precios se ven con retraso o un par no carga", tags: ["retraso", "precio", "no carga"],
+      a: fx ? "Yahoo Finance limita las peticiones; el bot reintenta con espera y mantiene la última vela válida. Si un par no carga durante mucho tiempo, revisa el Terminal (nivel ERROR) y prueba a quitarlo temporalmente."
+            : "Si Bybit no responde desde la región del servidor, el bot pasa a Bitget y lo indica en la cabecera. Un error 10006 (rate limit) se reintenta solo. Revisa el Terminal para ver el detalle." },
+    { cat: "Problemas frecuentes", q: "Restauré una copia y los bots están detenidos", tags: ["restaurar", "detenidos"],
+      a: "Es intencionado: tras restaurar, ambos bots quedan detenidos para que revises posiciones y ajustes antes de iniciarlos. En REAL, comprueba que las posiciones del bróker coinciden con las del panel." },
+
+    { cat: "Seguridad", q: "¿Dónde se guardan mis API keys?", tags: ["api key", "cifrado", "seguridad"],
+      a: "En la base de datos del servidor, cifradas con una clave (CREDENTIAL_ENCRYPTION_KEY) que solo está en backend.env. El panel nunca las muestra completas. Si pierdes esa clave, deberás volver a introducir las credenciales." },
+    { cat: "Seguridad", q: "¿Quién puede acceder al panel?", tags: ["acceso", "clave", "sesiones"],
+      a: "Quien tenga la clave única del panel. Cambiarla en Ajustes → Seguridad cierra todas las sesiones abiertas. Usa HTTPS (el kit VPS lo configura automáticamente con un dominio) y una clave larga." },
+  ];
+  return faq;
+}
