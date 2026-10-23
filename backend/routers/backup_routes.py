@@ -72,7 +72,12 @@ async def perform_restore(data: bytes, origin: str) -> dict:
 @router.get("/backup")
 async def backup_status():
     meta = await db.meta.find_one({"_id": "backup"}, {"_id": 0}) or {}
-    return {"backups": backup.list_backups(), "last": meta, "keep_days": backup.KEEP_DAYS, "max_upload_mb": backup.MAX_UPLOAD_MB,
+    try:
+        backups, error = backup.list_backups(), None
+    except Exception as e:  # unreadable/unwritable BACKUP_DIR must not hide the panel (restoring from a file still works)
+        logger.exception("backup list")
+        backups, error = [], f"No se pudo leer la carpeta de copias ({backup.DIR}): {str(e)[:120]}"
+    return {"backups": backups, "last": meta, "keep_days": backup.KEEP_DAYS, "max_upload_mb": backup.MAX_UPLOAD_MB, "error": error,
             "bots_running": {"crypto": engine.running, "fx": fx_engine.running}, "telegram": notify.is_on("system"), "confirm_word": CONFIRM}
 
 
