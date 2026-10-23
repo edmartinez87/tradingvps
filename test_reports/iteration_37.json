@@ -1,0 +1,22 @@
+{
+  "summary": "Verified the fix for the backup card that never stopped loading. BACKEND: pytest 7/7 passed (tests/test_iter37_backup_empty_state.py). GET /api/backup returns all keys and works with an empty folder (backups [] and error null). create, download, invalid-name, missing-file, restore-without-confirm and no-auth all behave as expected. FRONTEND (Playwright): empty state works on /hotforex and /bybit. There is no permanent spinner and backup-empty shows the right text. The create and pick-file buttons are visible and enabled. The file chooser opens and backup-file-selected shows the name and size. The restore dialog opens with confirm disabled and was cancelled; Quitar clears the file. Error state works when GET /api/backup is aborted: backup-load-error shows the message ('…: Network Error. Puedes restaurar igualmente desde un archivo.'), backup-retry is shown and both buttons stay visible. After removing the interception, retry switches to backup-empty without a page reload. Normal state works: 'Copia creada · <file> · 92 KB' toast appears, backup-last-name updates, backup-list shows 2 rows and backup-download-last triggers a download. No restore was performed. Cleanup: the original file is back and the test backup was deleted. Bots are as before: crypto running in paper mode, FX stopped.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/backup/download/..%2Fx", "issue": "Returns 404 instead of 400: the router/proxy normalises the path before safe_path runs, so it is still safe. Non-.json.gz names such as x.txt correctly return 400."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter37_backup_empty_state.py", "/app/test_reports/pytest/pytest_iter37.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "backup_status: db.meta.find_one is outside the try, so a Mongo failure still returns 500. The frontend now handles this through backup-load-error, so it is acceptable.",
+    "Error text: if errMsg already ends with '.', the message shows '..'. Cosmetic only."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter37_backup_empty_state.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None kept. Backups created during tests were deleted. The original test_database-2026-10-22_042802.json.gz is back in /app/backend/backups.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The crypto dashboard route is /bybit ('/' is the BotSelector). The backup card is under settings-view-button. The test_iter37 empty-folder test temporarily moves the *.json.gz files and restores them in finally. Never POST /api/backup/restore with confirm RESTAURAR."
+}
