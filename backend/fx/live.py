@@ -73,6 +73,7 @@ class FxLiveBroker:
         self._info = {"ts": 0.0, "data": None}
         self._positions = {"ts": 0.0, "data": []}
         self._kcache = {}
+        self.chart_fail_ts = 0.0  # last failure fetching chart candles from MetaApi (chart falls back to Yahoo for 60 s)
         self.last_error = None
 
     async def aclose(self):

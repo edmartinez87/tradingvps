@@ -2,7 +2,7 @@
 import time
 import asyncio
 import logging
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Query
 from bson import ObjectId
 
 from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, ModeRequest, PlanRequest, AdviseRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
@@ -217,19 +217,25 @@ async def dashboard():
 
 
 CHART_TIMEFRAMES = FX_TIMEFRAMES + ["1d"]
-_hfm_chart = {"fail_ts": 0.0}
+
+
+def _chart_backoff_reset():
+    """User re-linked / tested / redeployed the account: let the chart try HFM candles again right away."""
+    if engine.broker:
+        engine.broker.chart_fail_ts = 0.0
 
 
 async def _chart_rows(symbol: str, tf: str, n: int, before: int | None):
     """Chart candles: the HFM terminal's own (what MetaTrader shows) while the MetaApi account is deployed; Yahoo otherwise or on failure
-    (2 min back-off)."""
-    if engine.broker and fx_store.cfg.hfm_state == "DEPLOYED" and time.time() - _hfm_chart["fail_ts"] > 120:
+    (60 s back-off kept on the broker instance → cleared on relink/test/reconnect)."""
+    b = engine.broker
+    if b and fx_store.cfg.hfm_state == "DEPLOYED" and time.time() - b.chart_fail_ts > 60:
         try:
-            rows = await engine.broker.candles(symbol, tf, before, n)
+            rows = await b.candles(symbol, tf, before, n)
             if rows:
                 return rows, "hfm"
         except Exception as e:
-            _hfm_chart["fail_ts"] = time.time()
+            b.chart_fail_ts = time.time()
             logger.warning(f"velas HFM {symbol} {tf}: {e} → usando Yahoo")
     if before:
         return await engine.market.fetch_before(symbol, tf, before, n), "yahoo"
@@ -237,7 +243,7 @@ async def _chart_rows(symbol: str, tf: str, n: int, before: int | None):
 
 
 @router.get("/klines")
-async def klines(symbol: str, tf: str = "1h", limit: int = chart.DEFAULT_LIMIT, before: int | None = None):
+async def klines(symbol: str, tf: str = "1h", limit: int = chart.DEFAULT_LIMIT, before: int | None = Query(None, ge=1)):
     if symbol not in AVAILABLE or tf not in CHART_TIMEFRAMES:
         raise HTTPException(400, "Símbolo o temporalidad inválida")
     limit = chart.clamp(limit)
@@ -498,6 +504,7 @@ async def hfm_test(body: HfmTestRequest = None):
             await engine.log("INFO", f"Cuenta HFM verificada vía MetaApi · {info.get('broker', 'HFM')} {server} · equidad {info.get('equity')} {info.get('currency', '')}"
                                      + ("" if info.get("tradeAllowed", True) else " · SIN permiso de trading (contraseña investor)"))
         await fx_store.update(patch)
+        _chart_backoff_reset()
     out["hint"] = (None if out["info"] else "Cuenta vinculada pero aún no conectada: espera unos minutos y vuelve a probar" if out["account"]
                    else "Token válido. La cuenta MT todavía no está vinculada en MetaApi: pulsa «Vincular cuenta»." if login else "Token válido. Guarda el login/servidor de HFM para vincular la cuenta.")
     if out["info"] and not out["info"].get("tradeAllowed", True):
@@ -547,6 +554,7 @@ async def hfm_link():
     finally:
         await api.aclose()
     await fx_store.update({"metaapi_account_id": acc["_id"], "hfm_state": acc.get("state", ""), "hfm_connection": acc.get("connectionStatus", ""), **_plan_patch(acc)})
+    _chart_backoff_reset()
     hint = _plan_hint(acc)
     return {"ok": True, "account": _acc_view(acc), "plan_mismatch": bool(hint),
             "hint": hint or "Despliegue solicitado: la conexión tarda 1-3 minutos. Pulsa «Probar conexión» para ver el estado."}
@@ -604,6 +612,7 @@ async def hfm_redeploy():
     finally:
         await api.aclose()
     await fx_store.update({"hfm_state": acc.get("state", ""), "hfm_connection": acc.get("connectionStatus", ""), "hfm_verified_at": None})
+    _chart_backoff_reset()
     await engine.log("INFO", "Redespliegue de la cuenta HFM en MetaApi solicitado")
     return {"ok": True, "account": _acc_view(acc), "hint": "Redespliegue en curso (1-3 minutos). Vuelve a «Probar conexión»."}
 

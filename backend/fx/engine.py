@@ -424,6 +424,8 @@ class FxEngine:
             try:
                 acc = await self.broker.api.account(self.broker.account_id)
                 h.update(state=acc.get("state") or "", connection=acc.get("connectionStatus") or "", api_error=None)
+                if h["connection"] == "CONNECTED":
+                    self.broker.chart_fail_ts = 0.0
             except Exception as e:
                 h["api_error"] = str(e)[:160]
                 logger.warning(f"hfm account state: {e}")

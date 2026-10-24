@@ -74,6 +74,7 @@ export function useHistory(symbol, tf, interval = 10000) {
       absorb(st, d);
       more.current = !!d.has_more && d.candles.length > 0;
       setData(materialize(st));
+      if (d.source) setMeta((m) => ({ ...m, source: d.source }));
     } catch (e) {
       cool.current = Date.now() + 15000;
     } finally {

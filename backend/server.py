@@ -7,7 +7,7 @@ from pathlib import Path
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request  # noqa: E402
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Query  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from bson import ObjectId  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
@@ -154,7 +154,7 @@ async def dashboard():
 
 
 @api.get("/klines")
-async def klines(symbol: str, tf: str = "15m", limit: int = chart.DEFAULT_LIMIT, before: int | None = None):
+async def klines(symbol: str, tf: str = "15m", limit: int = chart.DEFAULT_LIMIT, before: int | None = Query(None, ge=1)):
     """Chart data; `before` (unix s, exclusive) pages older candles for the infinite history."""
     if symbol not in AVAILABLE_SYMBOLS or tf not in CHART_TIMEFRAMES:
         raise HTTPException(400, "Símbolo o temporalidad inválida")

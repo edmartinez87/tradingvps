@@ -1,0 +1,38 @@
+{
+  "summary": "Tested the chart upgrade (infinite history, local time, 1d, fullscreen, indicator chips, warm-up, source/has_more) for both bots. Backend: all 14 tests in test_iter43 pass, but only when the global 120 s HFM back-off is not active. The 3 HFM tests fail whenever the suite runs again within 120 s of a fallback (reproduced 2 times out of 3 runs). New regression test test_iter44 confirms the cause. Frontend /bybit: TF chips 1m..1d work; chart-source shows 'Velas Bitget · N velas · hora local'; dragging loads 300→800→1300 candles; RSI and EMA200 toggles work and persist in localStorage after reload; 1d shows about 120 candles in the initial view; fullscreen applies 'fixed inset-0' (1918x984) and Esc closes it; switching to ETH resets the chart. Frontend /hotforex: TFs 5m/15m/1h/4h/1d; source Yahoo; dragging goes 300→800; 1d and 15m load. No page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/fx/klines (fx/routes.py _chart_rows, _hfm_chart['fail_ts'])", "issue": "The 120 s back-off is global and nothing resets it. One failure (any symbol or timeframe, e.g. a symbol the broker does not have, or a brief disconnect) switches EVERY FX chart to Yahoo for 2 minutes, and it stays on Yahoo even after the connection is restored or the account is relinked (POST /api/fx/hfm/link). This makes test_iter43 TestFxHfm flaky: 3 tests fail if run within 120 s of test_fallback_to_yahoo_when_disconnected. Reproduced by tests/test_iter44_chart_hfm_backoff.py. Fix: key the back-off per (symbol, tf) or per broker, and reset it on link/clear_hfm and when the connection recovers."},
+      {"endpoint": "GET /api/klines?before=-5", "issue": "Returns 500 Internal Server Error for a negative 'before' (the FX endpoint returns 200 with empty data). Add validation (Query(None, ge=1)) or clamp it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "FX chart source switch hfm↔yahoo", "issue": "useHistory merges candles by timestamp regardless of source, and loadOlder does not update meta.source. If the backend falls back to Yahoo for one page while the live page is HFM (or the reverse), the merged series mixes HFM and Yahoo prices, and chart-source shows only the source of the last poll. Consider resetting the store when d.source changes, or rejecting older pages whose source differs.", "affected_selectors": ["[data-testid='chart-source']", "[data-testid='price-chart']"]}
+    ],
+    "design_issues": [
+      {"screen": "Chart fullscreen", "issues": ["Faint blurred shapes from the dashboard behind the overlay show near the header/legend area. The panel background in fullscreen does not look fully opaque (a Panel bg/backdrop class may override bg-[#07090E])."]},
+      {"screen": "Console", "issues": ["Repeated warning 'The width(-1) and height(-1) of chart should be greater than 0' (from recharts ResponsiveContainer on hidden tabs), and a Canvas2D willReadFrequently warning. These were not caused by this feature, but they add noise to the console."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter43_chart_history.py", "/app/backend/tests/test_iter44_chart_hfm_backoff.py", "/app/test_reports/pytest/iter43.xml", "/app/test_reports/pytest/iter44.xml"],
+  "action_items": [
+    "Make the HFM chart back-off per symbol/tf (or per broker) and reset it on /fx/hfm/link, on clear_hfm and on connection recovery. Then test_iter44 should pass and test_iter43 should be stable on back-to-back runs.",
+    "Validate 'before' >= 1 on GET /api/klines (currently returns 500 for negative values).",
+    "Optional: in useHistory, reset or ignore pages whose 'source' differs from the current one, and update meta.source from loadOlder responses.",
+    "Optional: make the fullscreen panel background fully opaque."
+  ],
+  "critical_code_review_comments": [
+    "fx/routes.py _chart_rows: a single module-level fail_ts acts as a global circuit breaker. A bad symbol name on the broker side disables HFM candles for all pairs.",
+    "chart.build: queries db.trades (limit 300) and db.positions on every older-page request too. This is fine for now, but those markers could be filtered by the time window in Mongo.",
+    "useChart: the logical-range subscription fires loadOlder on every range change while from<80. The busy/cool-down guards cover this, so it works."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter44_chart_hfm_backoff.py"],
+  "success_rate": {"backend": "93% (14/14 iter43 when the back-off is inactive; iter44 back-off regression fails; negative 'before' returns 500)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None. HFM mock config was linked during tests and cleaned up afterwards (hfm_state '', metaapi_base_url '', mock reset, connected=true).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run test_iter43 then test_iter44 with -n 0. If the HFM tests fail with 'yahoo' == 'hfm', check whether a fallback happened in the last 120 s (global back-off). Forex market closed on the weekend. Crypto source is bitget (Bybit geo-blocked). In Playwright, counting 'table tr' rows is not a reliable way to detect panes; use screenshots. Each drag of about 700px moves about 90 candles at the default zoom, so several drags are needed before the next 500-candle page loads."
+}

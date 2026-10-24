@@ -57,7 +57,7 @@ export default function PriceChart({ symbol, defaultTf, kind = "Perpetuo", tfs =
   const last = data?.candles?.[data.candles.length - 1];
   return (
     <Panel testId="price-chart-panel" title={`${symbol} · ${kind}`} icon={CandlestickChart} bodyClass="flex flex-col" delay={120}
-      className={fs ? "fixed inset-0 z-[70] rounded-none bg-[#07090E]" : "lg:col-span-6"}
+      className={fs ? "fixed inset-0 z-[70] rounded-none !bg-[#07090E] !backdrop-blur-0" : "lg:col-span-6"}
       actions={
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-sm border border-[#1E293B] p-0.5">
