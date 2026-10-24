@@ -77,6 +77,10 @@ def client_base(region: str) -> str:
     return f"https://mt-client-api-v1.{region}.agiliumtrade.ai"
 
 
+def market_data_base(region: str) -> str:
+    return f"https://mt-market-data-client-api-v1.{region}.agiliumtrade.ai"
+
+
 class MetaApiError(Exception):
     """kind: 'rejected' (definitive), 'transient' (failed for sure, retry later) or 'unknown' (may have executed: verify by clientId)."""
     def __init__(self, status: int, msg: str, code: str = "", kind: str = "rejected", retry_after: float = None):
@@ -98,7 +102,7 @@ class MetaApi:
     def _cli(self, region: str = None) -> str:
         return self.base_url or client_base(region or self.region)
 
-    async def _call(self, method: str, url: str, json: dict = None, tx: str = None, params: dict = None, trade: bool = False):
+    async def _call(self, method: str, url: str, json: dict = None, tx: str = None, params: dict = None, trade: bool = False, timeout: float = None):
         """Idempotent calls (GET / provisioning) retry transient failures (network, 429, 5xx) with backoff; a trade request is sent once and a
         network failure is reported as kind='unknown' because MetaApi may still have executed it."""
         headers = {"auth-token": self.token, "Accept": "application/json"}
@@ -110,7 +114,7 @@ class MetaApi:
         while True:
             try:
                 r = await self.client.request(method, url, headers=headers, json=json, params=params,
-                                              timeout=httpx.Timeout(self.trade_timeout if trade else self.read_timeout, connect=8.0))
+                                              timeout=httpx.Timeout(timeout or (self.trade_timeout if trade else self.read_timeout), connect=8.0))
             except httpx.HTTPError as e:
                 err = MetaApiError(0, f"MetaApi no responde: {type(e).__name__}{(' · ' + str(e)[:80]) if str(e) else ''}", kind="unknown" if trade else "transient")
             else:
@@ -214,6 +218,26 @@ class MetaApi:
         """All symbol names known to the terminal (every HFM account group variant: EURUSD, EURUSDb, EURUSDr…)."""
         res = await self._call("GET", f"{self._acc(account_id, region)}/symbols") or []
         return [str(s.get("symbol") if isinstance(s, dict) else s) for s in res]
+
+    async def candles(self, account_id: str, symbol: str, timeframe: str, start_iso: str = None, limit: int = 1000, region: str = None) -> list:
+        """Historical OHLCV straight from the MT terminal (the candles MetaTrader shows), loaded backwards from `start_iso` (inclusive; latest
+        when empty). Separate market-data host. Returns ascending [ts_ms, o, h, l, c, tick_volume]."""
+        from datetime import datetime
+        params = {"limit": min(1000, max(1, int(limit)))}
+        if start_iso:
+            params["startTime"] = start_iso
+        host = self.base_url or market_data_base(region or self.region)
+        res = await self._call("GET", f"{host}/users/current/accounts/{account_id}/historical-market-data/symbols/{quote(symbol, safe='')}/timeframes/{timeframe}/candles",
+                               params=params, timeout=45.0) or []
+        rows = []
+        for c in res:
+            try:
+                ts = int(datetime.fromisoformat(str(c["time"]).replace("Z", "+00:00")).timestamp() * 1000)
+                rows.append([ts, float(c["open"]), float(c["high"]), float(c["low"]), float(c["close"]), float(c.get("tickVolume") or c.get("volume") or 0)])
+            except (KeyError, TypeError, ValueError):
+                continue
+        rows.sort()
+        return rows
 
     async def deals_by_position(self, account_id: str, position_id: str, region: str = None) -> list:
         return await self._call("GET", f"{self._acc(account_id, region)}/history-deals/position/{position_id}") or []

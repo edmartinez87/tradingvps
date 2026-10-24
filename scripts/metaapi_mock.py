@@ -220,6 +220,38 @@ async def tick(acc_id: str, symbol: str):
     return {"symbol": symbol, "time": now_iso(), "bid": round(p - spec["spread"] / 2, spec["digits"]), "ask": round(p + spec["spread"] / 2, spec["digits"])}
 
 
+MOCK_TF = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+
+
+@app.get("/users/current/accounts/{acc_id}/historical-market-data/symbols/{symbol}/timeframes/{tf}/candles")
+async def candles(acc_id: str, symbol: str, tf: str, startTime: str = None, limit: int = 1000):
+    """MetaApi historical market data (separate host in production): deterministic synthetic OHLCV (seeded per symbol/tf/candle) loaded
+    backwards from startTime (inclusive) so the chart's HFM source can be tested offline."""
+    import math
+    import random
+    if not state["connected"]:
+        return _not_connected()
+    base, spec = _spec(symbol)
+    if not spec or tf not in MOCK_TF:
+        return JSONResponse({"message": f"Symbol {symbol} not found"}, status_code=404)
+    step = MOCK_TF[tf]
+    end = int(datetime.fromisoformat(startTime.replace("Z", "+00:00")).timestamp()) if startTime else int(time.time())
+    end -= end % step
+    price = await price_of(base)
+    out = []
+    for i in range(min(max(int(limit), 1), 1000)):
+        t = end - (min(max(int(limit), 1), 1000) - 1 - i) * step
+        rnd = random.Random(f"{base}{tf}{t}")
+        o = price * (1 + 0.004 * math.sin(t / (step * 37)) + rnd.uniform(-0.0015, 0.0015))
+        c = o * (1 + rnd.uniform(-0.002, 0.002))
+        h, lo = max(o, c) * (1 + rnd.uniform(0, 0.001)), min(o, c) * (1 - rnd.uniform(0, 0.001))
+        at = datetime.fromtimestamp(t, timezone.utc)
+        out.append({"symbol": symbol, "timeframe": tf, "time": at.isoformat().replace("+00:00", "Z"), "brokerTime": at.strftime("%Y-%m-%d %H:%M:%S.000"),
+                    "open": round(o, spec["digits"]), "high": round(h, spec["digits"]), "low": round(lo, spec["digits"]), "close": round(c, spec["digits"]),
+                    "tickVolume": rnd.randint(100, 2000), "spread": 10, "volume": 0})
+    return out
+
+
 def _close(p: dict, price: float, comment: str = "") -> dict:
     profit = _pnl(p, price)
     state["balance"] += profit + p["swap"] + p["commission"]

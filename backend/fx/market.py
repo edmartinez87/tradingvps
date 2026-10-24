@@ -15,6 +15,8 @@ MIN_GAP_SEC = 0.5
 # tf -> (yahoo interval, range for ~limit candles, aggregate factor)
 TF_MAP = {"1m": ("1m", "5d", 1), "5m": ("5m", "30d", 1), "15m": ("15m", "60d", 1), "1h": ("60m", "180d", 1), "4h": ("60m", "730d", 4), "1d": ("1d", "2y", 1)}
 TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+# how far back Yahoo serves each interval (intraday history is capped)
+YAHOO_MAX_DAYS = {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "4h": 730, "1d": 36500}
 HTF = {"1m": "15m", "5m": "1h", "15m": "1h", "1h": "4h", "4h": "1d"}
 NY, LONDON, TOKYO, SYDNEY = ZoneInfo("America/New_York"), ZoneInfo("Europe/London"), ZoneInfo("Asia/Tokyo"), ZoneInfo("Australia/Sydney")
 SESSIONS = [("sydney", "Sídney", SYDNEY, 7, 16), ("tokyo", "Tokio", TOKYO, 9, 18), ("london", "Londres", LONDON, 8, 17), ("newyork", "Nueva York", NY, 8, 17)]
@@ -219,6 +221,27 @@ class FxMarket:
         rows = rows[-limit:]
         if not rows:
             raise RuntimeError(f"sin velas para {symbol} {tf}")
+        self._kcache[key] = (time.time(), rows)
+        return rows
+
+    async def fetch_before(self, symbol: str, tf: str, end_ts: int, limit: int = 500, cache_sec: int = 600) -> list:
+        """Up to `limit` candles strictly older than `end_ts` (unix s) via Yahoo period1/period2; window ×1.5 covers weekends. Empty once Yahoo's
+        history cap for the interval is reached."""
+        key = (symbol, tf, "before", end_ts, limit)
+        hit = self._kcache.get(key)
+        if hit and time.time() - hit[0] < cache_sec:
+            return hit[1]
+        interval, _, factor = TF_MAP[tf]
+        step = TF_SECONDS[tf]
+        earliest = int(time.time()) - YAHOO_MAX_DAYS[tf] * 86400 + 3600
+        start = max(earliest, end_ts - int(limit * step * 1.5))
+        if start >= end_ts:
+            return []
+        res = await self._chart(SPECS[symbol]["yahoo"], {"interval": interval, "period1": start, "period2": end_ts, "includePrePost": "false"})
+        rows = self._rows(res)
+        if factor > 1:
+            rows = _aggregate(rows, factor, step)
+        rows = [r for r in rows if r[0] // 1000 < end_ts][-limit:]
         self._kcache[key] = (time.time(), rows)
         return rows
 

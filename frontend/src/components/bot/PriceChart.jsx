@@ -1,94 +1,94 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  createChart, CandlestickSeries, LineSeries, HistogramSeries, createSeriesMarkers, ColorType, CrosshairMode, LineStyle,
-} from "lightweight-charts";
-import { CandlestickChart } from "lucide-react";
+import { CandlestickChart, Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { Panel } from "./Panel";
-import { http, fmtPrice } from "@/lib/api";
-import { usePolling } from "@/hooks/usePolling";
+import { fmtPrice } from "@/lib/api";
+import { useChart, render, applyIndicators } from "./chart/useChart";
+import { useHistory } from "./chart/useHistory";
 
-const TFS = ["1m", "5m", "15m", "1h", "4h"];
-const lineOpts = (color, width = 1) => ({ color, lineWidth: width, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-
-function useChart(ref) {
-  const api = useRef(null);
-  useEffect(() => {
-    const chart = createChart(ref.current, {
-      autoSize: true,
-      localization: { locale: "es-ES" },
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#94A3B8", fontFamily: "IBM Plex Mono, monospace", fontSize: 11, panes: { separatorColor: "#1E293B" } },
-      grid: { vertLines: { color: "rgba(30,41,59,0.45)" }, horzLines: { color: "rgba(30,41,59,0.45)" } },
-      rightPriceScale: { borderColor: "#1E293B" },
-      timeScale: { borderColor: "#1E293B", timeVisible: true, secondsVisible: false },
-      crosshair: { mode: CrosshairMode.Normal },
-    });
-    const candles = chart.addSeries(CandlestickSeries, { upColor: "#10B981", downColor: "#EF4444", borderVisible: false, wickUpColor: "#10B981", wickDownColor: "#EF4444" });
-    const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
-    vol.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-    const e9 = chart.addSeries(LineSeries, lineOpts("#F7A600"));
-    const e21 = chart.addSeries(LineSeries, lineOpts("#38BDF8"));
-    const e200 = chart.addSeries(LineSeries, lineOpts("#CBD5E1", 2));
-    const rsi = chart.addSeries(LineSeries, { ...lineOpts("#F472B6"), lastValueVisible: true }, 1);
-    rsi.createPriceLine({ price: 70, color: "rgba(239,68,68,0.45)", lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false });
-    rsi.createPriceLine({ price: 30, color: "rgba(16,185,129,0.45)", lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false });
-    try { chart.panes()[1].setHeight(90); } catch (e) { /* pane api optional */ }
-    const markers = createSeriesMarkers(candles, []);
-    api.current = { chart, candles, vol, e9, e21, e200, rsi, markers, lines: [] };
-    return () => { chart.remove(); api.current = null; };
-  }, [ref]);
-  return api;
-}
+const TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
+const SOURCE = { bybit: "Velas Bybit", bitget: "Velas Bitget", hfm: "Velas HFM · MetaTrader", yahoo: "Velas Yahoo Finance" };
+const IND = [["ema9", "EMA 9", "text-amber-400"], ["ema21", "EMA 21", "text-sky-400"], ["ema200", "EMA 200", "text-slate-300"], ["rsi", "RSI 14", "text-pink-400"], ["vol", "Volumen", "text-slate-400"]];
+const DEFAULT_IND = { ema9: true, ema21: true, ema200: true, rsi: true, vol: true };
+const loadInd = () => {
+  try { return { ...DEFAULT_IND, ...JSON.parse(localStorage.getItem("chart.indicators") || "{}") }; } catch (e) { return DEFAULT_IND; }
+};
 
 export default function PriceChart({ symbol, defaultTf, kind = "Perpetuo", tfs = TFS }) {
   const [tf, setTf] = useState(defaultTf);
+  const [fs, setFs] = useState(false);
+  const [ind, setInd] = useState(loadInd);
   const ref = useRef(null);
-  const api = useChart(ref);
   const fitted = useRef("");
-  const { data } = usePolling(() => http.get("/klines", { params: { symbol, tf } }).then((r) => r.data), 10000, [symbol, tf]);
+  const { data, meta, loadOlder } = useHistory(symbol, tf);
+  const api = useChart(ref, () => { if (fitted.current === `${symbol}-${tf}`) loadOlder(); });
 
   useEffect(() => setTf(defaultTf), [defaultTf]);
 
   useEffect(() => {
     const a = api.current;
-    if (!a || !data || data.symbol !== symbol || data.tf !== tf) return;
-    a.candles.setData(data.candles);
-    a.vol.setData(data.volume);
-    a.e9.setData(data.ema9);
-    a.e21.setData(data.ema21);
-    a.e200.setData(data.ema200);
-    a.rsi.setData(data.rsi);
-    a.markers.setMarkers(data.markers);
-    a.lines.forEach((l) => a.candles.removePriceLine(l));
-    a.lines = data.lines.map((l) => a.candles.createPriceLine({ price: l.price, color: l.color, title: l.title, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true }));
+    if (!a || !data) return;
+    render(a, data, meta.lines, tf);
     const key = `${symbol}-${tf}`;
     if (fitted.current !== key) {
       const n = data.candles.length;
-      a.chart.timeScale().setVisibleLogicalRange({ from: n - 120, to: n + 4 });
-      fitted.current = key;
+      // the chart applies new data on its next frame; fit after that so the default range does not override us
+      requestAnimationFrame(() => {
+        if (!api.current) return;
+        api.current.chart.timeScale().setVisibleLogicalRange({ from: n - 120, to: n + 4 });
+        fitted.current = key;
+      });
     }
-  }, [data, symbol, tf, api]);
+  }, [data, meta.lines, symbol, tf, api]);
+
+  useEffect(() => {
+    localStorage.setItem("chart.indicators", JSON.stringify(ind));
+    if (api.current) applyIndicators(api.current, ind, data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ind, api]);
+
+  useEffect(() => {
+    if (!fs) return;
+    const onKey = (e) => e.key === "Escape" && setFs(false);
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [fs]);
 
   const last = data?.candles?.[data.candles.length - 1];
   return (
-    <Panel testId="price-chart-panel" title={`${symbol} · ${kind}`} icon={CandlestickChart} className="lg:col-span-6" bodyClass="flex flex-col" delay={120}
+    <Panel testId="price-chart-panel" title={`${symbol} · ${kind}`} icon={CandlestickChart} bodyClass="flex flex-col" delay={120}
+      className={fs ? "fixed inset-0 z-[70] rounded-none bg-[#07090E]" : "lg:col-span-6"}
       actions={
-        <div className="flex items-center gap-1 rounded-sm border border-[#1E293B] p-0.5">
-          {tfs.map((t) => (
-            <button key={t} data-testid={`chart-tf-${t}`} onClick={() => setTf(t)}
-              className={`rounded-sm px-2 py-0.5 font-mono text-[11px] transition-colors ${t === tf ? "bg-amber-500 text-[#07090E]" : "text-slate-400 hover:text-slate-100"}`}>
-              {t}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-sm border border-[#1E293B] p-0.5">
+            {tfs.map((t) => (
+              <button key={t} data-testid={`chart-tf-${t}`} onClick={() => setTf(t)}
+                className={`rounded-sm px-2 py-0.5 font-mono text-[11px] transition-colors ${t === tf ? "bg-amber-500 text-[#07090E]" : "text-slate-400 hover:text-slate-100"}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <button data-testid="chart-fullscreen-btn" onClick={() => setFs((v) => !v)} title={fs ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}
+            className="rounded-sm border border-[#1E293B] p-1 text-slate-400 transition-colors hover:text-slate-100">
+            {fs ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </button>
         </div>
       }>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pt-3 font-mono text-[11px]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3 font-mono text-[11px]">
         <span data-testid="chart-last-price" className="text-base font-semibold text-slate-50">{fmtPrice(last?.close)}</span>
-        <span className="text-amber-400">EMA 9</span>
-        <span className="text-sky-400">EMA 21</span>
-        <span className="text-slate-300">EMA 200</span>
-        <span className="text-pink-400">RSI 14</span>
+        {IND.map(([k, label, color]) => (
+          <button key={k} data-testid={`chart-ind-${k}`} onClick={() => setInd((v) => ({ ...v, [k]: !v[k] }))} aria-pressed={!!ind[k]}
+            className={`rounded-sm border px-1.5 py-px transition-colors ${ind[k] ? `border-[#1E293B] ${color}` : "border-transparent text-slate-600 line-through hover:text-slate-400"}`}>
+            {label}
+          </button>
+        ))}
+        <span className="ml-auto flex items-center gap-2 text-[10px] text-slate-500">
+          {meta.loading && <span data-testid="chart-loading-older" className="flex items-center gap-1 text-amber-400"><Loader2 className="h-3 w-3 animate-spin" /> cargando historial…</span>}
+          {!meta.loading && !meta.hasMore && data && <span data-testid="chart-history-end">inicio del historial disponible</span>}
+          {meta.source && <span data-testid="chart-source">{SOURCE[meta.source] || meta.source} · {data?.candles?.length || 0} velas · hora local</span>}
+        </span>
       </div>
-      <div ref={ref} data-testid="price-chart" className="h-[470px] w-full" />
+      <div ref={ref} data-testid="price-chart" className={`w-full ${fs ? "h-[calc(100vh-96px)]" : "h-[470px]"}`} />
     </Panel>
   );
 }

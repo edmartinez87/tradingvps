@@ -72,10 +72,27 @@ class FxLiveBroker:
         self.symbol_map = dict(symbol_map or {})  # our symbol → broker name when it is not simply symbol+suffix (HFM metals, dotted suffixes…)
         self._info = {"ts": 0.0, "data": None}
         self._positions = {"ts": 0.0, "data": []}
+        self._kcache = {}
         self.last_error = None
 
     async def aclose(self):
         await self.api.aclose()
+
+    async def candles(self, symbol: str, tf: str, before_ts: int = None, limit: int = 1000, cache_sec: float = 20.0) -> list:
+        """Chart candles from the HFM terminal (same as MetaTrader). `before_ts` (unix s, exclusive) pages backwards; history pages cache 10 min."""
+        from datetime import datetime, timezone
+        key = (symbol, tf, before_ts, limit)
+        hit = self._kcache.get(key)
+        if hit and time.time() - hit[0] < (600 if before_ts else cache_sec):
+            return hit[1]
+        start = datetime.fromtimestamp(before_ts - 1, timezone.utc).isoformat().replace("+00:00", "Z") if before_ts else None
+        rows = await self.api.candles(self.account_id, self.broker_symbol(symbol), tf, start, limit, self.region)
+        if before_ts:
+            rows = [r for r in rows if r[0] // 1000 < before_ts]
+        if len(self._kcache) > 300:
+            self._kcache = dict(sorted(self._kcache.items(), key=lambda kv: kv[1][0])[-150:])
+        self._kcache[key] = (time.time(), rows)
+        return rows
 
     def broker_symbol(self, symbol: str) -> str:
         return self.symbol_map.get(symbol) or f"{symbol}{self.suffix}"

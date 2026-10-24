@@ -154,6 +154,33 @@ class MarketData:
         self._kcache[key] = (time.time(), data)
         return data
 
+    async def fetch_before(self, symbol: str, tf: str, end_ms: int, limit: int = 500, cache_sec: int = 600) -> list:
+        """Up to `limit` candles strictly older than `end_ms` for the chart's infinite history (Bybit `end` is inclusive → end-1; Bitget
+        history-candles `endTime` is exclusive, 200/page)."""
+        key = (symbol, tf, "before", end_ms, limit)
+        hit = self._kcache.get(key)
+        if hit and time.time() - hit[0] < cache_sec:
+            return hit[1]
+        bybit_tf, bitget_tf = TF_MAP[tf]
+        data, end = [], end_ms
+        while len(data) < limit:
+            rows = None
+            if self.provider == "bybit":
+                try:
+                    rows = (await self._bybit("/v5/market/kline", {"category": "linear", "symbol": symbol, "interval": bybit_tf,
+                                                                    "limit": min(1000, limit - len(data)), "end": end - 1}))["list"]
+                except RuntimeError as e:
+                    self._warn_fallback(f"historial {symbol} {tf}", str(e))
+            if rows is None:
+                rows = await self._bitget("/api/v2/mix/market/history-candles", {"symbol": symbol, "granularity": bitget_tf, "limit": min(200, limit - len(data)),
+                                                                                   "productType": "USDT-FUTURES", "endTime": end})
+            older = sorted([int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in rows if int(k[0]) < end)
+            if not older:
+                break
+            data, end = older + data, older[0][0]
+        self._kcache[key] = (time.time(), data[-limit:])
+        return data[-limit:]
+
     async def fetch_history(self, symbol: str, tf: str, total: int = 2000, cache_sec: int = 600) -> list:
         """Up to `total` candles paginating backwards (Bybit `end` / Bitget history-candles). Returns what it could get (≥ 1 page)."""
         key = (symbol, tf, "history", total)

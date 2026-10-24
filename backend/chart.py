@@ -1,0 +1,64 @@
+"""Chart payload shared by the crypto and FX `/klines` endpoints: candles + indicator lines computed over a warm-up window (so EMA200/RSI are
+exact from the first visible candle), trade/position markers and infinite history (`before` = unix seconds, exclusive → older candles)."""
+from datetime import datetime
+from indicators import build_df
+from models import Trade, Position
+
+WARMUP = 220
+MAX_LIMIT = 700
+DEFAULT_LIMIT = 300
+EMPTY_KEYS = ("candles", "volume", "ema9", "ema21", "ema200", "rsi", "markers", "lines")
+
+
+def clamp(limit: int) -> int:
+    return min(max(int(limit), 100), MAX_LIMIT)
+
+
+def _snap(iso: str, step: int) -> int:
+    ts = int(datetime.fromisoformat(iso).timestamp())
+    return ts - ts % step
+
+
+async def build(db, symbol: str, tf: str, rows: list, step: int, limit: int, before: int = None, source: str = "") -> dict:
+    """`rows` are ascending klines (ms) ending at `before` (or now) and should include ~WARMUP extra candles; only the last `limit` are returned."""
+    if not rows:
+        return {"symbol": symbol, "tf": tf, "source": source, "has_more": False, **{k: [] for k in EMPTY_KEYS}}
+    df = build_df(rows)
+    if before is not None:
+        df = df[(df["ts"] // 1000) < before]
+    has_more = len(df) > limit
+    df = df.iloc[-limit:]
+    times = (df["ts"] // 1000).astype(int).tolist()
+    if not times:
+        return {"symbol": symbol, "tf": tf, "source": source, "has_more": False, **{k: [] for k in EMPTY_KEYS}}
+    first, end = times[0], times[-1] + step
+
+    def line(col):
+        return [{"time": t, "value": round(float(v), 8)} for t, v in zip(times, df[col].tolist())]
+
+    candles = [{"time": t, "open": o, "high": h, "low": lo, "close": c} for t, o, h, lo, c in zip(times, df["open"], df["high"], df["low"], df["close"])]
+    volume = [{"time": t, "value": v, "color": "rgba(16,185,129,0.35)" if c >= o else "rgba(239,68,68,0.35)"}
+              for t, v, o, c in zip(times, df["volume"], df["open"], df["close"])]
+    markers = []
+
+    def mark(iso, position, color, shape, text):
+        t = _snap(iso, step)
+        if first <= t < end:
+            markers.append({"time": t, "position": position, "color": color, "shape": shape, "text": text})
+
+    async for d in db.trades.find({"symbol": symbol}).sort("_id", -1).limit(300):
+        t = Trade.from_mongo(d)
+        long = t.side == "long"
+        mark(t.opened_at, "belowBar" if long else "aboveBar", "#10B981" if long else "#EF4444", "arrowUp" if long else "arrowDown", "LONG" if long else "SHORT")
+        mark(t.closed_at, "aboveBar" if long else "belowBar", "#F7A600", "circle", f"{t.reason} {t.pnl:+.1f}")
+    lines = []
+    async for d in db.positions.find({"symbol": symbol}):
+        p = Position.from_mongo(d)
+        long = p.side == "long"
+        mark(p.opened_at, "belowBar" if long else "aboveBar", "#10B981" if long else "#EF4444", "arrowUp" if long else "arrowDown", "LONG" if long else "SHORT")
+        if before is None:
+            lines = [{"price": p.entry_price, "title": "ENTRADA", "color": "#F8FAFC"}, {"price": p.sl, "title": "SL", "color": "#EF4444"},
+                     {"price": p.tp, "title": "TP", "color": "#10B981"}]
+    markers.sort(key=lambda m: m["time"])
+    return {"symbol": symbol, "tf": tf, "source": source, "has_more": has_more, "candles": candles, "volume": volume, "ema9": line("ema9"),
+            "ema21": line("ema21"), "ema200": line("ema200"), "rsi": line("rsi"), "markers": markers, "lines": lines}

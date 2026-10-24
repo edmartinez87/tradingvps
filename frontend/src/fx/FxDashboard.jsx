@@ -29,7 +29,7 @@ import Documentation from "@/components/docs/Documentation";
 import VpsInstall from "@/components/deploy/VpsInstall";
 
 const TAB_CLS = "rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider data-[state=active]:bg-amber-500 data-[state=active]:text-[#07090E]";
-const FX_TFS = ["5m", "15m", "1h", "4h"];
+const FX_TFS = ["5m", "15m", "1h", "4h", "1d"];
 export const FX_BRAND = {
   title: <>HotForex <span className="text-sky-400">AI</span> Trading</>,
   subtitle: (status) => `Forex · Metales · ${status.ai?.label || "IA"}`,

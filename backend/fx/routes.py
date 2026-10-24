@@ -2,13 +2,12 @@
 import time
 import asyncio
 import logging
-from datetime import datetime
 from fastapi import HTTPException, Request
 from bson import ObjectId
 
 from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, ModeRequest, PlanRequest, AdviseRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
 from strategies import MODE_INFO
-from indicators import build_df
+import chart
 from performance import performance
 from fx.shadow import shadow_stats as fx_shadow_stats
 import evolution
@@ -217,44 +216,33 @@ async def dashboard():
                     "verified_at": fx_store.cfg.hfm_verified_at, "trade_allowed": fx_store.cfg.hfm_trade_allowed, "live": engine.live}}
 
 
+CHART_TIMEFRAMES = FX_TIMEFRAMES + ["1d"]
+_hfm_chart = {"fail_ts": 0.0}
+
+
+async def _chart_rows(symbol: str, tf: str, n: int, before: int | None):
+    """Chart candles: the HFM terminal's own (what MetaTrader shows) while the MetaApi account is deployed; Yahoo otherwise or on failure
+    (2 min back-off)."""
+    if engine.broker and fx_store.cfg.hfm_state == "DEPLOYED" and time.time() - _hfm_chart["fail_ts"] > 120:
+        try:
+            rows = await engine.broker.candles(symbol, tf, before, n)
+            if rows:
+                return rows, "hfm"
+        except Exception as e:
+            _hfm_chart["fail_ts"] = time.time()
+            logger.warning(f"velas HFM {symbol} {tf}: {e} → usando Yahoo")
+    if before:
+        return await engine.market.fetch_before(symbol, tf, before, n), "yahoo"
+    return await engine.market.fetch_klines(symbol, tf, n, cache_sec=20), "yahoo"
+
+
 @router.get("/klines")
-async def klines(symbol: str, tf: str = "1h", limit: int = 300):
-    if symbol not in AVAILABLE or tf not in FX_TIMEFRAMES:
+async def klines(symbol: str, tf: str = "1h", limit: int = chart.DEFAULT_LIMIT, before: int | None = None):
+    if symbol not in AVAILABLE or tf not in CHART_TIMEFRAMES:
         raise HTTPException(400, "Símbolo o temporalidad inválida")
-    df = build_df(await engine.market.fetch_klines(symbol, tf, min(max(limit, 100), 1000), cache_sec=20))
-    times = (df["ts"] // 1000).astype(int).tolist()
-
-    def line(col, start=0):
-        return [{"time": t, "value": round(float(v), 8)} for t, v in zip(times[start:], df[col].tolist()[start:])]
-
-    candles = [{"time": t, "open": o, "high": h, "low": lo, "close": c} for t, o, h, lo, c in zip(times, df["open"], df["high"], df["low"], df["close"])]
-    volume = [{"time": t, "value": v, "color": "rgba(16,185,129,0.35)" if c >= o else "rgba(239,68,68,0.35)"} for t, v, o, c in zip(times, df["volume"], df["open"], df["close"])]
-    step, first = TF_SECONDS[tf], times[0]
-
-    def snap(iso):
-        ts = int(datetime.fromisoformat(iso).timestamp())
-        return ts - ts % step
-
-    markers = []
-    async for d in engine.db.trades.find({"symbol": symbol}).sort("_id", -1).limit(100):
-        t = Trade.from_mongo(d)
-        long = t.side == "long"
-        if snap(t.opened_at) >= first:
-            markers.append({"time": snap(t.opened_at), "position": "belowBar" if long else "aboveBar", "color": "#10B981" if long else "#EF4444",
-                            "shape": "arrowUp" if long else "arrowDown", "text": "LONG" if long else "SHORT"})
-        if snap(t.closed_at) >= first:
-            markers.append({"time": snap(t.closed_at), "position": "aboveBar" if long else "belowBar", "color": "#F7A600", "shape": "circle", "text": f"{t.reason} {t.pnl:+.1f}"})
-    lines = []
-    async for d in engine.db.positions.find({"symbol": symbol}):
-        p = Position.from_mongo(d)
-        long = p.side == "long"
-        if snap(p.opened_at) >= first:
-            markers.append({"time": snap(p.opened_at), "position": "belowBar" if long else "aboveBar", "color": "#10B981" if long else "#EF4444",
-                            "shape": "arrowUp" if long else "arrowDown", "text": "LONG" if long else "SHORT"})
-        lines = [{"price": p.entry_price, "title": "ENTRADA", "color": "#F8FAFC"}, {"price": p.sl, "title": "SL", "color": "#EF4444"}, {"price": p.tp, "title": "TP", "color": "#10B981"}]
-    markers.sort(key=lambda m: m["time"])
-    return {"symbol": symbol, "tf": tf, "candles": candles, "volume": volume, "ema9": line("ema9"), "ema21": line("ema21"), "ema200": line("ema200", 50),
-            "rsi": line("rsi", 14), "markers": markers, "lines": lines}
+    limit = chart.clamp(limit)
+    rows, source = await _chart_rows(symbol, tf, limit + chart.WARMUP, before)
+    return await chart.build(engine.db, symbol, tf, rows, TF_SECONDS[tf], limit, before, source)
 
 
 @router.post("/bot/start")

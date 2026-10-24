@@ -15,7 +15,7 @@ from models import (  # noqa: E402
     Position, Trade, Signal, LogEntry, SettingsUpdate, ResetRequest, ProfileRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS, SIGNAL_MODES,
 )
 from market import TF_SECONDS  # noqa: E402
-from indicators import build_df  # noqa: E402
+import chart  # noqa: E402
 from strategies import STRATEGY_INFO, MODE_INFO  # noqa: E402
 from performance import performance  # noqa: E402
 import evolution  # noqa: E402
@@ -40,6 +40,7 @@ app = FastAPI(title="Bybit AI Trading Bot")
 public = APIRouter(prefix="/api")
 api = protected_router()
 add_shared_routes(api, engine, "Bybit AI Trader")
+CHART_TIMEFRAMES = TIMEFRAMES + ["1d"]
 
 
 class LoginRequest(BaseModel):
@@ -153,52 +154,19 @@ async def dashboard():
 
 
 @api.get("/klines")
-async def klines(symbol: str, tf: str = "15m", limit: int = 300):
-    if symbol not in AVAILABLE_SYMBOLS or tf not in TIMEFRAMES:
+async def klines(symbol: str, tf: str = "15m", limit: int = chart.DEFAULT_LIMIT, before: int | None = None):
+    """Chart data; `before` (unix s, exclusive) pages older candles for the infinite history."""
+    if symbol not in AVAILABLE_SYMBOLS or tf not in CHART_TIMEFRAMES:
         raise HTTPException(400, "Símbolo o temporalidad inválida")
-    df = build_df(await engine.market.fetch_klines(symbol, tf, min(max(limit, 100), 1000)))
-    times = (df["ts"] // 1000).astype(int).tolist()
-
-    def line(col, start=0):
-        return [{"time": t, "value": round(float(v), 8)} for t, v in zip(times[start:], df[col].tolist()[start:])]
-
-    candles = [{"time": t, "open": o, "high": h, "low": lo, "close": c}
-               for t, o, h, lo, c in zip(times, df["open"], df["high"], df["low"], df["close"])]
-    volume = [{"time": t, "value": v, "color": "rgba(16,185,129,0.35)" if c >= o else "rgba(239,68,68,0.35)"}
-              for t, v, o, c in zip(times, df["volume"], df["open"], df["close"])]
-    step, first = TF_SECONDS[tf], times[0]
-
-    def snap(iso):
-        from datetime import datetime
-        ts = int(datetime.fromisoformat(iso).timestamp())
-        return ts - ts % step
-
-    markers = []
-    async for d in db.trades.find({"symbol": symbol}).sort("_id", -1).limit(100):
-        t = Trade.from_mongo(d)
-        long = t.side == "long"
-        if snap(t.opened_at) >= first:
-            markers.append({"time": snap(t.opened_at), "position": "belowBar" if long else "aboveBar",
-                            "color": "#10B981" if long else "#EF4444", "shape": "arrowUp" if long else "arrowDown",
-                            "text": "LONG" if long else "SHORT"})
-        if snap(t.closed_at) >= first:
-            markers.append({"time": snap(t.closed_at), "position": "aboveBar" if long else "belowBar",
-                            "color": "#F7A600", "shape": "circle", "text": f"{t.reason} {t.pnl:+.1f}"})
-    lines = []
-    async for d in db.positions.find({"symbol": symbol}):
-        p = Position.from_mongo(d)
-        long = p.side == "long"
-        if snap(p.opened_at) >= first:
-            markers.append({"time": snap(p.opened_at), "position": "belowBar" if long else "aboveBar",
-                            "color": "#10B981" if long else "#EF4444", "shape": "arrowUp" if long else "arrowDown",
-                            "text": "LONG" if long else "SHORT"})
-        lines = [{"price": p.entry_price, "title": "ENTRADA", "color": "#F8FAFC"},
-                 {"price": p.sl, "title": "SL", "color": "#EF4444"},
-                 {"price": p.tp, "title": "TP", "color": "#10B981"}]
-    markers.sort(key=lambda m: m["time"])
-    return {"symbol": symbol, "tf": tf, "candles": candles, "volume": volume, "ema9": line("ema9"),
-            "ema21": line("ema21"), "ema200": line("ema200", 50), "rsi": line("rsi", 14),
-            "markers": markers, "lines": lines}
+    limit = chart.clamp(limit)
+    n = limit + chart.WARMUP
+    rows = await engine.market.fetch_before(symbol, tf, before * 1000, n) if before else await engine.market.fetch_klines(symbol, tf, n)
+    if not before and rows and len(rows) < n:
+        try:
+            rows = (await engine.market.fetch_before(symbol, tf, rows[0][0], n - len(rows))) + rows
+        except Exception as e:
+            logger.warning(f"historial {symbol} {tf}: {e}")
+    return await chart.build(db, symbol, tf, rows, TF_SECONDS[tf], limit, before, engine.market.provider or "")
 
 
 @api.post("/bot/start")
