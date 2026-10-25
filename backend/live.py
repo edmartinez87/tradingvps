@@ -64,6 +64,22 @@ class LiveBroker:
         return {"order_id": order_id, "link_id": link, "qty": fill.get("exec_qty") or float(q),
                 "entry": fill.get("avg_price") or 0.0, "fee": fill.get("fee") or 0.0, "filled": bool(fill.get("avg_price"))}
 
+    async def open_limit(self, symbol: str, side: str, qty: float, price: float, sl: float, tp: float, leverage: int) -> dict:
+        inst = await self.client.instrument(symbol)
+        q = round_step(qty, inst["qty_step"])
+        if float(q) < float(inst["min_qty"]):
+            raise ValueError(f"cantidad {q} por debajo del lote mínimo {inst['min_qty']}")
+        await self.client.set_leverage(symbol, leverage)
+        link = f"bot-{uuid.uuid4().hex[:18]}"
+        res = await self.client.limit_order(symbol, "Buy" if side == "long" else "Sell", q, round_step(price, inst["tick_size"]),
+                                            sl=round_step(sl, inst["tick_size"]), tp=round_step(tp, inst["tick_size"]), link_id=link)
+        self.invalidate()
+        return {"order_id": res.get("orderId"), "link_id": link, "qty": float(q)}
+
+    async def cancel(self, symbol: str, order_id: str):
+        await self.client.cancel_order(symbol, order_id)
+        self.invalidate()
+
     async def close(self, symbol: str, side: str, qty: float) -> dict:
         inst = await self.client.instrument(symbol)
         q = round_step(qty, inst["qty_step"])

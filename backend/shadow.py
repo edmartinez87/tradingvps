@@ -3,13 +3,13 @@ from models import now_iso
 from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
 
 MAX_AGE_H = 72
-KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "FUNDING", "ERROR", "NO_EJECUTADA")
+KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "FUNDING", "REGIMEN", "ROTACION", "ERROR", "NO_EJECUTADA")
 AI_KINDS = ("RECHAZADA", "BAJA_CONFIANZA")
 BUCKETS = [(0, 39, "<40%"), (40, 59, "40-59%"), (60, 79, "60-79%"), (80, 100, "80-100%")]
 
 
 async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, kind: str, equity: float,
-                      ai_confidence: int = 0, ai_risk: str = "-", risk_factor: float = 1.0):
+                      ai_confidence: int = 0, ai_risk: str = "-", risk_factor: float = 1.0, horizon: str = "short"):
     price = engine.market.tickers.get(symbol, {}).get("price") or sig["price"]
     long = sig["side"] == "long"
     entry = price * (1 + SLIPPAGE) if long else price * (1 - SLIPPAGE)
@@ -20,7 +20,7 @@ async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, 
     doc = {"signal_id": signal_id, "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "timeframe": settings.timeframe,
            "kind": kind, "ai_confidence": ai_confidence, "ai_risk": ai_risk, "entry_price": entry, "qty": qty, "leverage": settings.leverage,
            "margin": margin, "sl": sl, "tp": tp, "initial_sl": sl, "atr": sig["atr"], "fees": entry * qty * FEE_RATE, "breakeven": False,
-           "risk_factor": risk_factor, "mark_price": price, "unrealized_pnl": 0.0, "opened_at": now_iso()}
+           "risk_factor": risk_factor, "mark_price": price, "unrealized_pnl": 0.0, "opened_at": now_iso(), "horizon": horizon}
     await engine.db.shadow_positions.insert_one(doc)
     return doc
 
@@ -33,7 +33,7 @@ async def monitor_shadows(engine, tickers: dict, trailing_enabled: bool):
             continue
         price, long = t["price"], d["side"] == "long"
         hit, reason = check_exit(d["side"], d["sl"], d["tp"], price, price)
-        if hit is None and (now - datetime.fromisoformat(d["opened_at"])).total_seconds() / 3600 >= MAX_AGE_H:
+        if hit is None and (now - datetime.fromisoformat(d["opened_at"])).total_seconds() / 3600 >= (MAX_AGE_H * 5 if d.get("horizon") == "long" else MAX_AGE_H):
             hit, reason = price, "TIMEOUT"
         if hit is not None:
             if reason == "SL" and d["breakeven"]:
@@ -82,6 +82,7 @@ async def shadow_stats(db) -> dict:
         "by_kind": [{"key": k, **_agg([r for r in rows if r["kind"] == k])} for k in KINDS if any(r["kind"] == k for r in rows)],
         "by_confidence": [{"key": label, **_agg([r for r in ai_rows if lo <= r["ai_confidence"] <= hi])} for lo, hi, label in BUCKETS],
         "by_strategy": _by(rows, "strategy"), "by_symbol": _by(rows, "symbol"),
+        "by_horizon": _by([{**r, "horizon": r.get("horizon") or "short"} for r in rows], "horizon"),
     }
 
 

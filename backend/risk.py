@@ -1,6 +1,7 @@
 import math
 
 FEE_RATE = 0.00055
+MAKER_FEE = 0.0002
 SLIPPAGE = 0.0002
 MIN_NOTIONAL = 5.0
 # Bybit USDT perpetuals: (min order qty, qty step)

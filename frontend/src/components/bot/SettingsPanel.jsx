@@ -38,7 +38,7 @@ const Sel = ({ label, value, onChange, options, render, testId }) => (
   </div>
 );
 
-export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [], extraChips = [], extraSelects = [], fmtLeverage }) {
+export default function SettingsPanel({ settings, meta, profileActive, onSave, onProfile, leverageMax = 20, maxPositions = 10, extraToggles = [], extraNums = [], extraChips = [], extraSelects = [], fmtLeverage, strategyKeys = STRATEGY_KEYS, longKeys = [] }) {
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -46,13 +46,13 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); };
   const toggleSym = (s) => set("symbols", form.symbols.includes(s) ? form.symbols.filter((x) => x !== s) : [...form.symbols, s]);
   const toggleIn = (k, id) => { const cur = form[k] || []; set(k, cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]); };
-  const active = activeStrategies(form);
+  const active = activeStrategies(form, strategyKeys);
   const nums = [...NUMS.map((n) => (n.k === "leverage" ? { ...n, max: leverageMax } : n.k === "max_positions" ? { ...n, max: maxPositions } : n)), ...extraNums];
   const toggles = [...TOGGLES, ...extraToggles];
   const toggleStrat = (k) => {
     const next = active.includes(k) ? active.filter((x) => x !== k) : [...active, k];
     if (!next.length) return;
-    setForm((f) => ({ ...f, strategy: "all", disabled_strategies: STRATEGY_KEYS.filter((x) => !next.includes(x)) }));
+    setForm((f) => ({ ...f, strategy: "all", disabled_strategies: strategyKeys.filter((x) => !next.includes(x)) }));
     setDirty(true);
   };
 
@@ -95,13 +95,16 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
       </div>
       {meta?.mode_info?.[form.signal_mode] && <p data-testid="settings-signal-mode-hint" className="-mt-2 text-[11px] text-slate-500">{meta.mode_info[form.signal_mode].desc}</p>}
       <div>
-        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">Estrategias activas ({active.length}/{STRATEGY_KEYS.length})</p>
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">Estrategias activas ({active.length}/{strategyKeys.length})</p>
         <div className="flex flex-wrap gap-1.5">
-          {STRATEGY_KEYS.map((k) => (
+          {strategyKeys.map((k) => (
             <button key={k} data-testid={`settings-strategy-${k}`} onClick={() => toggleStrat(k)} title={meta?.strategy_info?.[k]?.rules}
-              className={`${CHIP} ${active.includes(k) ? ON : OFF}`}>{STRATEGY_LABELS[k]}</button>
+              className={`${CHIP} ${active.includes(k) ? ON : OFF}`}>
+              {STRATEGY_LABELS[k]}{longKeys.includes(k) && <span className="ml-1 rounded-sm bg-sky-500/20 px-1 text-[8px] text-sky-300">LP</span>}
+            </button>
           ))}
         </div>
+        {longKeys.length > 0 && <p className="mt-1 text-[11px] text-slate-500">LP = largo plazo (velas diarias/4h): no cuentan en «Máx. posiciones», usan su propio tope.</p>}
       </div>
       <div>
         <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">Pares a operar ({form.symbols.length})</p>

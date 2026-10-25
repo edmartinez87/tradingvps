@@ -220,6 +220,18 @@ def _news_lines(n) -> str:
     return "\n".join(out) + "\n"
 
 
+def _layers_line(ctx) -> str:
+    parts = []
+    if ctx.get("horizon") == "long":
+        parts.append("Operación de LARGO PLAZO (estrategia diaria/4h: SL y TP amplios, puede durar días o semanas)")
+    rg = ctx.get("btc_regime")
+    if rg and rg.get("state") in ("ALCISTA", "BAJISTA"):
+        parts.append(f"Régimen BTC diario: {rg['state']} (SMA{rg['sma']} {rg['distance_pct']:+.1f}%)")
+    if ctx.get("rotation_bias"):
+        parts.append(f"Sesgo de rotación semanal del par: {ctx['rotation_bias']}")
+    return (" | ".join(parts) + "\n") if parts else ""
+
+
 def _build_prompt(symbol, timeframe, sig, ctx) -> str:
     return (
         f"SEÑAL: {sig['side'].upper()} {symbol} | Estrategia: {sig['strategy']} | TF: {timeframe}\n"
@@ -227,6 +239,7 @@ def _build_prompt(symbol, timeframe, sig, ctx) -> str:
         f"Confirmaciones ({sig['score']}): {'; '.join(sig['reasons'])}\n"
         f"Indicadores: {json.dumps(sig['indicators'])}\n"
         f"Tendencia TF superior ({ctx.get('htf_tf')}): {ctx.get('htf_trend')}\n"
+        + _layers_line(ctx) +
         f"Cambio 24h: {ctx.get('change_24h', 0):.2f}% | {funding.prompt_line(ctx.get('funding'))}\n"
         f"Últimos cierres (% cambio por vela, más reciente al final): {ctx.get('recent_changes')}\n"
         f"Cuenta: {ctx.get('open_positions')} posiciones abiertas, PnL diario {ctx.get('daily_pnl_pct', 0):.2f}%\n"
@@ -249,7 +262,18 @@ async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> 
 
 DEFAULT_POLICY = {"caps": {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}, "min_trades": 30, "min_item_trades": 20, "level": 0, "name": "Conservador"}
 STRATEGY_KEYS_TXT = "trend_ema, mean_reversion, breakout_turtle, supertrend_momentum, ema_pullback"
-CRYPTO_MARKET = {"desc": "un bot cuantitativo de futuros perpetuos USDT en modo paper trading", "lev": lambda v: f"{v}x", "extra_rule": "", "extra_keys": ""}
+CRYPTO_MARKET = {
+    "desc": "un bot cuantitativo de futuros perpetuos USDT en modo paper trading", "lev": lambda v: f"{v}x",
+    "strategy_keys": STRATEGY_KEYS_TXT + ", multi_horizon (Tendencia Multi-Horizonte, diaria, largo plazo), double_divergence (Divergencia doble RSI+MACD, 4h, largo plazo)",
+    "extra_rule": ("(7) Capas nuevas con evidencia académica a favor; mantenlas salvo prueba real en contra: btc_regime_filter (solo largos con BTC sobre su SMA diaria y "
+                   "solo cortos debajo; btc_regime_sma 50 o 200) → desactívalo o cambia la SMA solo si rendimiento_real.shadow.by_kind REGIMEN tiene ≥ 30 sombras con pnl claramente "
+                   "positivo (el filtro deja escapar ganancias); rotation_enabled (rotación semanal por momentum ponderado por volumen) → desactívala solo con ≥ 30 sombras ROTACION "
+                   "con pnl positivo; entry_order_type ('maker' = orden límite post-only al 0,02 %, 'market' = 0,055 %) → vuelve a 'market' solo si entradas_maker.fill_rate < 40 % y "
+                   "by_entry_type muestra que las entradas a mercado tras esperar (market_fallback) pierden claramente frente a las maker; max_long_positions (tope propio de las "
+                   "operaciones de largo plazo, 1-6) → ajústalo solo con ≥ 10 operaciones de largo plazo cerradas (largo_plazo.by_horizon). Las estrategias de largo plazo se apagan "
+                   "con disabled_strategies como las demás y requieren la misma evidencia real (≥ min_item_trades operaciones). "),
+    "extra_keys": ", btc_regime_filter (bool), btc_regime_sma (50|200), rotation_enabled (bool), entry_order_type ('market'|'maker'), max_long_positions (1-6)",
+}
 FX_MARKET = {
     "desc": "un bot cuantitativo de forex y metales (cuenta HFM, lotes de 0.01, spread como único coste, horario forex con sesiones Sídney/Tokio/Londres/Nueva York) en modo paper trading",
     "lev": lambda v: f"1:{v}",
@@ -262,6 +286,7 @@ FX_MARKET = {
                    "muestra que las señales rechazadas con riesgo ALTO habrían ganado (pnl > 0) con ≥ 20 sombras, y devuélvelo a 'normal' si con ≥ 20 sombras pierden. "
                    "Sin esa muestra, no toques el filtro IA y explica en notes cuántas sombras faltan. "),
     "extra_keys": ", sessions_allowed (lista de ids), ai_news_weight ('normal'|'bajo')",
+    "strategy_keys": STRATEGY_KEYS_TXT,
 }
 
 
@@ -281,7 +306,7 @@ def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
         "symbol_params es el diccionario COMPLETO que debe quedar activo (omite un par para devolverlo a los valores por defecto). "
         f"(3) Nunca subas el riesgo por operación por encima de {caps['risk_per_trade']}% ni el apalancamiento por encima de {lev(caps['leverage'])} ni el máximo de "
         f"posiciones por encima de {caps['max_positions']}; mantén al menos 2 pares activos y al menos 1 estrategia activa. "
-        f"(4) Para apagar una estrategia usa disabled_strategies (lista completa de claves apagadas; claves válidas: {STRATEGY_KEYS_TXT}) y deja strategy en 'all'. "
+        f"(4) Para apagar una estrategia usa disabled_strategies (lista completa de claves apagadas; claves válidas: {market.get('strategy_keys', STRATEGY_KEYS_TXT)}) y deja strategy en 'all'. "
         "(5) Si no hay evidencia suficiente, changes debe ser {} y explica en notes qué esperar antes de cambiar. "
         f"(6) Revisa evolucion (historial de cambios con su rendimiento posterior): si un cambio tiene veredicto PEOR con al menos {MIN_TRADES_EVOLUTION} operaciones "
         "después y el empeoramiento no se explica por el mercado, deshazlo devolviendo su id en revert y justifícalo en summary; nunca deshagas cambios PENDIENTE "
@@ -289,7 +314,7 @@ def advisor_system(policy: dict, market: dict = CRYPTO_MARKET) -> str:
         + market["extra_rule"] +
         "Redacta summary y notes para el usuario final: frases completas y breves (máximo 2 por nota), en español claro y sin claves internas "
         "(di «SL/TP optimizados» en vez de symbol_params, «sesiones permitidas» en vez de sessions_allowed, «sobreajustado» en vez de SOBREAJUSTADO; "
-        "nombra las estrategias como Tendencia EMA, Reversión a la media, Turtle, Supertrend y Pullback EMA21 en vez de sus claves). "
+        "nombra las estrategias como Tendencia EMA, Reversión a la media, Turtle, Supertrend, Pullback EMA21, Tendencia Multi-Horizonte y Divergencia doble en vez de sus claves). "
         "Responde EXCLUSIVAMENTE con un objeto JSON válido con este formato: "
         '{"summary":"2-4 frases en español explicando el diagnóstico","changes":{<claves opcionales: symbols (lista), disabled_strategies (lista), risk_per_trade, '
         f'max_positions, leverage, ai_min_confidence, trailing_enabled, htf_filter, symbol_params (dict símbolo→{{sl_atr,tp_atr,atr_period}}){market["extra_keys"]}>}},'

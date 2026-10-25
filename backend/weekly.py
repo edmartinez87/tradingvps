@@ -8,8 +8,9 @@ import notify
 
 logger = logging.getLogger("weekly")
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
-                  "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21"}
-KIND_NAMES = {"BLOQUEADA": "riesgo", "NOTICIAS": "noticias", "FUNDING": "funding", "SESION": "sesiones", "ERROR": "error IA", "NO_EJECUTADA": "no ejecutadas"}
+                  "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21", "multi_horizon": "Multi-Horizonte", "double_divergence": "Divergencia doble"}
+KIND_NAMES = {"BLOQUEADA": "riesgo", "NOTICIAS": "noticias", "FUNDING": "funding", "REGIMEN": "régimen BTC", "ROTACION": "rotación", "SESION": "sesiones",
+              "ERROR": "error IA", "NO_EJECUTADA": "no ejecutadas"}
 
 
 def _agg(rows: list) -> dict:
@@ -32,7 +33,9 @@ async def build_weekly(engine, db) -> dict:
     since = (now - timedelta(days=7)).isoformat()
     settings = await engine.get_settings()
     s = await engine.account_summary()
-    trades = await db.trades.find({"closed_at": {"$gte": since}}, {"_id": 0, "symbol": 1, "pnl": 1, "fees": 1, "strategy": 1, "reason": 1, "side": 1}).to_list(5000)
+    trades = await db.trades.find({"closed_at": {"$gte": since}}, {"_id": 0, "symbol": 1, "pnl": 1, "fees": 1, "strategy": 1, "reason": 1, "side": 1, "horizon": 1, "entry_type": 1}).to_list(5000)
+    for t in trades:
+        t["horizon"], t["entry_type"] = t.get("horizon") or "short", t.get("entry_type") or "market"
     shadows = await db.shadow_trades.find({"closed_at": {"$gte": since}}, {"_id": 0, "pnl": 1, "kind": 1}).to_list(5000)
     signals = {r["_id"]: r["n"] async for r in db.signals.aggregate([{"$match": {"created_at": {"$gte": since}}}, {"$group": {"_id": "$ai_decision", "n": {"$sum": 1}}}])}
     snap = await db.equity.find_one({"ts": {"$lte": since}}, {"_id": 0, "equity": 1, "net_deposits": 1}, sort=[("ts", -1)]) \
@@ -48,7 +51,7 @@ async def build_weekly(engine, db) -> dict:
         "equity": s["equity"], "start_equity": round(start_equity, 2), "week_pnl": round(week_pnl, 2), "week_flows": round(flows, 2),
         "week_return_pct": round(week_pnl / start_equity * 100, 2) if start_equity else 0,
         "total_return_pct": s["total_return_pct"], "max_drawdown": s["max_drawdown"], "open_positions": s["open_positions"],
-        "week": _agg(trades), "by_symbol": by_symbol, "by_strategy": _by(trades, "strategy"),
+        "week": _agg(trades), "by_symbol": by_symbol, "by_strategy": _by(trades, "strategy"), "by_horizon": _by(trades, "horizon"), "by_entry_type": _by(trades, "entry_type"),
         "best": [r for r in by_symbol if r["pnl"] > 0][:3], "worst": [r for r in reversed(by_symbol) if r["pnl"] < 0][:3],
         "signals": {"total": sum(signals.values()), "by_decision": signals},
         "shadow": {"trades": len(shadows), "filter_value": round(-sum(r["pnl"] for r in shadows), 2),
@@ -61,7 +64,24 @@ async def build_weekly(engine, db) -> dict:
         "news": engine.news.summary() if engine.news else None,
         "risk_profile": settings.risk_profile,
         "evolution": await evolution.week_summary(engine, since),
+        "market": await _market_block(engine, db, settings),
     }
+
+
+async def _market_block(engine, db, settings):
+    """Crypto only: BTC regime, weekly rotation leaders and pending maker entries (FX settings lack these fields)."""
+    if not hasattr(settings, "btc_regime_filter"):
+        return None
+    import regime
+    try:
+        rg = await regime.btc_regime(engine.market, settings.btc_regime_sma)
+        rot = await regime.current_rotation(engine, settings)
+    except Exception:
+        return None
+    return {"regime": {**rg, "enabled": settings.btc_regime_filter},
+            "rotation": {"enabled": settings.rotation_enabled, "lookback_days": rot["lookback_days"], "computed_at": rot["computed_at"],
+                         "leaders": [r["symbol"] for r in rot["ranking"] if r["bias"] == "long"], "laggards": [r["symbol"] for r in rot["ranking"] if r["bias"] == "short"]},
+            "entry_order_type": settings.entry_order_type, "pending_entries": await db.pending_entries.count_documents({}), "max_long_positions": settings.max_long_positions}
 
 
 def _sym(k: str) -> str:
@@ -124,6 +144,21 @@ def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
         if bottom is not top:
             strat += f" · peor {STRATEGY_NAMES.get(bottom['key'], bottom['key'])} {bottom['pnl']:+.2f}"
         lines.append(strat)
+    lp = next((r for r in w.get("by_horizon") or [] if r["key"] == "long"), None)
+    if lp:
+        lines.append(f"Largo plazo (Multi-Horizonte/Divergencia): {lp['trades']} ops · {lp['pnl']:+.2f} {currency} · acierto {lp['win_rate']}%")
+    mkt = w.get("market")
+    if mkt:
+        rg, rot = mkt["regime"], mkt["rotation"]
+        dist = f" ({rg['distance_pct']:+.1f} %)" if rg.get("distance_pct") is not None else ""
+        lines.append(f"\n<b>Mercado</b>: BTC {rg['state']} vs SMA{rg['sma']} diaria{dist}{'' if rg['enabled'] else ' · filtro apagado'}"
+                     f" · rotación {rot['lookback_days']} d{'' if rot['enabled'] else ' (apagada)'}: líderes {', '.join(_sym(x) for x in rot['leaders']) or '—'} · rezagados {', '.join(_sym(x) for x in rot['laggards']) or '—'}"
+                     f" · entradas {'límite maker' if mkt['entry_order_type'] == 'maker' else 'a mercado'}" + (f" · {mkt['pending_entries']} en espera" if mkt["pending_entries"] else ""))
+    mk = {r["key"]: r for r in w.get("by_entry_type") or []}
+    if mk.get("maker") or mk.get("market_fallback"):
+        m, f = mk.get("maker", {"trades": 0}), mk.get("market_fallback", {"trades": 0})
+        tot = m["trades"] + f["trades"]
+        lines.append(f"Entradas límite maker: {m['trades']}/{tot} llenadas ({round(m['trades'] / tot * 100) if tot else 0}%) · {f['trades']} a mercado tras esperar")
     sig = w["signals"]
     if sig["total"]:
         d = sig["by_decision"]

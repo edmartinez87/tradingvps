@@ -40,7 +40,7 @@ function Features({ data, brand }) {
               </div>
             </div>
             <ul className="mt-3 space-y-1.5 pl-1">
-              {s.bullets.map((b, j) => <li key={j} className="flex gap-2 text-[12px] leading-relaxed text-slate-300"><span className={`mt-[7px] h-1 w-1 shrink-0 rounded-full ${brand.accent.replace("text-", "bg-")}`} />{b}</li>)}
+              {s.bullets.filter(Boolean).map((b, j) => <li key={j} className="flex gap-2 text-[12px] leading-relaxed text-slate-300"><span className={`mt-[7px] h-1 w-1 shrink-0 rounded-full ${brand.accent.replace("text-", "bg-")}`} />{b}</li>)}
             </ul>
           </article>
         ))}

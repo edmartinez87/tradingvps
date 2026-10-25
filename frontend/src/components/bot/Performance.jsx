@@ -3,11 +3,11 @@ import { Loader2, Power } from "lucide-react";
 import { toast } from "sonner";
 import { Empty } from "./Panel";
 import { TH, TD } from "./PositionsTable";
-import { http, fmtSignedUsd, pnlClass, STRATEGY_LABELS, STRATEGY_KEYS, REASON_LABELS, activeStrategies } from "@/lib/api";
+import { http, fmtSignedUsd, fmtUsd, pnlClass, STRATEGY_LABELS, STRATEGY_KEYS, REASON_LABELS, HORIZON_LABELS, ENTRY_LABELS, activeStrategies } from "@/lib/api";
 import ShadowStats from "./performance/ShadowStats";
 
 const SIDE = { long: "Long", short: "Short" };
-const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", FUNDING: "Bloqueadas funding", MERCADO: "Mercado cerrado", SESION: "Fuera de sesión", SIN_IA: "Sin IA", ERROR: "Error IA" };
+const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", FUNDING: "Bloqueadas funding", REGIMEN: "Bloqueadas régimen BTC", ROTACION: "Bloqueadas rotación", MERCADO: "Mercado cerrado", SESION: "Fuera de sesión", SIN_IA: "Sin IA", ERROR: "Error IA" };
 
 const Group = ({ title, label, rows, render = (k) => k, testId, isOn, onToggle }) => (
   <div data-testid={testId} className="overflow-hidden rounded-sm border border-[#1E293B]">
@@ -41,7 +41,7 @@ const Group = ({ title, label, rows, render = (k) => k, testId, isOn, onToggle }
   </div>
 );
 
-export default function Performance({ tradeCount, settings, onSave }) {
+export default function Performance({ tradeCount, settings, onSave, strategyKeys = STRATEGY_KEYS }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
   useEffect(() => {
@@ -51,12 +51,13 @@ export default function Performance({ tradeCount, settings, onSave }) {
   if (error && !data) return <Empty testId="performance-error" text="No se pudo cargar el rendimiento. Reintentando en el próximo refresco." />;
   if (!data) return <div className="flex min-h-[120px] items-center justify-center text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /></div>;
   const sig = data.signals;
-  const active = activeStrategies(settings);
+  const active = activeStrategies(settings, strategyKeys);
+  const mk = data.maker;
 
   const toggleStrategy = (k, on) => {
     const next = on ? [...active, k] : active.filter((x) => x !== k);
     if (!next.length) return toast.error("Debe quedar al menos una estrategia activa");
-    return onSave({ strategy: "all", disabled_strategies: STRATEGY_KEYS.filter((x) => !next.includes(x)) });
+    return onSave({ strategy: "all", disabled_strategies: strategyKeys.filter((x) => !next.includes(x)) });
   };
   const toggleSymbol = (s, on) => {
     const next = on ? [...settings.symbols, s] : settings.symbols.filter((x) => x !== s);
@@ -86,6 +87,19 @@ export default function Performance({ tradeCount, settings, onSave }) {
           <Group title="Por par" label="Par" rows={data.by_symbol} testId="perf-by-symbol" isOn={(k) => settings.symbols.includes(k)} onToggle={toggleSymbol} />
           <Group title="Por dirección" label="Lado" rows={data.by_side} render={(k) => SIDE[k] || k} testId="perf-by-side" />
           <Group title="Por tipo de salida" label="Salida" rows={data.by_reason} render={(k) => REASON_LABELS[k] || k} testId="perf-by-reason" />
+          {data.by_horizon?.length > 0 && <Group title="Por horizonte" label="Horizonte" rows={data.by_horizon} render={(k) => HORIZON_LABELS[k] || k} testId="perf-by-horizon" />}
+          {data.by_entry_type?.length > 0 && <Group title="Por tipo de entrada" label="Entrada" rows={data.by_entry_type} render={(k) => ENTRY_LABELS[k] || k} testId="perf-by-entry-type" />}
+        </div>
+      )}
+      {mk && (mk.maker_fills > 0 || mk.market_fallbacks > 0 || mk.pending > 0) && (
+        <div data-testid="perf-maker" className="flex flex-wrap gap-2">
+          {[["Entradas maker llenadas", mk.maker_fills], ["A mercado tras esperar", mk.market_fallbacks], ["Tasa de llenado", mk.fill_rate == null ? "—" : `${mk.fill_rate}%`],
+            ["Comisión ahorrada", fmtUsd(mk.fee_saved)], ["Órdenes límite en espera", mk.pending]].map(([l, v]) => (
+            <div key={l} className="min-w-[130px] flex-1 rounded-sm border border-[#1E293B] bg-[#0D111A] px-3 py-2.5">
+              <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">{l}</p>
+              <p className="num mt-1 text-base font-semibold text-slate-100">{v}</p>
+            </div>
+          ))}
         </div>
       )}
       <ShadowStats data={data.shadow} />

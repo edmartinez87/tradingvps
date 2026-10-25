@@ -28,6 +28,7 @@ import AiSignals from "@/components/bot/AiSignals";
 import EvolutionPanel from "@/components/bot/EvolutionPanel";
 import { AiHealthBanner } from "@/components/bot/AiHealthBanner";
 import SettingsPanel from "@/components/bot/SettingsPanel";
+import RegimePanel from "@/components/bot/RegimePanel";
 import Terminal from "@/components/bot/Terminal";
 import { Panel } from "@/components/bot/Panel";
 
@@ -131,9 +132,13 @@ function Dashboard({ onLogout }) {
                     )}
                   </TabsTrigger>
                   <TabsTrigger data-testid="tab-evolution" value="evolution" className={TAB_CLS}>Evolución</TabsTrigger>
+                  <TabsTrigger data-testid="tab-regime" value="regime" className={TAB_CLS}>Régimen</TabsTrigger>
                 </TabsList>
               </div>
               <TabsContent value="evolution" className="mt-0"><EvolutionPanel /></TabsContent>
+              <TabsContent value="regime" className="mt-0">
+                <RegimePanel settings={data.settings} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
+              </TabsContent>
               <TabsContent value="positions" className="mt-0">
                 <PositionsTable positions={data.positions} onClose={(id) => act(() => http.post(`/positions/${id}/close`), "Posición cerrada")}
                   onCloseAll={() => act(() => http.post("/positions/close-all"), "Cierre de emergencia ejecutado")} />
@@ -141,7 +146,7 @@ function Dashboard({ onLogout }) {
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
               <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} /></TabsContent>
               <TabsContent value="performance" className="mt-0">
-                <Performance tradeCount={data.account.total_trades} settings={data.settings} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
+                <Performance tradeCount={data.account.total_trades} settings={data.settings} strategyKeys={meta?.strategy_keys} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
               </TabsContent>
               <TabsContent value="optimizer" className="mt-0">
                 <Optimizer settings={data.settings} refresh={refresh} onSave={(body) => act(() => http.put("/settings", body), "Parámetros del bot actualizados")} />
@@ -156,7 +161,9 @@ function Dashboard({ onLogout }) {
           <AiSignals signals={data.signals} ai={data.status.ai} usage={data.status.ai_usage} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active}
+          <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active} strategyKeys={meta?.strategy_keys} longKeys={meta?.long_horizon_keys}
+            extraNums={[{ k: "max_long_positions", label: "Máx. posiciones largo plazo", min: 0, max: 10, step: 1 }, { k: "maker_wait_bars", label: "Espera orden maker (velas)", min: 1, max: 10, step: 1 }]}
+            extraToggles={[{ k: "btc_regime_filter", label: "Filtro régimen BTC", hint: "Cortos plazos solo a favor de BTC vs SMA200 diaria" }, { k: "rotation_enabled", label: "Rotación semanal", hint: "Momentum 7 d ponderado por volumen: sesgo y tamaño por par" }]}
             onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")}
             onProfile={(level) => act(() => http.post("/profile", { level }), `Perfil de riesgo aplicado: ${meta?.profiles?.[level]?.name || level}`)} />
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />

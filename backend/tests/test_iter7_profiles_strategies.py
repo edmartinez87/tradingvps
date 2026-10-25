@@ -34,8 +34,8 @@ def dash():
 class TestMeta:
     def test_meta(self):
         d = S.get(f"{BASE_URL}/api/meta", timeout=30).json()
-        assert len(d["strategies"]) == 6 and "all" in d["strategies"]
-        assert {"supertrend_momentum", "ema_pullback"} <= set(d["strategies"])
+        assert len(d["strategies"]) == 8 and "all" in d["strategies"]
+        assert {"supertrend_momentum", "ema_pullback", "multi_horizon", "double_divergence"} <= set(d["strategies"])
         assert d["signal_modes"] == ["strict", "relaxed", "minimal"]
         assert set(d["mode_info"]) == {"strict", "relaxed", "minimal"}
         assert [p["level"] for p in d["profiles"]] == [0, 1, 2, 3, 4]
@@ -87,7 +87,7 @@ class TestSettingsStrategies:
         assert dash()["profile_active"] is None
 
     def test_disable_all_422(self):
-        r = S.put(f"{BASE_URL}/api/settings", json={"disabled_strategies": ["trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback"]}, timeout=30)
+        r = S.put(f"{BASE_URL}/api/settings", json={"disabled_strategies": ["trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback", "multi_horizon", "double_divergence"]}, timeout=30)
         assert r.status_code == 422
 
     def test_invalid_mode_422(self):

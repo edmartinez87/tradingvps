@@ -6,8 +6,9 @@ from bson import ObjectId
 from models import Settings, Position, Trade, Signal, LogEntry, now_iso
 from market import MarketData, HTF
 from indicators import build_df, trend_label, htf_trend
-from strategies import evaluate, STRATEGY_INFO
-from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
+from strategies import evaluate, STRATEGY_INFO as FAST_INFO
+from strategies_slow import SLOW_INFO, SLOW_KEYS, evaluate_slow
+from risk import FEE_RATE, MAKER_FEE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
 from ai_advisor import evaluate_signal, label as ai_label
 from plan import SCENARIOS, build_checkin, contributions as plan_contributions
 from notify import notify as tg
@@ -17,8 +18,12 @@ from shadow import open_shadow, monitor_shadows
 import evolution
 import funding
 import cashflow
+import regime
+import maker
 
-BLOCK_BY = {"NOTICIAS": "noticias", "FUNDING": "funding", "BLOQUEADA": "riesgo"}
+STRATEGY_INFO = {**FAST_INFO, **SLOW_INFO}
+BLOCK_BY = {"NOTICIAS": "noticias", "FUNDING": "funding", "BLOQUEADA": "riesgo", "REGIMEN": "régimen de BTC", "ROTACION": "rotación semanal"}
+HORIZON_LABEL = {"long": "largo plazo", "short": "corto plazo"}
 
 logger = logging.getLogger("engine")
 INITIAL_BALANCE = 500.0
@@ -125,11 +130,12 @@ class TradingEngine:
         await self.db.settings.update_one({"_id": "main"}, {"$set": {"bot_running": False}})
         await self.log("INFO", "Bot DETENIDO · las posiciones abiertas siguen protegidas por SL/TP")
         await tg(f"⏹ <b>Bot DETENIDO</b> · modo {self.mode_label} · las posiciones abiertas siguen protegidas por SL/TP", "orders")
+        await maker.cancel_all(self, "bot detenido")
 
     async def reset_account(self, initial: float = None):
         initial = initial or INITIAL_BALANCE
         async with self.lock:
-            for col in ("positions", "trades", "signals", "equity", "shadow_positions", "shadow_trades", "cash_flows"):
+            for col in ("positions", "trades", "signals", "equity", "shadow_positions", "shadow_trades", "cash_flows", "pending_entries"):
                 await self.db[col].delete_many({})
             await self._new_account(initial)
         await self.log("INFO", f"Estadísticas reiniciadas · capital inicial ${initial:,.2f} USDT · modo {self.mode_label}")
@@ -251,6 +257,7 @@ class TradingEngine:
                 self._external_warned.add(sym)
                 await self.log("RISK", f"{sym}: posición externa detectada en Bybit (no gestionada por el bot) · tamaño {ex[sym]['size']}")
         await monitor_shadows(self, tickers, settings.trailing_enabled)
+        await maker.monitor_pending(self, tickers)
         await self._update_account_metrics(settings)
 
     async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: Settings):
@@ -304,7 +311,7 @@ class TradingEngine:
         trade = Trade(symbol=p.symbol, side=p.side, strategy=p.strategy, entry_price=p.entry_price, exit_price=price,
                       qty=p.qty, leverage=p.leverage, margin=p.margin, pnl=round(net, 4),
                       pnl_pct=round(net / p.margin * 100, 2) if p.margin else 0, fees=round(fees, 4),
-                      reason=reason, opened_at=p.opened_at, live=p.live)
+                      reason=reason, opened_at=p.opened_at, live=p.live, horizon=p.horizon, entry_type=p.entry_type)
         res = await self.db.trades.insert_one(trade.to_mongo())
         trade.id = str(res.inserted_id)
         return trade
@@ -347,43 +354,59 @@ class TradingEngine:
             self._last_snapshot = time.time()
             await self.db.equity.insert_one({"ts": now_iso(), "equity": s["equity"], "balance": s["balance"], "net_deposits": round(nd, 2)})
 
-    async def open_position(self, symbol: str, sig: dict, settings: Settings, signal_id: str, risk_factor: float = 1.0, risk_reason: str = "noticias"):
+    async def live_size(self, symbol: str, entry: float, sl: float, risk_pct: float, leverage: int):
+        """Order size on the real wallet; None (and _open_fail set) when below Bybit's minimum lot or margin."""
+        w = await self.broker.wallet(max_age=0)
+        lot = await self.broker.lot(symbol)
+        qty, margin = position_size(w["equity"], w["available"], risk_pct, entry, sl, leverage, lot=lot)
+        if qty <= 0 or margin < 1:
+            await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit ({lot[0]}) o margen insuficiente")
+            self._open_fail = f"tamaño por debajo del lote mínimo de Bybit ({lot[0]}) o margen insuficiente"
+            return None
+        return {"qty": qty, "margin": margin}
+
+    async def open_position(self, symbol: str, sig: dict, settings: Settings, signal_id: str, risk_factor: float = 1.0, risk_reason: str = "noticias",
+                            horizon: str = "short", entry_type: str = "market", fill: dict = None):
+        """`fill` = an already executed maker order ({entry, qty, fee, order_id, link_id} in REAL; {entry} in PAPER): no new order is sent."""
         risk_pct = settings.risk_per_trade * risk_factor
         async with self.lock:
-            open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
-            if symbol in open_syms or len(open_syms) >= settings.max_positions:
-                await self.log("RISK", f"{symbol}: apertura cancelada · límite de posiciones o par ya abierto")
-                self._open_fail = "límite de posiciones o par ya abierto"
+            open_docs = await self.db.positions.find({}, {"symbol": 1, "horizon": 1}).to_list(100)
+            slot = self._slot_block(open_docs, settings, horizon)
+            if symbol in [p["symbol"] for p in open_docs] or (slot and not fill):
+                await self.log("RISK", f"{symbol}: apertura cancelada · {slot or 'par ya abierto'}")
+                self._open_fail = slot or "par ya abierto"
                 return None
             price = self.market.tickers.get(symbol, {}).get("price") or sig["price"]
             long = sig["side"] == "long"
-            entry = price * (1 + SLIPPAGE) if long else price * (1 - SLIPPAGE)
+            maker_fill = bool(fill) and entry_type == "maker"
+            entry = fill["entry"] if maker_fill else (price * (1 + SLIPPAGE) if long else price * (1 - SLIPPAGE))
             sl = entry - (sig["price"] - sig["sl"])
             tp = entry + (sig["tp"] - sig["price"])
+            fee_rate = MAKER_FEE if maker_fill else FEE_RATE
             if self.live:
                 if not self.broker:
                     await self.log("ERROR", f"{symbol}: modo REAL sin credenciales de Bybit · orden no enviada")
                     self._open_fail = "modo REAL sin credenciales de Bybit"
                     return None
-                try:
-                    w = await self.broker.wallet(max_age=0)
-                    lot = await self.broker.lot(symbol)
-                    qty, margin = position_size(w["equity"], w["available"], risk_pct, entry, sl, settings.leverage, lot=lot)
-                    if qty <= 0 or margin < 1:
-                        await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit ({lot[0]}) o margen insuficiente")
-                        self._open_fail = f"tamaño por debajo del lote mínimo de Bybit ({lot[0]}) o margen insuficiente"
+                if fill and fill.get("qty"):
+                    r = {"entry": fill["entry"], "qty": fill["qty"], "fee": fill.get("fee") or 0.0, "order_id": fill.get("order_id"), "link_id": fill.get("link_id"), "filled": True}
+                else:
+                    try:
+                        size = await self.live_size(symbol, entry, sl, risk_pct, settings.leverage)
+                        if not size:
+                            return None
+                        r = await self.broker.open(symbol, sig["side"], size["qty"], sl, tp, settings.leverage)
+                    except Exception as e:
+                        await self.log("ERROR", f"{symbol}: orden REAL rechazada por Bybit · {str(e)[:160]}")
+                        await tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{str(e)[:300]}", "orders")
+                        self._open_fail = f"orden REAL rechazada: {str(e)[:120]}"
                         return None
-                    r = await self.broker.open(symbol, sig["side"], qty, sl, tp, settings.leverage)
-                except Exception as e:
-                    await self.log("ERROR", f"{symbol}: orden REAL rechazada por Bybit · {str(e)[:160]}")
-                    await tg(f"⚠️ <b>Orden REAL rechazada · {symbol}</b>\n{str(e)[:300]}", "orders")
-                    self._open_fail = f"orden REAL rechazada: {str(e)[:120]}"
-                    return None
                 entry, qty, fee = (r["entry"] or entry), r["qty"], r["fee"]
                 margin = qty * entry / settings.leverage
                 pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
                                leverage=settings.leverage, margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"],
-                               fees=fee, mark_price=price, signal_id=signal_id, live=True, order_id=r["order_id"], link_id=r["link_id"])
+                               fees=fee, mark_price=price, signal_id=signal_id, live=True, order_id=r["order_id"], link_id=r["link_id"],
+                               horizon=horizon, entry_type=entry_type)
                 res = await self.db.positions.insert_one(pos.to_mongo())
                 pos.id = str(res.inserted_id)
                 if not r["filled"]:
@@ -395,19 +418,26 @@ class TradingEngine:
                     await self.log("RISK", f"{symbol}: tamaño por debajo del lote mínimo de Bybit o margen insuficiente · aumenta capital o riesgo")
                     self._open_fail = "tamaño por debajo del lote mínimo de Bybit o margen insuficiente"
                     return None
-                fee = entry * qty * FEE_RATE
+                fee = entry * qty * fee_rate
                 pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
                                leverage=settings.leverage, margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"],
-                               fees=fee, mark_price=price, signal_id=signal_id)
+                               fees=fee, mark_price=price, signal_id=signal_id, horizon=horizon, entry_type=entry_type)
                 res = await self.db.positions.insert_one(pos.to_mongo())
                 pos.id = str(res.inserted_id)
                 await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
+        if signal_id:
+            try:
+                await self.db.signals.update_one({"_id": ObjectId(signal_id)}, {"$set": {"executed": True}})
+            except Exception:
+                pass
         tag = "REAL " if self.live else ""
         reduced = f" · tamaño reducido al {int(risk_factor * 100)}% por {risk_reason}" if risk_factor < 1 else ""
-        await self.log("ORDER", f"ABIERTA {tag}{sig['side'].upper()} {symbol} @ {entry:.6g} · qty {qty:.6g} · {settings.leverage}x · SL {sl:.6g} · TP {tp:.6g}{reduced}")
-        await tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {tag}{sig['side'].upper()} {symbol}</b> @ {entry:.6g}\n"
+        how = {"maker": " · entrada límite maker (comisión 0,02 %)", "market_fallback": " · a mercado tras no llenarse la orden límite"}.get(entry_type, "")
+        lp = " · LARGO PLAZO" if horizon == "long" else ""
+        await self.log("ORDER", f"ABIERTA {tag}{sig['side'].upper()} {symbol} @ {entry:.6g} · qty {qty:.6g} · {settings.leverage}x · SL {sl:.6g} · TP {tp:.6g}{reduced}{how}{lp}")
+        await tg(f"{'🟢' if long else '🔴'} <b>ABIERTA {tag}{sig['side'].upper()} {symbol}</b> @ {entry:.6g}{lp}\n"
                  f"Cantidad {qty:.6g} · {settings.leverage}x · margen ${margin:,.2f}\nSL {sl:.6g} · TP {tp:.6g}\n"
-                 f"Estrategia: {STRATEGY_INFO[sig['strategy']]['name']}{reduced}", "orders")
+                 f"Estrategia: {STRATEGY_INFO[sig['strategy']]['name']}{reduced}{how}", "orders")
         return pos
 
     async def close_position(self, pos_id: str, price: float = None, reason: str = "MANUAL"):
@@ -494,28 +524,77 @@ class TradingEngine:
                 except Exception as e:
                     logger.exception(f"scan {symbol}")
                     await self.log("ERROR", f"{symbol}: {e}")
+            found += await self._scan_slow(settings)
             self.last_scan = now_iso()
             if self.running:
                 await self.log("SCAN", f"Escaneo {settings.timeframe} completado · {len(settings.symbols)} pares · {found} señales")
         finally:
             self.scanning = False
 
-    async def _handle_signal(self, symbol, sig, settings: Settings, df, htf, htf_tf):
+    def slow_active(self, settings: Settings) -> list:
+        if settings.strategy != "all":
+            return [settings.strategy] if settings.strategy in SLOW_KEYS else []
+        return [k for k in SLOW_KEYS if k not in settings.disabled_strategies]
+
+    async def _scan_slow(self, settings: Settings) -> int:
+        """Long-horizon strategies run on their own timeframe (1d / 4h) with candles cached 10 min; one signal per closed candle."""
+        found = 0
+        for key in self.slow_active(settings):
+            info = SLOW_INFO[key]
+            for symbol in settings.symbols:
+                try:
+                    params = settings.symbol_params.get(symbol) or {}
+                    rows = await self.market.fetch_history(symbol, info["tf"], info["bars"], cache_sec=600)
+                    if len(rows) < 215:
+                        continue
+                    df = build_df(rows, int(params.get("atr_period", 14)))
+                    sig = evaluate_slow(df, len(df) - 2, key, params)
+                    if sig:
+                        self.analysis.setdefault(symbol, {})["slow_signal"] = f"{key}:{sig['side']}"
+                        if self.running:
+                            found += 1
+                            await self._handle_signal(symbol, sig, settings, df, None, info["tf"], horizon="long", tf=info["tf"])
+                except Exception as e:
+                    logger.exception(f"slow scan {symbol} {key}")
+                    await self.log("ERROR", f"{symbol} ({info['name']}): {e}")
+        return found
+
+    def _slot_block(self, open_docs: list, settings: Settings, horizon: str):
+        """Long-horizon positions have their own cap and do not count towards «Máx. posiciones»."""
+        same = [p for p in open_docs if (p.get("horizon") or "short") == horizon]
+        cap = settings.max_long_positions if horizon == "long" else settings.max_positions
+        if len(same) >= cap:
+            return f"máximo de posiciones de {HORIZON_LABEL[horizon]} alcanzado ({cap})"
+        return None
+
+    async def _handle_signal(self, symbol, sig, settings: Settings, df, htf, htf_tf, horizon: str = "short", tf: str = None):
         key = f"{symbol}:{sig['strategy']}:{sig['side']}:{sig['key_ts']}"
         if key in self.signal_keys:
             return
         self.signal_keys.add(key)
+        tf = tf or settings.timeframe
         name = STRATEGY_INFO[sig["strategy"]]["name"]
-        await self.log("SIGNAL", f"{symbol} {sig['side'].upper()} · {name} · {sig['score']} confirmaciones")
+        await self.log("SIGNAL", f"{symbol} {sig['side'].upper()} · {name} · {sig['score']} confirmaciones" + (" · largo plazo" if horizon == "long" else ""))
         acc = await self.account_summary()
-        open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
+        open_docs = await self.db.positions.find({}, {"symbol": 1, "horizon": 1}).to_list(100)
+        open_syms = [p["symbol"] for p in open_docs]
+        if await self.db.pending_entries.find_one({"symbol": symbol}, {"_id": 1}):
+            open_syms.append(symbol)
         block, kind = None, "BLOQUEADA"
         if symbol in open_syms:
-            block = "ya existe una posición abierta en el par"
-        elif len(open_syms) >= settings.max_positions:
-            block = f"máximo de posiciones alcanzado ({settings.max_positions})"
+            block = "ya existe una posición abierta (o una orden límite en espera) en el par"
+        elif self._slot_block(open_docs, settings, horizon):
+            block = self._slot_block(open_docs, settings, horizon)
         elif acc["daily_paused"]:
             block = "límite de pérdida diaria alcanzado"
+        regime_now = await regime.btc_regime(self.market, settings.btc_regime_sma) if settings.btc_regime_filter else None
+        r_block = regime.regime_block(regime_now, sig["side"]) if regime_now else None
+        if not block and r_block:
+            block, kind = r_block, "REGIMEN"
+        rotation = await regime.current_rotation(self, settings) if settings.rotation_enabled else None
+        rot_block, rot_factor = regime.rotation_gate(rotation, symbol, sig["side"]) if rotation else (None, 1.0)
+        if not block and rot_block:
+            block, kind = rot_block, "ROTACION"
         news_block, risk_factor = self.news.gate(symbol) if self.news else (None, 1.0)
         if not block and news_block:
             block, kind = news_block, "NOTICIAS"
@@ -524,10 +603,12 @@ class TradingEngine:
         f_block, f_factor = funding.gate(funding_rate, sig["side"], self.cfg, funding_h)
         if not block and f_block:
             block, kind = f_block, "FUNDING"
-        risk_reason = " y ".join(r for r, f in (("riesgo de noticias", risk_factor), ("funding alto en contra", f_factor)) if f < 1)
-        risk_factor = min(risk_factor, f_factor)
+        risk_reason = " y ".join(r for r, f in (("riesgo de noticias", risk_factor), ("funding alto en contra", f_factor), ("menor liquidez relativa del par", rot_factor)) if f < 1)
+        risk_factor = min(risk_factor, f_factor) * rot_factor
         news_ctx = self.news.context(symbol) if self.news else None
         context = {"mode": "REAL" if self.live else "PAPER", "htf_tf": htf_tf, "htf_trend": {1: "ALCISTA", -1: "BAJISTA", 0: "NEUTRAL"}.get(htf, "N/D"),
+                   "horizon": horizon, "signal_tf": tf, "btc_regime": regime_now, "rotation_bias": next((r["bias"] for r in (rotation or {}).get("ranking", []) if r["symbol"] == symbol), None),
+                   "entry_order_type": settings.entry_order_type,
                    "price_now": t0.get("price"), "change_24h": t0.get("change_pct"), "funding_rate": funding_rate, "funding_interval_h": funding_h,
                    "funding_size_factor": f_factor, "news_size_factor": risk_factor, "open_positions": len(open_syms), "max_positions": settings.max_positions,
                    "daily_pnl_pct": acc["daily_pnl_pct"], "equity": acc["equity"], "news_risk": (news_ctx or {}).get("mercado", {}).get("risk") if news_ctx else None,
@@ -535,14 +616,14 @@ class TradingEngine:
         if block:
             await self.log("RISK", f"{symbol}: señal descartada · {block}")
             res = await self.db.signals.insert_one(Signal(
-                symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,
+                symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=tf,
                 price=sig["price"], sl=sig["sl"], tp=sig["tp"], score=sig["score"], reasons=sig["reasons"],
                 indicators=sig["indicators"], ai_decision=kind, note=f"Bloqueada por {BLOCK_BY.get(kind, 'riesgo')}: {block}", key=key, context=context,
             ).to_mongo())
-            await open_shadow(self, str(res.inserted_id), symbol, sig, settings, kind, acc["equity"], risk_factor=risk_factor)
+            await open_shadow(self, str(res.inserted_id), symbol, sig, settings, kind, acc["equity"], risk_factor=risk_factor, horizon=horizon)
             return
 
-        signal = Signal(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe,
+        signal = Signal(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=tf,
                         price=sig["price"], sl=sig["sl"], tp=sig["tp"], score=sig["score"], reasons=sig["reasons"],
                         indicators=sig["indicators"], ai_decision="SIN_IA", key=key, context=context)
         approve, shadow_kind = True, None
@@ -552,6 +633,7 @@ class TradingEngine:
             t = self.market.tickers.get(symbol, {})
             ctx = {
                 "htf_tf": htf_tf, "htf_trend": {1: "ALCISTA", -1: "BAJISTA", 0: "NEUTRAL"}.get(htf, "N/D"),
+                "horizon": horizon, "btc_regime": regime_now, "rotation_bias": context["rotation_bias"],
                 "change_24h": t.get("change_pct", 0), "funding_rate": t.get("funding_rate", 0),
                 "funding": funding.assess(funding_rate, sig["side"], self.cfg, funding_h),
                 "recent_changes": [round(x, 3) for x in (closes.pct_change().dropna() * 100).tolist()],
@@ -559,7 +641,7 @@ class TradingEngine:
                 "news": self.news.context(symbol) if self.news else None,
             }
             try:
-                res = await evaluate_signal(symbol, settings.timeframe, sig, ctx)
+                res = await evaluate_signal(symbol, tf, sig, ctx)
                 signal.ai_decision, signal.ai_confidence = res["decision"], res["confidence"]
                 signal.ai_risk, signal.ai_reasoning = res["risk"], res["reasoning"]
                 approve = res["decision"] == "APROBADA" and res["confidence"] >= settings.ai_min_confidence
@@ -578,12 +660,13 @@ class TradingEngine:
         sid = str(res.inserted_id)
         if approve:
             self._open_fail = None
-            pos = await self.open_position(symbol, sig, settings, sid, risk_factor, risk_reason)
-            if pos:
-                await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True}})
+            if settings.entry_order_type == "maker":
+                pos = await maker.queue_entry(self, symbol, sig, settings, sid, risk_factor, risk_reason, horizon, tf)
             else:
+                pos = await self.open_position(symbol, sig, settings, sid, risk_factor, risk_reason, horizon=horizon)
+            if not pos:
                 reason = self._open_fail or "apertura cancelada"
                 await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"note": f"No ejecutada: {reason}"}})
-                await open_shadow(self, sid, symbol, sig, settings, "NO_EJECUTADA", acc["equity"], signal.ai_confidence, signal.ai_risk, risk_factor)
+                await open_shadow(self, sid, symbol, sig, settings, "NO_EJECUTADA", acc["equity"], signal.ai_confidence, signal.ai_risk, risk_factor, horizon)
         elif shadow_kind:
-            await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc["equity"], signal.ai_confidence, signal.ai_risk, risk_factor)
+            await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc["equity"], signal.ai_confidence, signal.ai_risk, risk_factor, horizon)

@@ -231,7 +231,7 @@ STRATEGIES = {"trend_ema": trend_ema, "mean_reversion": mean_reversion, "breakou
 
 def active_strategies(strategy: str, disabled=()) -> list:
     if strategy != "all":
-        return [strategy]
+        return [strategy] if strategy in STRATEGIES else []
     return [k for k in STRATEGIES if k not in set(disabled or ())]
 
 

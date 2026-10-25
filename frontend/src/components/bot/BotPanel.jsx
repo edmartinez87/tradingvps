@@ -14,7 +14,7 @@ const PROFILE_TONE = ["text-emerald-300", "text-lime-300", "text-amber-300", "te
 
 export default function BotPanel({ settings: s, meta, account, equity, profileActive, fmtLeverage = (v) => `${v}x` }) {
   const info = meta?.strategy_info || {};
-  const active = activeStrategies(s);
+  const active = activeStrategies(s, meta?.strategy_keys || undefined);
   const profile = profileActive != null ? meta?.profiles?.[profileActive] : null;
   const used = Math.min(100, Math.max(0, (-account.daily_pnl_pct / s.daily_loss_limit) * 100));
   const nd0 = equity.length ? equity[0].net_deposits || 0 : 0;

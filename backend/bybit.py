@@ -122,6 +122,21 @@ class BybitClient:
             body["orderLinkId"] = link_id
         return await self.call("POST", "/v5/order/create", body=body)
 
+    async def limit_order(self, symbol: str, side: str, qty: str, price: str, sl: str = None, tp: str = None, link_id: str = None) -> dict:
+        """Post-only limit entry (maker fee); Bybit rejects it instead of crossing the book."""
+        body = {"category": "linear", "symbol": symbol, "side": side, "orderType": "Limit", "qty": qty, "price": price,
+                "timeInForce": "PostOnly", "positionIdx": 0, "tpslMode": "Full", "tpOrderType": "Market", "slOrderType": "Market"}
+        if sl:
+            body["stopLoss"] = sl
+        if tp:
+            body["takeProfit"] = tp
+        if link_id:
+            body["orderLinkId"] = link_id
+        return await self.call("POST", "/v5/order/create", body=body)
+
+    async def cancel_order(self, symbol: str, order_id: str) -> dict:
+        return await self.call("POST", "/v5/order/cancel", body={"category": "linear", "symbol": symbol, "orderId": order_id})
+
     async def set_stop(self, symbol: str, sl: str):
         return await self.call("POST", "/v5/position/trading-stop",
                                body={"category": "linear", "symbol": symbol, "tpslMode": "Full", "positionIdx": 0,

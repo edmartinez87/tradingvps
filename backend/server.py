@@ -12,11 +12,14 @@ from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from bson import ObjectId  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from models import (  # noqa: E402
-    Position, Trade, Signal, LogEntry, SettingsUpdate, ResetRequest, ProfileRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, STRATEGY_KEYS, SIGNAL_MODES,
+    Position, Trade, Signal, LogEntry, SettingsUpdate, ResetRequest, ProfileRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, SIGNAL_MODES,
 )
 from market import TF_SECONDS  # noqa: E402
 import chart  # noqa: E402
-from strategies import STRATEGY_INFO, MODE_INFO  # noqa: E402
+from strategies import STRATEGY_INFO as FAST_INFO, MODE_INFO  # noqa: E402
+from strategies_slow import SLOW_INFO, SLOW_KEYS  # noqa: E402
+from models import CRYPTO_STRATEGY_KEYS  # noqa: E402
+STRATEGY_INFO = {**FAST_INFO, **SLOW_INFO}
 from performance import performance  # noqa: E402
 import evolution  # noqa: E402
 from ai_advisor import current as ai_current  # noqa: E402
@@ -28,7 +31,7 @@ from profiles import PROFILES, detect_profile, profile_patch  # noqa: E402
 import migrations  # noqa: E402
 import funding  # noqa: E402
 from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news, ai_usage  # noqa: E402
-from routers import cron_routes, weekly_routes, walk_forward_routes, bybit_routes, ai_routes, analysis_routes, backup_routes, deploy_routes  # noqa: E402
+from routers import cron_routes, weekly_routes, walk_forward_routes, bybit_routes, ai_routes, analysis_routes, backup_routes, deploy_routes, market_routes  # noqa: E402
 from routers.shared_routes import add_shared_routes  # noqa: E402
 from fx import routes as fx_routes  # noqa: E402
 
@@ -101,8 +104,8 @@ async def put_config(body: ConfigUpdate):
 
 @api.get("/meta")
 async def meta():
-    return {"symbols": AVAILABLE_SYMBOLS, "timeframes": TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": STRATEGY_INFO,
-            "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO, "profiles": PROFILES}
+    return {"symbols": AVAILABLE_SYMBOLS, "timeframes": TIMEFRAMES, "strategies": CRYPTO_STRATEGY_KEYS, "strategy_keys": CRYPTO_STRATEGY_KEYS[1:], "strategy_info": STRATEGY_INFO,
+            "long_horizon_keys": list(SLOW_KEYS), "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO, "profiles": PROFILES}
 
 
 @api.get("/overview")
@@ -303,6 +306,7 @@ app.include_router(weekly_routes.router)
 app.include_router(walk_forward_routes.router)
 app.include_router(backup_routes.router)
 app.include_router(deploy_routes.router)
+app.include_router(market_routes.router)
 app.include_router(fx_routes.router)
 app.add_middleware(
     CORSMiddleware,

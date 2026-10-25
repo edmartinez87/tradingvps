@@ -4,7 +4,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { fmtPrice, fmtSignedUsd, fmtUsd, fmtQty, pnlClass, STRATEGY_LABELS } from "@/lib/api";
+import { fmtPrice, fmtSignedUsd, fmtUsd, fmtQty, pnlClass, STRATEGY_LABELS, ENTRY_LABELS } from "@/lib/api";
 
 const TH = ({ children, right }) => (
   <th className={`whitespace-nowrap px-3 py-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500 ${right ? "text-right" : "text-left"}`}>{children}</th>
@@ -50,7 +50,11 @@ export default function PositionsTable({ positions, onClose, onCloseAll }) {
               <tr key={p.id} data-testid={`position-row-${p.id}`} className={`border-b border-[#1E293B]/60 transition-colors hover:bg-[#111827] ${p.live ? "bg-rose-500/[0.03]" : ""}`}>
                 <TD>
                   <p className="font-display text-[13px] font-semibold text-slate-100">{p.symbol}</p>
-                  <p className="text-[10px] text-slate-500">{STRATEGY_LABELS[p.strategy]} · {p.leverage}x</p>
+                  <p className="text-[10px] text-slate-500">
+                    {STRATEGY_LABELS[p.strategy]} · {p.leverage}x
+                    {p.horizon === "long" && <span data-testid={`position-horizon-${p.id}`} className="ml-1 rounded-sm bg-sky-500/20 px-1 text-[9px] text-sky-300" title="Largo plazo: no cuenta en Máx. posiciones">LP</span>}
+                    {p.entry_type && p.entry_type !== "market" && <span data-testid={`position-entry-${p.id}`} className="ml-1 rounded-sm bg-slate-700/60 px-1 text-[9px] text-slate-300" title={ENTRY_LABELS[p.entry_type]}>{p.entry_type === "maker" ? "maker" : "mkt↩"}</span>}
+                  </p>
                 </TD>
                 <TD><SideBadge side={p.side} /></TD>
                 <TD right>{fmtPrice(p.entry_price)}</TD>
