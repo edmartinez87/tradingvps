@@ -1,0 +1,46 @@
+{
+  "summary": "Pruebé las 5 piezas nuevas del bot cripto (Multi-Horizonte, Divergencia doble, filtro de régimen BTC, rotación semanal y entradas maker) a nivel API, motor e2e (python contra MongoDB) y UI. API: 21/21 tests verdes (meta, market/context, rotation/refresh, DELETE pending-entries, validaciones 422 de settings, 7 estrategias deshabilitadas→422 y las 5 CP→200, backtests LP en 1d/4h y rápido en 1h, performance by_horizon/by_entry_type/maker, weekly con la línea Mercado, FX weekly con market null, FX settings/meta). Motor e2e: 11/13. Tope por horizonte, bloqueo de cortos por régimen, ROTACION en ambos sentidos, tamaño ×0,75 (qty 290/387=0,749 con su log), cola maker, bloqueo de duplicados, llenado maker (comisión 0,02 %), expiración a market_fallback (0,055 %) y cancel_all funcionan. Encontré 2 bugs en el motor: (1) el filtro de régimen BTC también bloquea las señales de largo plazo; (2) las órdenes maker en espera no cuentan para «Máx. posiciones», así que se puede pasar del tope. Regresión iter45/iter13/iter7: 67 passed, 1 skipped. UI: la pestaña Régimen, Configuración (7 chips con LP, guardar persiste), Backtest LP (1D), documentación cripto y FX y regresión /hotforex funcionan. Encontré huecos de UI: etiquetas REGIMEN/ROTACION sin mapear, contador de estrategias del perfil fijo en 5 y límites de los inputs que no coinciden con el backend. La configuración y la BD quedaron restauradas (balance 500.0, 0 posiciones, 0 pendientes).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "engine._handle_signal (filtro de régimen)", "issue": "regime.regime_block se aplica sin mirar el horizonte, así que una señal horizon='long' (multi_horizon short con BTC ALCISTA) queda BLOQUEADA con ai_decision REGIMEN. La especificación y el propio texto de la UI dicen que el régimen solo filtra las estrategias de corto plazo y que las LP «no se ven afectadas». Reproducción: test_iter46_engine_e2e.py::test_b_regime_not_for_long_horizon.", "priority": "HIGH"},
+      {"endpoint": "engine._handle_signal / _slot_block + maker.queue_entry/_finish", "issue": "Las órdenes en db.pending_entries no cuentan para el tope por horizonte. Con max_positions=1 y entry_order_type=maker, dos señales en pares distintos generan 2 órdenes en espera (la segunda queda SIN_IA y en cola, no BLOQUEADA). Además, open_position se salta el tope cuando hay fill maker (`slot and not fill`), así que al llenarse ambas se abren 2 posiciones de corto plazo con tope 1. Reproducción: test_e_pending_counts_towards_cap.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "maker._finish", "issue": "Usa engine.get_settings() (persistido) en vez de la configuración con la que se encoló la orden; no tiene impacto real, pero conviene tenerlo en cuenta."},
+      {"endpoint": "regime.rank", "issue": "El sesgo es relativo: un par con retorno negativo en 7 días puede quedar como 'Solo largos' (hoy SOL -0,58 % está en el tercio líder). Es por diseño, pero conviene explicarlo en la UI o la documentación."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AiSignals.jsx", "issue": "DECISION_CLS no incluye REGIMEN ni ROTACION, y la lista que oculta la barra de confianza tampoco. Estas señales se muestran con una insignia sin estilo y con una barra '0% · Riesgo -' como si la IA las hubiera evaluado.", "selector": "[data-testid^='ai-decision-']", "priority": "MEDIUM"},
+      {"component": "performance/ShadowStats.jsx", "issue": "KIND no tiene etiquetas para REGIMEN ni ROTACION, así que se muestra el ID técnico en bruto.", "selector": "ShadowStats", "priority": "MEDIUM"},
+      {"component": "RiskProfileBar.jsx:94", "issue": "La cifra está fija como `5 - disabled_strategies.length`: el chip 'Estrategias' muestra 3 cuando hay 5 de 7 activas. Debería usar strategyKeys.length. Además, el tagline de profiles.py ('las 5 estrategias') está desactualizado.", "selector": "[data-testid='risk-profile-chip-strats']", "priority": "LOW"},
+      {"component": "App.js extraNums", "issue": "Los límites de los inputs no coinciden con el backend: max_long_positions es min 0 / max 10 (backend 1-6) y maker_wait_bars max 10 (backend 1-3). Con 8 sale el toast 'Valor inválido en: max_long_positions'.", "selector": "[data-testid='settings-max-long-positions-input'], [data-testid='settings-maker-wait-bars-input']", "priority": "LOW"},
+      {"component": "Performance.jsx", "issue": "Con 0 operaciones cerradas solo aparece performance-empty y perf-by-strategy no se renderiza. Incluso con operaciones, solo lista las estrategias que han operado, no las 7 con su toggle. No pude verificar la tabla de 7 estrategias porque no hay trades.", "selector": "[data-testid='perf-by-strategy']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Backtest con estrategia LP", "issues": ["El selector Temporalidad sigue mostrando 1h y el texto de introducción dice 'últimas 1.000 velas' aunque el backtest usa 1500 velas 1D. Conviene desactivar el selector o mostrar 1d/4h.", "Las fechas de las operaciones no llevan año (22/5, 1/10, 20/6) en un backtest de varios años, así que el orden parece incoherente."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter46_lp_regime_maker_api.py", "/app/backend/tests/test_iter46_engine_e2e.py", "/app/backend/tests/test_iter45_long_horizon_regime_maker.py"],
+  "action_items": [
+    "engine._handle_signal: aplicar regime_block solo si horizon == 'short' (como dice la UI y la especificación).",
+    "Contar db.pending_entries (por horizonte) en _slot_block / _handle_signal, o bloquear en queue_entry, y no saltarse el tope en fills maker que superen la capacidad.",
+    "AiSignals.jsx: añadir REGIMEN/ROTACION a DECISION_CLS y a la lista que oculta la barra de confianza. ShadowStats.jsx: añadir etiquetas para REGIMEN/ROTACION.",
+    "RiskProfileBar: calcular las estrategias activas con strategyKeys.length en vez de 5 y actualizar el tagline de profiles.py.",
+    "Ajustar los min/max de los inputs max_long_positions (1-6) y maker_wait_bars (1-3).",
+    "Backtest UI: reflejar el TF real (1d/4h) en estrategias LP y mostrar el año en las fechas."
+  ],
+  "critical_code_review_comments": [
+    "El orden de los bloqueos en _handle_signal calcula btc_regime y current_rotation aunque ya haya un bloqueo previo: son llamadas de red/BD innecesarias (hay caché, pero current_rotation puede recalcular).",
+    "open_position: `slot and not fill` permite superar el tope en fills maker y no hay ninguna comprobación equivalente al encolar."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter46_lp_regime_maker_api.py", "/app/backend/tests/test_iter46_engine_e2e.py"],
+  "success_rate": {"backend": "94% (API 21/21, motor e2e 11/13)", "frontend": "88%"},
+  "seed_data_creation": "No. El e2e crea señales, posiciones y pendientes marcados con 'QA iter46 engine e2e' y los limpia al terminar (cancel_all + borrado + reintegro de comisiones). Verificado: balance 500.0, 0 posiciones, 0 pendientes.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Ejecutar: cd /app/backend && python -m pytest tests/test_iter46_lp_regime_maker_api.py tests/test_iter46_engine_e2e.py -n 0 -q. Los dos tests del e2e que fallan (test_b_regime_not_for_long_horizon, test_e_pending_counts_towards_cap) deben pasar tras los arreglos. El API test restaura la configuración en el teardown. El bot está DETENIDO, en PAPER, con $500. El régimen BTC está ALCISTA (+10,6 %). Ranking actual: XRP/SOL long, BTC/ETH both, LINK/AVAX short.",
+  "rca of the issue": "(1) engine.py, en _handle_signal: `r_block = regime.regime_block(regime_now, sig['side']) if regime_now else None` no tiene condición de horizonte. (2) _slot_block solo cuenta db.positions; las entradas maker en espera solo bloquean el mismo par (open_syms), no el contador; y en open_position la condición `(slot and not fill)` deja pasar los fills maker aunque se haya alcanzado el tope."
+}

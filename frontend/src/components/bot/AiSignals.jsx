@@ -12,6 +12,8 @@ const DECISION_CLS = {
   FUNDING: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30",
   MERCADO: "bg-slate-500/10 text-slate-300 border-slate-500/30",
   SESION: "bg-sky-500/10 text-sky-300 border-sky-500/30",
+  REGIMEN: "bg-indigo-500/10 text-indigo-300 border-indigo-500/30",
+  ROTACION: "bg-teal-500/10 text-teal-300 border-teal-500/30",
 };
 
 function SignalCard({ s }) {
@@ -30,7 +32,7 @@ function SignalCard({ s }) {
       <p className="mt-1 font-mono text-[10px] text-slate-500">
         {STRATEGY_LABELS[s.strategy]} · {fmtPrice(s.price)} · SL {fmtPrice(s.sl)} · TP {fmtPrice(s.tp)} · {fmtTime(s.created_at)}
       </p>
-      {!["SIN_IA", "ERROR", "BLOQUEADA", "NOTICIAS", "FUNDING", "MERCADO", "SESION"].includes(s.ai_decision) && (
+      {!["SIN_IA", "ERROR", "BLOQUEADA", "NOTICIAS", "FUNDING", "MERCADO", "SESION", "REGIMEN", "ROTACION"].includes(s.ai_decision) && (
         <div className="mt-2 flex items-center gap-2">
           <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#1E293B]">
             <div className="h-full bg-purple-500" style={{ width: `${s.ai_confidence}%` }} />

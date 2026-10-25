@@ -21,7 +21,7 @@ PROFILES = [
                   "ai_min_confidence": 55, "risk_per_trade": 1.25, "max_positions": 4, "leverage": 3, "daily_loss_limit": 6.0,
                   "disabled_strategies": NEW_STRATEGIES}},
     {"level": 2, "name": "Activo", "activity": "≈4-8 ops/día",
-     "tagline": "10 pares, las 5 estrategias y criterios relajados: ideal para comparar métodos con datos reales.",
+     "tagline": "10 pares, las 7 estrategias (5 de corto plazo + 2 de largo plazo) y criterios relajados: ideal para comparar métodos con datos reales.",
      "warning": "Más operaciones significa más comisiones y rachas de pérdidas más largas. El drawdown esperado se duplica respecto al nivel Conservador.",
      "settings": {"symbols": TIER2, "timeframe": "1h", "signal_mode": "relaxed", "htf_filter": True, "ai_enabled": True,
                   "ai_min_confidence": 50, "risk_per_trade": 1.5, "max_positions": 5, "leverage": 5, "daily_loss_limit": 8.0,

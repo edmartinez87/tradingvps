@@ -370,9 +370,10 @@ class TradingEngine:
         """`fill` = an already executed maker order ({entry, qty, fee, order_id, link_id} in REAL; {entry} in PAPER): no new order is sent."""
         risk_pct = settings.risk_per_trade * risk_factor
         async with self.lock:
-            open_docs = await self.db.positions.find({}, {"symbol": 1, "horizon": 1}).to_list(100)
+            open_docs = await self._open_and_pending(exclude_symbol=symbol)
             slot = self._slot_block(open_docs, settings, horizon)
-            if symbol in [p["symbol"] for p in open_docs] or (slot and not fill):
+            # a REAL maker fill is already a live position: it must be recorded even if the cap was reached meanwhile
+            if symbol in [p["symbol"] for p in open_docs if not p.get("pending")] or (slot and not (fill and self.live)):
                 await self.log("RISK", f"{symbol}: apertura cancelada · {slot or 'par ya abierto'}")
                 self._open_fail = slot or "par ya abierto"
                 return None
@@ -560,12 +561,18 @@ class TradingEngine:
         return found
 
     def _slot_block(self, open_docs: list, settings: Settings, horizon: str):
-        """Long-horizon positions have their own cap and do not count towards «Máx. posiciones»."""
+        """Long-horizon positions have their own cap and do not count towards «Máx. posiciones». `open_docs` includes pending maker entries."""
         same = [p for p in open_docs if (p.get("horizon") or "short") == horizon]
         cap = settings.max_long_positions if horizon == "long" else settings.max_positions
         if len(same) >= cap:
             return f"máximo de posiciones de {HORIZON_LABEL[horizon]} alcanzado ({cap})"
         return None
+
+    async def _open_and_pending(self, exclude_symbol: str = None) -> list:
+        docs = await self.db.positions.find({}, {"symbol": 1, "horizon": 1}).to_list(100)
+        q = {"symbol": {"$ne": exclude_symbol}} if exclude_symbol else {}
+        docs += [{**d, "pending": True} for d in await self.db.pending_entries.find(q, {"symbol": 1, "horizon": 1}).to_list(100)]
+        return docs
 
     async def _handle_signal(self, symbol, sig, settings: Settings, df, htf, htf_tf, horizon: str = "short", tf: str = None):
         key = f"{symbol}:{sig['strategy']}:{sig['side']}:{sig['key_ts']}"
@@ -576,10 +583,8 @@ class TradingEngine:
         name = STRATEGY_INFO[sig["strategy"]]["name"]
         await self.log("SIGNAL", f"{symbol} {sig['side'].upper()} · {name} · {sig['score']} confirmaciones" + (" · largo plazo" if horizon == "long" else ""))
         acc = await self.account_summary()
-        open_docs = await self.db.positions.find({}, {"symbol": 1, "horizon": 1}).to_list(100)
+        open_docs = await self._open_and_pending()
         open_syms = [p["symbol"] for p in open_docs]
-        if await self.db.pending_entries.find_one({"symbol": symbol}, {"_id": 1}):
-            open_syms.append(symbol)
         block, kind = None, "BLOQUEADA"
         if symbol in open_syms:
             block = "ya existe una posición abierta (o una orden límite en espera) en el par"
@@ -587,12 +592,13 @@ class TradingEngine:
             block = self._slot_block(open_docs, settings, horizon)
         elif acc["daily_paused"]:
             block = "límite de pérdida diaria alcanzado"
+        # BTC regime and weekly rotation only gate short-horizon strategies; long-horizon ones carry their own daily filters
         regime_now = await regime.btc_regime(self.market, settings.btc_regime_sma) if settings.btc_regime_filter else None
-        r_block = regime.regime_block(regime_now, sig["side"]) if regime_now else None
+        r_block = regime.regime_block(regime_now, sig["side"]) if regime_now and horizon == "short" else None
         if not block and r_block:
             block, kind = r_block, "REGIMEN"
         rotation = await regime.current_rotation(self, settings) if settings.rotation_enabled else None
-        rot_block, rot_factor = regime.rotation_gate(rotation, symbol, sig["side"]) if rotation else (None, 1.0)
+        rot_block, rot_factor = regime.rotation_gate(rotation, symbol, sig["side"]) if rotation and horizon == "short" else (None, 1.0)
         if not block and rot_block:
             block, kind = rot_block, "ROTACION"
         news_block, risk_factor = self.news.gate(symbol) if self.news else (None, 1.0)

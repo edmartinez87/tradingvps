@@ -162,7 +162,7 @@ function Dashboard({ onLogout }) {
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active} strategyKeys={meta?.strategy_keys} longKeys={meta?.long_horizon_keys}
-            extraNums={[{ k: "max_long_positions", label: "Máx. posiciones largo plazo", min: 0, max: 10, step: 1 }, { k: "maker_wait_bars", label: "Espera orden maker (velas)", min: 1, max: 10, step: 1 }]}
+            extraNums={[{ k: "max_long_positions", label: "Máx. posiciones largo plazo", min: 1, max: 6, step: 1 }, { k: "maker_wait_bars", label: "Espera orden maker (velas)", min: 1, max: 3, step: 1 }]}
             extraToggles={[{ k: "btc_regime_filter", label: "Filtro régimen BTC", hint: "Cortos plazos solo a favor de BTC vs SMA200 diaria" }, { k: "rotation_enabled", label: "Rotación semanal", hint: "Momentum 7 d ponderado por volumen: sesgo y tamaño por par" }]}
             onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")}
             onProfile={(level) => act(() => http.post("/profile", { level }), `Perfil de riesgo aplicado: ${meta?.profiles?.[level]?.name || level}`)} />

@@ -23,7 +23,7 @@ const Chip = ({ label, value, testId }) => (
   </div>
 );
 
-export default function RiskProfileBar({ profiles = [], active, selected = 0, onApply, fmtLeverage = (v) => `${v}x` }) {
+export default function RiskProfileBar({ profiles = [], active, selected = 0, onApply, fmtLeverage = (v) => `${v}x`, strategyCount = 5 }) {
   const [level, setLevel] = useState(active ?? selected ?? 0);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -91,7 +91,7 @@ export default function RiskProfileBar({ profiles = [], active, selected = 0, on
         <Chip label="Máx. pos." value={s.max_positions} testId="risk-profile-chip-pos" />
         <Chip label="Apalanc." value={fmtLeverage(s.leverage)} testId="risk-profile-chip-lev" />
         <Chip label="Límite día" value={`-${s.daily_loss_limit}%`} testId="risk-profile-chip-dll" />
-        <Chip label="Estrategias" value={5 - s.disabled_strategies.length} testId="risk-profile-chip-strats" />
+        <Chip label="Estrategias" value={strategyCount - s.disabled_strategies.length} testId="risk-profile-chip-strats" />
       </div>
       {p.warning && (
         <p data-testid="risk-profile-warning" className={`mt-3 flex gap-2 rounded-sm border ${tone.border} px-3 py-2 text-[11.5px] leading-snug ${tone.text}`}>

@@ -85,7 +85,7 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
         </Button>
       }>
       {meta?.profiles && (
-        <RiskProfileBar profiles={meta.profiles} active={profileActive} selected={settings.risk_profile} fmtLeverage={fmtLeverage}
+        <RiskProfileBar profiles={meta.profiles} active={profileActive} selected={settings.risk_profile} fmtLeverage={fmtLeverage} strategyCount={strategyKeys.length}
           onApply={async (level) => { const ok = await onProfile(level); if (ok) setDirty(false); return ok; }} />
       )}
       <div className="grid grid-cols-2 gap-3">

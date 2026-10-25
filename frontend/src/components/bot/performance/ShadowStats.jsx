@@ -3,7 +3,7 @@ import { TH, TD } from "../PositionsTable";
 import { fmtSignedUsd, pnlClass, STRATEGY_LABELS, SESSION_NAMES } from "@/lib/api";
 
 const NEWS_RISK = { ALTO: "Alto (alertas generales)", MEDIO: "Medio", BAJO: "Bajo", SIN_DATO: "Sin dato de noticias" };
-const KIND = { RECHAZADA: "Rechazadas por IA", BAJA_CONFIANZA: "IA aprobó, confianza baja", BLOQUEADA: "Bloqueadas por riesgo", NOTICIAS: "Bloqueadas por noticias", FUNDING: "Bloqueadas por funding", SESION: "Fuera de sesión", ERROR: "Error de IA", NO_EJECUTADA: "Aprobadas, no abiertas" };
+const KIND = { RECHAZADA: "Rechazadas por IA", BAJA_CONFIANZA: "IA aprobó, confianza baja", BLOQUEADA: "Bloqueadas por riesgo", NOTICIAS: "Bloqueadas por noticias", FUNDING: "Bloqueadas por funding", REGIMEN: "Bloqueadas por régimen BTC", ROTACION: "Bloqueadas por rotación", SESION: "Fuera de sesión", ERROR: "Error de IA", NO_EJECUTADA: "Aprobadas, no abiertas" };
 const sessionLabel = (k) => k.split("+").map((s) => SESSION_NAMES[s] || (s === "ninguna" ? "Sin sesión" : s)).join(" + ");
 
 const Card = ({ label, value, hint, cls = "text-slate-100", testId }) => (

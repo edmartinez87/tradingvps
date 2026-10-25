@@ -82,7 +82,7 @@ export default function RegimePanel({ settings, onSave }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-slate-500">Tercio superior: solo largos · tercio inferior: solo cortos · volumen bajo la mediana: tamaño ×0,75. Solo afecta a estrategias de corto plazo.</p>
+      <p className="text-[11px] text-slate-500">Ranking relativo entre tus pares (un líder puede tener rendimiento negativo en una semana bajista). Tercio superior: solo largos · tercio inferior: solo cortos · volumen bajo la mediana: tamaño ×0,75. Solo afecta a estrategias de corto plazo.</p>
 
       <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
         <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
