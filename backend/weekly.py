@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from models import now_iso
 from shadow import AI_KINDS
+from performance import excursion_stats
 from evolution import AI_SOURCES, SOURCES
 import evolution
 import notify
@@ -65,6 +66,7 @@ async def build_weekly(engine, db) -> dict:
         "risk_profile": settings.risk_profile,
         "evolution": await evolution.week_summary(engine, since),
         "market": await _market_block(engine, db, settings),
+        "excursion": await excursion_stats(db, since) if hasattr(settings, "partial_tp_enabled") else None,
     }
 
 
@@ -148,6 +150,13 @@ def format_weekly(w: dict, currency: str = "USDT", extra: str = None) -> str:
     if lp:
         lines.append(f"Largo plazo (Multi-Horizonte/Divergencia): {lp['trades']} ops · {lp['pnl']:+.2f} {currency} · acierto {lp['win_rate']}%")
     mkt = w.get("market")
+    exc = w.get("excursion")
+    if exc and exc.get("tracked"):
+        tr = next((r for r in exc["by_reason"] if r["key"] == "TRAILING"), None)
+        lines.append(f"Recorrido: {exc['tracked']} ops con MFE medio +{exc['avg_mfe_r']:.2f} R (MAE {exc['avg_mae_r']:.2f} R) · "
+                     f"{exc['near_miss']} rozaron el TP (≥70 %) sin tocarlo ({exc['near_miss_pct']}%)"
+                     + (f" · salidas por trailing: {tr['trades']} con MFE {tr['avg_mfe_r']:.2f} R" if tr else "")
+                     + (f" · cierres parciales: {exc['partial']['trades']} ({exc['partial']['pnl']:+.2f} {currency})" if exc["partial"]["trades"] else ""))
     if mkt:
         rg, rot = mkt["regime"], mkt["rotation"]
         dist = f" ({rg['distance_pct']:+.1f} %)" if rg.get("distance_pct") is not None else ""

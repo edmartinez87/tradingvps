@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from models import BacktestRequest, PlanRequest, OptimizeRequest, AVAILABLE_SYMBOLS, TIMEFRAMES, CRYPTO_STRATEGY_KEYS
 from indicators import build_df
 from backtest import run_backtest, simulate
+from risk import trade_rules
 from strategies_slow import SLOW_INFO, scan_slow
 from plan import build_plan, SCENARIOS
 from optimizer import optimize
@@ -36,7 +37,7 @@ async def optimize_symbol(req: OptimizeRequest):
     s = await engine.get_settings()
     acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
     klines = await engine.market.fetch_klines(req.symbol, s.timeframe, 1000, cache_sec=300)
-    res = optimize(klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"], req.symbol, s.signal_mode, s.disabled_strategies)
+    res = optimize(klines, s.strategy, s.risk_per_trade, s.leverage, trade_rules(s), acc["initial_balance"], req.symbol, s.signal_mode, s.disabled_strategies)
     return {**res, "timeframe": s.timeframe, "applied": s.symbol_params.get(req.symbol)}
 
 
@@ -50,12 +51,12 @@ async def backtest(req: BacktestRequest):
         # long-horizon strategies run on their own timeframe (1d / 4h) with as much history as the exchange serves
         tf = SLOW_INFO[req.strategy]["tf"]
         df = build_df(await engine.market.fetch_history(req.symbol, tf, 1500 if tf == "1d" else 1000, cache_sec=300))
-        result = simulate(df, scan_slow(df, req.strategy, s.symbol_params.get(req.symbol)), req.risk_per_trade, req.leverage, s.trailing_enabled,
+        result = simulate(df, scan_slow(df, req.strategy, s.symbol_params.get(req.symbol)), req.risk_per_trade, req.leverage, trade_rules(s),
                           acc["initial_balance"], req.symbol)
         result.pop("r_multiples", None)
         return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": tf, **result}
     df = build_df(await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60))
-    result = run_backtest(df, req.strategy, req.risk_per_trade, req.leverage, initial=acc["initial_balance"], symbol=req.symbol,
+    result = run_backtest(df, req.strategy, req.risk_per_trade, req.leverage, trade_rules(s), initial=acc["initial_balance"], symbol=req.symbol,
                           mode=s.signal_mode, disabled=s.disabled_strategies)
     result.pop("r_multiples", None)
     return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, **result}

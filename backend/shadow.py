@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from models import now_iso
-from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
+from risk import FEE_RATE, SLIPPAGE, position_size, pnl, check_exit, update_trailing, trade_rules
 
 MAX_AGE_H = 72
 KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "FUNDING", "REGIMEN", "ROTACION", "ERROR", "NO_EJECUTADA")
@@ -25,7 +25,8 @@ async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, 
     return doc
 
 
-async def monitor_shadows(engine, tickers: dict, trailing_enabled: bool):
+async def monitor_shadows(engine, tickers: dict, rules):
+    rules = trade_rules(rules)
     now = datetime.now(timezone.utc)
     async for d in engine.db.shadow_positions.find():
         t = tickers.get(d["symbol"])
@@ -48,8 +49,9 @@ async def monitor_shadows(engine, tickers: dict, trailing_enabled: bool):
             await engine.db.shadow_positions.delete_one({"_id": d["_id"]})
             continue
         upd = {"mark_price": price, "unrealized_pnl": round(pnl(d["side"], d["entry_price"], price, d["qty"]), 4)}
-        if trailing_enabled:
-            new_sl, be = update_trailing(d["side"], d["entry_price"], d["sl"], d["initial_sl"], d["atr"], price)
+        if rules["trailing_enabled"]:
+            new_sl, be = update_trailing(d["side"], d["entry_price"], d["sl"], d["initial_sl"], d["atr"], price,
+                                         rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
             if new_sl != d["sl"]:
                 upd.update(sl=new_sl, breakeven=be)
         await engine.db.shadow_positions.update_one({"_id": d["_id"]}, {"$set": upd})

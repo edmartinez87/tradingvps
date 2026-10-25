@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import numpy as np
 from strategies import evaluate
-from risk import FEE_RATE, position_size, pnl, check_exit, update_trailing
+from risk import FEE_RATE, position_size, pnl, check_exit, update_trailing, trade_rules, partial_qty, tp_in_r
 
 
 def _iso(ts_ms) -> str:
@@ -33,8 +33,11 @@ def _levels(sig, sl_atr, tp_atr):
     return sl, tp
 
 
-def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, initial: float,
+def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing, initial: float,
              symbol: str = None, sl_atr: float = None, tp_atr: float = None, start: int = 210, end: int = None) -> dict:
+    """`trailing` is either a bool (classic rules) or a rules dict from risk.trade_rules (trailing + partial take-profit)."""
+    rules = trade_rules(trailing)
+    use_trailing, use_partial = rules["trailing_enabled"], rules["partial_tp_enabled"]
     highs, lows, closes, ts = df["high"].values, df["low"].values, df["close"].values, df["ts"].values
     balance, peak, max_dd = initial, initial, 0.0
     trades, curve, pos, rejected = [], [], None, 0
@@ -47,20 +50,36 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
             reason = "TRAILING"
         fee = price * pos["qty"] * FEE_RATE
         gross = pnl(pos["side"], pos["entry"], price, pos["qty"])
-        net = gross - pos["fee"] - fee
+        net = gross + pos["partial_gross"] - pos["fee"] - fee
         balance += gross - fee
+        tp_r = tp_in_r(pos["side"], pos["entry"], pos["init_sl"], pos["tp"])
         trades.append({"side": pos["side"], "strategy": pos["strategy"], "entry": pos["entry"], "exit": float(price),
                        "pnl": round(float(net), 2), "r": round(float(net / pos["risk_amt"]), 3), "reason": reason,
-                       "opened_at": pos["opened_at"], "closed_at": _iso(ts[i])})
+                       "mfe_r": round(pos["mfe"], 2), "mae_r": round(pos["mae"], 2), "mfe_tp_pct": round(pos["mfe"] / tp_r * 100, 1) if tp_r else 0.0,
+                       "partial": pos["partial"], "opened_at": pos["opened_at"], "closed_at": _iso(ts[i])})
         pos = None
 
     for i in range(start, end):
         if pos:
+            r_dist = abs(pos["entry"] - pos["init_sl"])
+            fav = (highs[i] - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - lows[i])
+            adv = (pos["entry"] - lows[i]) if pos["side"] == "long" else (highs[i] - pos["entry"])
+            pos["mfe"], pos["mae"] = max(pos["mfe"], fav / r_dist), max(pos["mae"], adv / r_dist)
             price, reason = check_exit(pos["side"], pos["sl"], pos["tp"], highs[i], lows[i])
             if price is not None:
                 close(price, reason, i)
-            elif trailing:
-                pos["sl"], pos["be"] = update_trailing(pos["side"], pos["entry"], pos["sl"], pos["init_sl"], pos["atr"], closes[i])
+            else:
+                if use_partial and not pos["partial"] and fav >= rules["partial_tp_r"] * r_dist:
+                    part = partial_qty(symbol, pos["qty"], rules["partial_tp_pct"]) if symbol else round(pos["qty"] * rules["partial_tp_pct"] / 100, 8)
+                    if part > 0:
+                        level = pos["entry"] + rules["partial_tp_r"] * r_dist * (1 if pos["side"] == "long" else -1)
+                        fee = level * part * FEE_RATE
+                        gross = pnl(pos["side"], pos["entry"], level, part)
+                        balance += gross - fee
+                        pos.update(qty=round(pos["qty"] - part, 8), fee=pos["fee"] + fee, partial_gross=pos["partial_gross"] + gross, partial=True)
+                if use_trailing:
+                    pos["sl"], pos["be"] = update_trailing(pos["side"], pos["entry"], pos["sl"], pos["init_sl"], pos["atr"], closes[i],
+                                                           rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
         if not pos and i in signals:
             sig = signals[i]
             sl, tp = _levels(sig, sl_atr, tp_atr)
@@ -71,7 +90,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
                     balance -= fee
                     pos = {"side": sig["side"], "strategy": sig["strategy"], "entry": sig["price"], "sl": sl, "init_sl": sl,
                            "tp": tp, "atr": sig["atr"], "qty": qty, "fee": fee, "risk_amt": qty * abs(sig["price"] - sl),
-                           "be": False, "opened_at": _iso(ts[i])}
+                           "be": False, "mfe": 0.0, "mae": 0.0, "partial": False, "partial_gross": 0.0, "opened_at": _iso(ts[i])}
                 else:
                     rejected += 1
         if pos and i == end - 1 and end < n:
@@ -89,6 +108,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
     final = curve[-1]["equity"] if curve else initial
     R = np.array([t["r"] for t in trades]) if trades else np.zeros(0)
     sqn = float(R.mean() / R.std() * np.sqrt(len(R))) if len(R) > 1 and R.std() > 0 else 0.0
+    near_miss = [t for t in trades if t["reason"] != "TP" and t["mfe_tp_pct"] >= 70]
     by_strategy = {}
     for t in trades:
         s = by_strategy.setdefault(t["strategy"], {"trades": 0, "wins": 0, "pnl": 0.0, "r_sum": 0.0, "gw": 0.0, "gl": 0.0})
@@ -110,6 +130,10 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
         "avg_loss": round(-gross_loss / len(losses), 2) if losses else 0,
         "expectancy_r": round(float(R.mean()), 3) if len(R) else 0,
         "sqn": round(sqn, 2),
+        "excursion": {"avg_mfe_r": round(float(np.mean([t["mfe_r"] for t in trades])), 2) if trades else 0,
+                      "avg_mae_r": round(float(np.mean([t["mae_r"] for t in trades])), 2) if trades else 0,
+                      "near_miss": len(near_miss), "near_miss_pct": round(len(near_miss) / len(trades) * 100, 1) if trades else 0,
+                      "partial_closes": sum(1 for t in trades if t["partial"])},
         "period_start": _iso(ts[start]) if n > start else None,
         "period_end": _iso(ts[end - 1]),
         "candles": n,
@@ -120,6 +144,6 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing: bool, 
     }
 
 
-def run_backtest(df, strategy: str, risk_pct: float, leverage: int, trailing: bool = True,
+def run_backtest(df, strategy: str, risk_pct: float, leverage: int, trailing=True,
                  initial: float = 10000.0, symbol: str = None, params: dict = None, mode: str = "strict", disabled=()) -> dict:
     return simulate(df, scan_signals(df, strategy, params, mode, disabled), risk_pct, leverage, trailing, initial, symbol)

@@ -2,7 +2,8 @@ import time
 import asyncio
 import logging
 from models import SettingsUpdate, AVAILABLE_SYMBOLS, STRATEGY_KEYS, CRYPTO_STRATEGY_KEYS, ENTRY_ORDER_TYPES, REGIME_SMAS, now_iso
-from performance import maker_stats
+from performance import maker_stats, excursion_stats
+from risk import trade_rules
 import regime
 from performance import performance
 from plan import backtest_stats
@@ -17,7 +18,9 @@ import notify
 logger = logging.getLogger("review")
 ALLOWED_AI_KEYS = {"symbols", "disabled_strategies", "risk_per_trade", "max_positions", "leverage", "ai_min_confidence",
                    "trailing_enabled", "htf_filter", "symbol_params"}
-CRYPTO_AI_KEYS = ALLOWED_AI_KEYS | {"btc_regime_filter", "btc_regime_sma", "rotation_enabled", "entry_order_type", "max_long_positions"}
+CRYPTO_AI_KEYS = ALLOWED_AI_KEYS | {"btc_regime_filter", "btc_regime_sma", "rotation_enabled", "entry_order_type", "max_long_positions",
+                                    "be_start_r", "trail_start_r", "trail_atr_mult", "partial_tp_enabled", "partial_tp_r", "partial_tp_pct"}
+EXIT_RANGES = {"be_start_r": (0.5, 3.0), "trail_start_r": (0.5, 3.0), "trail_atr_mult": (0.5, 3.0), "partial_tp_r": (0.5, 3.0), "partial_tp_pct": (25, 75)}
 LABELS = {"symbols": "Pares", "strategy": "Estrategia", "disabled_strategies": "Estrategias apagadas", "risk_per_trade": "Riesgo/op %",
           "max_positions": "Máx. posiciones", "leverage": "Apalancamiento", "ai_min_confidence": "Confianza mín. IA", "trailing_enabled": "Trailing",
           "htf_filter": "Filtro TF superior", "symbol_params": "Parámetros SL/TP", "sessions_allowed": "Sesiones permitidas", "ai_news_weight": "Peso de las noticias en la IA",
@@ -25,7 +28,9 @@ LABELS = {"symbols": "Pares", "strategy": "Estrategia", "disabled_strategies": "
           "scan_interval_sec": "Intervalo de escaneo", "close_before_weekend": "Cierre fin de semana", "min_lot_max_risk": "Tope riesgo lote mínimo %",
           "risk_profile": "Perfil de riesgo", "btc_regime_filter": "Filtro de régimen de BTC", "btc_regime_sma": "SMA diaria del régimen",
           "rotation_enabled": "Rotación semanal por momentum", "entry_order_type": "Tipo de orden de entrada", "max_long_positions": "Máx. posiciones largo plazo",
-          "maker_wait_bars": "Velas de espera orden límite", "rotation_lookback_days": "Días de la rotación"}
+          "maker_wait_bars": "Velas de espera orden límite", "rotation_lookback_days": "Días de la rotación",
+          "be_start_r": "Breakeven (R)", "trail_start_r": "Inicio del trailing (R)", "trail_atr_mult": "Distancia del trailing (ATR)",
+          "partial_tp_enabled": "Cierre parcial", "partial_tp_r": "Nivel del cierre parcial (R)", "partial_tp_pct": "% del cierre parcial"}
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
                   "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21", "multi_horizon": "Multi-Horizonte", "double_divergence": "Divergencia doble"}
 VALUE_LABELS = {"market": "a mercado", "maker": "límite maker"}
@@ -35,7 +40,7 @@ job: dict = {"status": "idle", "started_at": None, "finished_at": None, "result"
 
 async def plan_stats(engine, settings, initial: float) -> dict:
     key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade, settings.leverage,
-           settings.trailing_enabled, settings.max_positions, initial, str(settings.symbol_params), settings.signal_mode,
+           str(trade_rules(settings)), settings.max_positions, initial, str(settings.symbol_params), settings.signal_mode,
            tuple(settings.disabled_strategies))
     hit = _plan_cache.get(key)
     if not hit or time.time() - hit["ts"] > 300:
@@ -73,6 +78,10 @@ async def build_context(engine, db, settings, acc: dict, with_backtest: bool) ->
                                                      "market_fallbacks = pasaron a mercado tras esperar. by_entry_type en rendimiento_real compara el PnL de cada tipo."}
             ctx["largo_plazo"] = {"max_long_positions": settings.max_long_positions, "by_horizon": ctx["rendimiento_real"].get("by_horizon"),
                                   "_explicacion": "Las estrategias Multi-Horizonte (1d) y Divergencia doble (4h) abren operaciones de largo plazo con su propio tope de posiciones; no cuentan en max_positions."}
+            ctx["gestion_salidas"] = {"reglas_actuales": trade_rules(settings), "excursion": await excursion_stats(db),
+                                      "_explicacion": "Recorrido de cada operación cerrada: mfe_r = máximo a favor en R (1 R = distancia al stop inicial), mae_r = máximo en contra, "
+                                                      "mfe_tp_pct = % del camino al TP que llegó a recorrer. near_miss = cerradas sin tocar el TP tras alcanzar ≥ 70 % de él (rebotes). "
+                                                      "partial = operaciones con cierre parcial ejecutado (partial_tp_pct % cerrado a +partial_tp_r R; el resto sigue con trailing)."}
         except Exception as e:
             logger.warning(f"contexto régimen/rotación: {e}")
     wf_latest = await db.wf_checks.find_one({"_id": "latest"}, {"_id": 0, "ran_at": 1, "results": 1})
@@ -132,9 +141,20 @@ async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy:
         patch.pop("entry_order_type")
     if "btc_regime_sma" in patch and patch["btc_regime_sma"] not in REGIME_SMAS:
         patch.pop("btc_regime_sma")
-    for k in ("btc_regime_filter", "rotation_enabled"):
+    for k in ("btc_regime_filter", "rotation_enabled", "partial_tp_enabled"):
         if k in patch and not isinstance(patch[k], bool):
             patch.pop(k)
+    for k, (lo, hi) in EXIT_RANGES.items():
+        if k in patch:
+            try:
+                v = float(patch[k])
+                patch[k] = int(min(max(v, lo), hi)) if k == "partial_tp_pct" else round(min(max(v, lo), hi), 2)
+            except (TypeError, ValueError):
+                patch.pop(k)
+    if "trail_start_r" in patch or "be_start_r" in patch:
+        be = patch.get("be_start_r", getattr(settings, "be_start_r", 1.0))
+        if patch.get("trail_start_r", getattr(settings, "trail_start_r", 1.5)) < be:
+            patch["trail_start_r"] = be
     if "disabled_strategies" in patch:
         dis = [x for x in (patch["disabled_strategies"] if isinstance(patch["disabled_strategies"], list) else []) if x in strategy_keys and x != "all"]
         if len(dis) >= len(strategy_keys) - 1:
@@ -198,7 +218,7 @@ async def _safe_walk_forward(engine, settings, initial: float, sym: str):
     try:
         klines = await engine.market.fetch_history(sym, settings.timeframe, WF_CANDLES)
         wf = await asyncio.to_thread(walk_forward, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
-                                     settings.trailing_enabled, initial, sym, settings.signal_mode, settings.disabled_strategies, settings.symbol_params.get(sym))
+                                     trade_rules(settings), initial, sym, settings.signal_mode, settings.disabled_strategies, settings.symbol_params.get(sym))
         out = {k: wf[k] for k in ("verdict", "verdict_text", "wfe", "oos", "baseline_oos", "is_expectancy_r", "beats_baseline", "params_stable", "params_unique")} | {"folds": len(wf["folds"])}
         if wf["applied"]:
             out["symbol_params_aplicados"] = {k: wf["applied"][k] for k in ("params", "verdict", "verdict_text", "wfe", "oos")}
@@ -219,7 +239,7 @@ async def run_global_optimization(engine, db) -> dict:
         job["step"] = f"Optimizando {sym}"
         klines = await engine.market.fetch_klines(sym, settings.timeframe, 1000, cache_sec=300)
         res = await asyncio.to_thread(optimize, klines, settings.strategy, settings.risk_per_trade, settings.leverage,
-                                      settings.trailing_enabled, initial, sym, settings.signal_mode, settings.disabled_strategies)
+                                      trade_rules(settings), initial, sym, settings.signal_mode, settings.disabled_strategies)
         job["step"] = f"Validando {sym} (walk-forward)"
         wf = await _safe_walk_forward(engine, settings, initial, sym)
         results.append({**res, "timeframe": settings.timeframe, "applied": settings.symbol_params.get(sym), "walk_forward": wf})

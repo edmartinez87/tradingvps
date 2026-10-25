@@ -271,8 +271,15 @@ CRYPTO_MARKET = {
                    "con pnl positivo; entry_order_type ('maker' = orden límite post-only al 0,02 %, 'market' = 0,055 %) → vuelve a 'market' solo si entradas_maker.fill_rate < 40 % y "
                    "by_entry_type muestra que las entradas a mercado tras esperar (market_fallback) pierden claramente frente a las maker; max_long_positions (tope propio de las "
                    "operaciones de largo plazo, 1-6) → ajústalo solo con ≥ 10 operaciones de largo plazo cerradas (largo_plazo.by_horizon). Las estrategias de largo plazo se apagan "
-                   "con disabled_strategies como las demás y requieren la misma evidencia real (≥ min_item_trades operaciones). "),
-    "extra_keys": ", btc_regime_filter (bool), btc_regime_sma (50|200), rotation_enabled (bool), entry_order_type ('market'|'maker'), max_long_positions (1-6)",
+                   "con disabled_strategies como las demás y requieren la misma evidencia real (≥ min_item_trades operaciones). "
+                   "(8) Gestión de salidas (gestion_salidas): be_start_r (R al que el stop pasa a breakeven, 0,5-3), trail_start_r (R desde el que el stop sigue al precio, "
+                   "0,5-3, ≥ be_start_r), trail_atr_mult (distancia del trailing en ATR, 0,5-3), partial_tp_enabled / partial_tp_r (R del cierre parcial, 0,5-3) / partial_tp_pct "
+                   "(% cerrado, 25-75). Ajústalos SOLO con ≥ 20 operaciones con recorrido registrado (gestion_salidas.excursion.tracked) y según la evidencia: si near_miss_pct es alto "
+                   "(muchas salidas por trailing/SL que alcanzaron ≥ 70 % del TP) acerca el cierre parcial (baja partial_tp_r) o aprieta el trailing (baja trail_atr_mult) o reduce el TP "
+                   "vía symbol_params; si las salidas por TRAILING tienen avg_mfe_r alto pero pnl bajo el trailing va demasiado lejos; si avg_mae_r de las ganadoras es alto, el breakeven "
+                   "llega demasiado pronto (sube be_start_r). Un cambio de ±0,25 R / ±0,25 ATR / ±10 % por revisión como máximo. "),
+    "extra_keys": (", btc_regime_filter (bool), btc_regime_sma (50|200), rotation_enabled (bool), entry_order_type ('market'|'maker'), max_long_positions (1-6), "
+                   "be_start_r, trail_start_r, trail_atr_mult, partial_tp_enabled (bool), partial_tp_r, partial_tp_pct"),
 }
 FX_MARKET = {
     "desc": "un bot cuantitativo de forex y metales (cuenta HFM, lotes de 0.01, spread como único coste, horario forex con sesiones Sídney/Tokio/Londres/Nueva York) en modo paper trading",

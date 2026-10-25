@@ -8,7 +8,7 @@ from market import MarketData, HTF
 from indicators import build_df, trend_label, htf_trend
 from strategies import evaluate, STRATEGY_INFO as FAST_INFO
 from strategies_slow import SLOW_INFO, SLOW_KEYS, evaluate_slow
-from risk import FEE_RATE, MAKER_FEE, SLIPPAGE, position_size, pnl, check_exit, update_trailing
+from risk import FEE_RATE, MAKER_FEE, SLIPPAGE, position_size, pnl, check_exit, update_trailing, trade_rules, move_in_r, tp_in_r, partial_qty
 from ai_advisor import evaluate_signal, label as ai_label
 from plan import SCENARIOS, build_checkin, contributions as plan_contributions
 from notify import notify as tg
@@ -227,40 +227,74 @@ class TradingEngine:
                 self.exchange_error = str(e)[:160]
                 logger.warning(f"positions sync: {e}")
         local_syms = set()
+        rules = trade_rules(settings)
         async for doc in self.db.positions.find():
             p = Position.from_mongo(doc)
             local_syms.add(p.symbol)
             if p.live:
                 if ex is not None:
-                    await self._sync_live_position(p, ex.get(p.symbol), tickers.get(p.symbol), settings)
+                    await self._sync_live_position(p, ex.get(p.symbol), tickers.get(p.symbol), settings, rules)
                 continue
             t = tickers.get(p.symbol)
             if not t:
                 continue
-            price = t["price"]
-            hit, reason = check_exit(p.side, p.sl, p.tp, price, price)
-            if hit is not None:
-                if reason == "SL" and p.breakeven:
-                    reason = "TRAILING"
-                await self.close_position(p.id, price, reason)
-                continue
-            updates = {"mark_price": price, "unrealized_pnl": round(pnl(p.side, p.entry_price, price, p.qty), 4)}
-            if settings.trailing_enabled:
-                new_sl, be = update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price)
-                if new_sl != p.sl:
-                    updates.update(sl=new_sl, breakeven=be)
-                    if be and not p.breakeven:
-                        await self.log("RISK", f"{p.symbol}: stop movido a breakeven ({new_sl:.6g})")
-            await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+            await self._manage_paper_position(p, t["price"], rules)
         if ex:
             for sym in set(ex) - local_syms - self._external_warned:
                 self._external_warned.add(sym)
                 await self.log("RISK", f"{sym}: posición externa detectada en Bybit (no gestionada por el bot) · tamaño {ex[sym]['size']}")
-        await monitor_shadows(self, tickers, settings.trailing_enabled)
+        await monitor_shadows(self, tickers, rules)
         await maker.monitor_pending(self, tickers)
         await self._update_account_metrics(settings)
 
-    async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: Settings):
+    def _excursion(self, p: Position, price: float) -> dict:
+        m = move_in_r(p.side, p.entry_price, p.initial_sl, price)
+        return {"mfe_r": round(max(p.mfe_r, m), 3), "mae_r": round(max(p.mae_r, -m), 3)}
+
+    async def _manage_paper_position(self, p: Position, price: float, rules: dict):
+        """One monitor tick for a PAPER position: exits, partial take-profit, trailing and MFE/MAE tracking."""
+        updates = self._excursion(p, price)
+        p.mfe_r, p.mae_r = updates["mfe_r"], updates["mae_r"]
+        hit, reason = check_exit(p.side, p.sl, p.tp, price, price)
+        if hit is not None:
+            await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+            if reason == "SL" and p.breakeven:
+                reason = "TRAILING"
+            await self.close_position(p.id, price, reason)
+            return
+        updates.update(mark_price=price, unrealized_pnl=round(pnl(p.side, p.entry_price, price, p.qty), 4))
+        if rules["partial_tp_enabled"] and not p.partial_done and p.mfe_r >= rules["partial_tp_r"]:
+            part = partial_qty(p.symbol, p.qty, rules["partial_tp_pct"])
+            if part > 0:
+                exit_price = price * (1 - SLIPPAGE) if p.side == "long" else price * (1 + SLIPPAGE)
+                fee = exit_price * part * FEE_RATE
+                gross = pnl(p.side, p.entry_price, exit_price, part)
+                await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - fee}})
+                updates.update(qty=round(p.qty - part, 8), margin=round(p.margin * (p.qty - part) / p.qty, 6), fees=round(p.fees + fee, 6),
+                               partial_done=True, partial_gross=round(p.partial_gross + gross, 6), partial_fees=round(p.partial_fees + fee, 6), initial_qty=p.initial_qty or p.qty,
+                               unrealized_pnl=round(pnl(p.side, p.entry_price, price, p.qty - part), 4))
+                p.qty = updates["qty"]
+                await self._announce_partial(p, part, exit_price, gross - fee, rules)
+            else:
+                updates["partial_done"] = True
+                await self.log("RISK", f"{p.symbol}: cierre parcial omitido · el lote mínimo de Bybit no permite dividir la posición")
+        if rules["trailing_enabled"]:
+            new_sl, be = update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price, rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
+            if new_sl != p.sl:
+                updates.update(sl=new_sl, breakeven=be)
+                if be and not p.breakeven:
+                    await self.log("RISK", f"{p.symbol}: stop movido a breakeven ({new_sl:.6g})")
+        await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+
+    async def _announce_partial(self, p: Position, part: float, exit_price: float, net: float, rules: dict):
+        tag = "REAL " if p.live else ""
+        await self.log("ORDER", f"PARCIAL {tag}{p.side.upper()} {p.symbol}: cerrado {rules['partial_tp_pct']}% ({part:.6g}) @ {exit_price:.6g} a +{rules['partial_tp_r']:g}R · "
+                                f"PnL {net:+.2f} USDT · resto {p.qty:.6g} sigue con trailing")
+        await tg(f"🎯 <b>PARCIAL {tag}{p.side.upper()} {p.symbol}</b> @ {exit_price:.6g} (+{rules['partial_tp_r']:g}R)\n"
+                 f"Cerrado {rules['partial_tp_pct']}% · PnL {net:+.2f} USDT · resto {p.qty:.6g} con trailing", "orders")
+
+    async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: Settings, rules: dict = None):
+        rules = rules or trade_rules(settings)
         if not ex:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(p.opened_at)).total_seconds()
             if age < 20:
@@ -276,11 +310,28 @@ class TradingEngine:
                 await self._close_live_from_exchange(p)
                 return
         price = ex["mark"] or (ticker or {}).get("price") or p.mark_price
-        updates = {"mark_price": price, "unrealized_pnl": round(ex["unrealised"], 4)}
+        updates = {"mark_price": price, "unrealized_pnl": round(ex["unrealised"], 4), **self._excursion(p, price)}
+        p.mfe_r, p.mae_r = updates["mfe_r"], updates["mae_r"]
         if abs(ex["size"] - p.qty) > 1e-9:
             updates["qty"] = ex["size"]
-        if settings.trailing_enabled:
-            new_sl, be = update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price)
+        if rules["partial_tp_enabled"] and not p.partial_done and p.mfe_r >= rules["partial_tp_r"]:
+            part = partial_qty(p.symbol, p.qty, rules["partial_tp_pct"])
+            if part > 0:
+                try:
+                    r = await self.broker.close(p.symbol, p.side, part)
+                    exit_price = r["exit"] or price
+                    gross = pnl(p.side, p.entry_price, exit_price, part)
+                    updates.update(qty=round(p.qty - part, 8), margin=round(p.margin * (p.qty - part) / p.qty, 6), fees=round(p.fees + r["fee"], 6),
+                                   partial_done=True, partial_gross=round(p.partial_gross + gross, 6), partial_fees=round(p.partial_fees + r["fee"], 6), initial_qty=p.initial_qty or p.qty)
+                    p.qty = updates["qty"]
+                    await self._announce_partial(p, part, exit_price, gross - r["fee"], rules)
+                except Exception as e:
+                    await self.log("ERROR", f"{p.symbol}: cierre parcial REAL fallido · {str(e)[:120]}")
+            else:
+                updates["partial_done"] = True
+                await self.log("RISK", f"{p.symbol}: cierre parcial omitido · el lote mínimo de Bybit no permite dividir la posición")
+        if rules["trailing_enabled"]:
+            new_sl, be = update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price, rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
             if new_sl != p.sl and abs(new_sl - p.sl) / p.sl > 0.0005:
                 try:
                     await self.broker.set_stop(p.symbol, new_sl)
@@ -300,18 +351,24 @@ class TradingEngine:
             except Exception as e:
                 logger.warning(f"closed_pnl {p.symbol}: {e}")
             price = (cr or {}).get("exit") or p.mark_price
-            fees = (cr or {}).get("fee") or p.fees
-            net = cr["pnl"] if cr else pnl(p.side, p.entry_price, price, p.qty) - p.fees
+            fees = ((cr or {}).get("fee") or p.fees) + (p.partial_fees if cr else 0.0)
+            net = (cr["pnl"] + p.partial_gross - p.partial_fees) if cr else pnl(p.side, p.entry_price, price, p.qty) + p.partial_gross - p.fees
             reason = "TP" if abs(price - p.tp) <= abs(price - p.sl) else ("TRAILING" if p.breakeven else "SL")
             await self.db.positions.delete_one({"_id": ObjectId(p.id)})
             trade = await self._record_trade(p, price, net, fees, reason)
         await self._announce_close(p, trade, reason)
 
     async def _record_trade(self, p: Position, price: float, net: float, fees: float, reason: str) -> Trade:
+        tp_r = tp_in_r(p.side, p.entry_price, p.initial_sl, p.tp)
+        mfe = max(p.mfe_r, move_in_r(p.side, p.entry_price, p.initial_sl, price))
+        hold = (datetime.now(timezone.utc) - datetime.fromisoformat(p.opened_at)).total_seconds() / 60
+        margin = p.margin * (p.initial_qty / p.qty) if p.initial_qty and p.qty else p.margin
         trade = Trade(symbol=p.symbol, side=p.side, strategy=p.strategy, entry_price=p.entry_price, exit_price=price,
-                      qty=p.qty, leverage=p.leverage, margin=p.margin, pnl=round(net, 4),
-                      pnl_pct=round(net / p.margin * 100, 2) if p.margin else 0, fees=round(fees, 4),
-                      reason=reason, opened_at=p.opened_at, live=p.live, horizon=p.horizon, entry_type=p.entry_type)
+                      qty=p.initial_qty or p.qty, leverage=p.leverage, margin=round(margin, 6), pnl=round(net, 4),
+                      pnl_pct=round(net / margin * 100, 2) if margin else 0, fees=round(fees, 4),
+                      reason=reason, opened_at=p.opened_at, live=p.live, horizon=p.horizon, entry_type=p.entry_type,
+                      mfe_r=round(mfe, 2), mae_r=round(p.mae_r, 2), mfe_tp_pct=round(mfe / tp_r * 100, 1) if tp_r else 0.0,
+                      partial_tp=p.partial_done and bool(p.partial_gross), hold_min=round(hold, 1))
         res = await self.db.trades.insert_one(trade.to_mongo())
         trade.id = str(res.inserted_id)
         return trade
@@ -404,7 +461,7 @@ class TradingEngine:
                         return None
                 entry, qty, fee = (r["entry"] or entry), r["qty"], r["fee"]
                 margin = qty * entry / settings.leverage
-                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty, initial_qty=qty,
                                leverage=settings.leverage, margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"],
                                fees=fee, mark_price=price, signal_id=signal_id, live=True, order_id=r["order_id"], link_id=r["link_id"],
                                horizon=horizon, entry_type=entry_type)
@@ -420,7 +477,7 @@ class TradingEngine:
                     self._open_fail = "tamaño por debajo del lote mínimo de Bybit o margen insuficiente"
                     return None
                 fee = entry * qty * fee_rate
-                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty,
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=qty, initial_qty=qty,
                                leverage=settings.leverage, margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"],
                                fees=fee, mark_price=price, signal_id=signal_id, horizon=horizon, entry_type=entry_type)
                 res = await self.db.positions.insert_one(pos.to_mongo())
@@ -463,8 +520,8 @@ class TradingEngine:
                 except Exception as e:
                     logger.warning(f"closed_pnl {p.symbol}: {e}")
                 price = (cr or {}).get("exit") or r["exit"] or self.market.tickers.get(p.symbol, {}).get("price") or p.mark_price
-                fees = (cr or {}).get("fee") or (p.fees + r["fee"])
-                net = cr["pnl"] if cr else pnl(p.side, p.entry_price, price, p.qty) - p.fees - r["fee"]
+                fees = ((cr or {}).get("fee") or (p.fees + r["fee"])) + (p.partial_fees if cr else 0.0)
+                net = (cr["pnl"] + p.partial_gross - p.partial_fees) if cr else pnl(p.side, p.entry_price, price, p.qty) + p.partial_gross - p.fees - r["fee"]
                 await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
             else:
                 await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
@@ -473,7 +530,7 @@ class TradingEngine:
                     price = price * (1 - SLIPPAGE) if p.side == "long" else price * (1 + SLIPPAGE)
                 exit_fee = price * p.qty * FEE_RATE
                 gross = pnl(p.side, p.entry_price, price, p.qty)
-                net = gross - p.fees - exit_fee
+                net = gross + p.partial_gross - p.fees - exit_fee
                 fees = p.fees + exit_fee
                 await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - exit_fee}})
             trade = await self._record_trade(p, price, net, fees, reason)

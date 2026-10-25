@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 import wfcheck
 from models import OptimizeRequest, AVAILABLE_SYMBOLS
+from risk import trade_rules
 from optimizer import walk_forward, WF_CANDLES
 from deps import engine, db, store, protected_router
 
@@ -22,7 +23,7 @@ async def optimize_walk_forward(req: OptimizeRequest):
     s = await engine.get_settings()
     acc = await db.account.find_one({"_id": "main"}, {"initial_balance": 1})
     klines = await engine.market.fetch_history(req.symbol, s.timeframe, WF_CANDLES)
-    res = await asyncio.to_thread(walk_forward, klines, s.strategy, s.risk_per_trade, s.leverage, s.trailing_enabled, acc["initial_balance"],
+    res = await asyncio.to_thread(walk_forward, klines, s.strategy, s.risk_per_trade, s.leverage, trade_rules(s), acc["initial_balance"],
                                   req.symbol, s.signal_mode, s.disabled_strategies, s.symbol_params.get(req.symbol))
     return {**res, "timeframe": s.timeframe, "applied_params": s.symbol_params.get(req.symbol)}
 

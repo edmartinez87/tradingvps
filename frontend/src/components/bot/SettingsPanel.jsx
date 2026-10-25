@@ -19,7 +19,7 @@ const NUMS = [
 ];
 const TOGGLES = [
   { k: "ai_enabled", label: "Confirmación con IA", hint: "La IA aprueba o rechaza cada señal" },
-  { k: "trailing_enabled", label: "Breakeven + trailing stop", hint: "BE a +1R, trailing ATR desde +1.5R" },
+  { k: "trailing_enabled", label: "Breakeven + trailing stop", hint: "Stop a breakeven y trailing por ATR según los niveles en R configurados abajo" },
   { k: "htf_filter", label: "Filtro de temporalidad superior", hint: "No operar contra la tendencia mayor" },
 ];
 const CHIP = "relative rounded-sm border px-2 py-1 font-mono text-[10px] transition-colors";

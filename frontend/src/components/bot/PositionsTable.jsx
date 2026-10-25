@@ -61,11 +61,11 @@ export default function PositionsTable({ positions, onClose, onCloseAll }) {
                 <TD right className="text-slate-100">{fmtPrice(p.mark_price)}</TD>
                 <TD right className="text-rose-400">{fmtPrice(p.sl)}{p.breakeven && <span className="ml-1 text-[9px] text-amber-400">BE</span>}</TD>
                 <TD right className="text-emerald-400">{fmtPrice(p.tp)}</TD>
-                <TD right>{fmtQty(p.qty)}</TD>
+                <TD right>{fmtQty(p.qty)}{p.partial_done && p.partial_gross ? <span data-testid={`position-partial-${p.id}`} className="ml-1 rounded-sm bg-emerald-500/20 px-1 text-[9px] text-emerald-300" title={`Cierre parcial ejecutado · ${fmtSignedUsd(p.partial_gross - (p.partial_fees || 0))} realizados`}>½</span> : null}</TD>
                 <TD right>{fmtUsd(p.margin)}</TD>
                 <TD right className={pnlClass(p.unrealized_pnl)}>
                   <span data-testid={`position-pnl-${p.id}`}>{fmtSignedUsd(p.unrealized_pnl)}</span>
-                  <span className="block text-[10px]">{pct.toFixed(2)}%</span>
+                  <span className="block text-[10px]">{pct.toFixed(2)}%{p.mfe_r > 0 && <span data-testid={`position-mfe-${p.id}`} className="ml-1 text-slate-500" title="Máximo recorrido a favor (en R)">· máx +{p.mfe_r.toFixed(1)}R</span>}</span>
                 </TD>
                 <TD right>
                   <button data-testid={`close-position-${p.id}`} onClick={() => onClose(p.id)}

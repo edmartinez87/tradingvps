@@ -5,6 +5,7 @@ import { Empty } from "./Panel";
 import { TH, TD } from "./PositionsTable";
 import { http, fmtSignedUsd, fmtUsd, pnlClass, STRATEGY_LABELS, STRATEGY_KEYS, REASON_LABELS, HORIZON_LABELS, ENTRY_LABELS, activeStrategies } from "@/lib/api";
 import ShadowStats from "./performance/ShadowStats";
+import ExcursionStats from "./performance/ExcursionStats";
 
 const SIDE = { long: "Long", short: "Short" };
 const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", FUNDING: "Bloqueadas funding", REGIMEN: "Bloqueadas régimen BTC", ROTACION: "Bloqueadas rotación", MERCADO: "Mercado cerrado", SESION: "Fuera de sesión", SIN_IA: "Sin IA", ERROR: "Error IA" };
@@ -102,6 +103,7 @@ export default function Performance({ tradeCount, settings, onSave, strategyKeys
           ))}
         </div>
       )}
+      <ExcursionStats data={data.excursion} />
       <ShadowStats data={data.shadow} />
     </div>
   );

@@ -66,7 +66,34 @@ class Settings(BaseModel):
     entry_order_type: str = "maker"
     maker_wait_bars: int = 2
     max_long_positions: int = 2
+    be_start_r: float = 1.0
+    trail_start_r: float = 1.5
+    trail_atr_mult: float = 1.0
+    partial_tp_enabled: bool = True
+    partial_tp_r: float = 1.5
+    partial_tp_pct: int = 50
     bot_running: bool = False
+
+    @field_validator("be_start_r", "trail_start_r", "partial_tp_r")
+    @classmethod
+    def _r_levels(cls, v):
+        if not 0.5 <= v <= 3.0:
+            raise ValueError("nivel en R fuera de rango (0,5–3)")
+        return v
+
+    @field_validator("trail_atr_mult")
+    @classmethod
+    def _trail_atr(cls, v):
+        if not 0.5 <= v <= 3.0:
+            raise ValueError("distancia del trailing fuera de rango (0,5–3 ATR)")
+        return v
+
+    @field_validator("partial_tp_pct")
+    @classmethod
+    def _partial_pct(cls, v):
+        if not 25 <= v <= 75:
+            raise ValueError("porcentaje de cierre parcial fuera de rango (25–75)")
+        return v
 
     @field_validator("btc_regime_sma")
     @classmethod
@@ -174,6 +201,12 @@ class SettingsUpdate(BaseModel):
     entry_order_type: Optional[str] = None
     maker_wait_bars: Optional[int] = Field(default=None, ge=1, le=3)
     max_long_positions: Optional[int] = Field(default=None, ge=1, le=6)
+    be_start_r: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    trail_start_r: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    trail_atr_mult: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    partial_tp_enabled: Optional[bool] = None
+    partial_tp_r: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    partial_tp_pct: Optional[int] = Field(default=None, ge=25, le=75)
 
 
 class Position(BaseDocument):
@@ -199,6 +232,12 @@ class Position(BaseDocument):
     expires_at: Optional[str] = None
     horizon: str = "short"
     entry_type: str = "market"
+    initial_qty: Optional[float] = None
+    mfe_r: float = 0.0
+    mae_r: float = 0.0
+    partial_done: bool = False
+    partial_gross: float = 0.0
+    partial_fees: float = 0.0
     opened_at: str = Field(default_factory=now_iso)
 
 
@@ -220,6 +259,11 @@ class Trade(BaseDocument):
     period: str = ""
     horizon: str = "short"
     entry_type: str = "market"
+    mfe_r: float = 0.0
+    mae_r: float = 0.0
+    mfe_tp_pct: float = 0.0
+    partial_tp: bool = False
+    hold_min: float = 0.0
     closed_at: str = Field(default_factory=now_iso)
 
 

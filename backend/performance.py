@@ -40,13 +40,37 @@ async def maker_stats(db) -> dict:
             "fee_saved": round(maker["notional"] * (FEE_RATE - MAKER_FEE), 2), "pending": await db.pending_entries.count_documents({})}
 
 
+async def excursion_stats(db, since: str = None) -> dict:
+    """Trade path analytics: how far trades went in favour (MFE) / against (MAE) in R, by exit reason; «near misses» = closed
+    not at TP after reaching ≥ 70 % of the TP distance; partial take-profit usage."""
+    match = {"mfe_r": {"$exists": True}}
+    if since:
+        match["closed_at"] = {"$gte": since}
+    pipe = [{"$match": match},
+            {"$group": {"_id": "$reason", "n": {"$sum": 1}, "mfe": {"$avg": "$mfe_r"}, "mae": {"$avg": "$mae_r"}, "mfe_tp": {"$avg": "$mfe_tp_pct"},
+                        "near": {"$sum": {"$cond": [{"$and": [{"$ne": ["$reason", "TP"]}, {"$gte": ["$mfe_tp_pct", 70]}]}, 1, 0]}},
+                        "pnl": {"$sum": "$pnl"}, "hold": {"$avg": "$hold_min"}}}, {"$sort": {"n": -1}}]
+    rows = await db.trades.aggregate(pipe).to_list(20)
+    by_reason = [{"key": r["_id"], "trades": r["n"], "avg_mfe_r": round(r["mfe"] or 0, 2), "avg_mae_r": round(r["mae"] or 0, 2),
+                  "avg_mfe_tp_pct": round(r["mfe_tp"] or 0, 1), "near_miss": r["near"], "pnl": round(r["pnl"], 2), "avg_hold_min": round(r["hold"] or 0)} for r in rows]
+    total = sum(r["trades"] for r in by_reason)
+    near = sum(r["near_miss"] for r in by_reason)
+    part = await db.trades.aggregate([{"$match": {**match, "partial_tp": True}}, {"$group": {"_id": None, "n": {"$sum": 1}, "pnl": {"$sum": "$pnl"}, "wins": {"$sum": {"$cond": [{"$gt": ["$pnl", 0]}, 1, 0]}}}}]).to_list(1)
+    p = part[0] if part else {"n": 0, "pnl": 0.0, "wins": 0}
+    return {"tracked": total, "by_reason": by_reason, "near_miss": near, "near_miss_pct": round(near / total * 100, 1) if total else 0,
+            "avg_mfe_r": round(sum(r["avg_mfe_r"] * r["trades"] for r in by_reason) / total, 2) if total else 0,
+            "avg_mae_r": round(sum(r["avg_mae_r"] * r["trades"] for r in by_reason) / total, 2) if total else 0,
+            "partial": {"trades": p["n"], "pnl": round(p["pnl"], 2), "win_rate": round(p["wins"] / p["n"] * 100, 1) if p["n"] else 0},
+            "open_partials": await db.positions.count_documents({"partial_done": True, "partial_gross": {"$ne": 0}})}
+
+
 async def performance(db, shadow=shadow_stats) -> dict:
     decisions = {r["_id"]: r["n"] async for r in db.signals.aggregate([{"$group": {"_id": "$ai_decision", "n": {"$sum": 1}}}])}
     return {
         "by_strategy": await _group(db, "strategy"), "by_symbol": await _group(db, "symbol"),
         "by_side": await _group(db, "side"), "by_reason": await _group(db, "reason"),
         "by_horizon": await _group(db, "horizon"), "by_entry_type": await _group(db, "entry_type"),
-        "maker": await maker_stats(db),
+        "maker": await maker_stats(db), "excursion": await excursion_stats(db),
         "signals": {"total": sum(decisions.values()), "executed": await db.signals.count_documents({"executed": True}),
                     "by_decision": decisions},
         "shadow": await shadow(db),

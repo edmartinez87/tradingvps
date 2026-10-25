@@ -31,7 +31,14 @@ export default function TradeHistory({ trades }) {
               <TD><SideBadge side={t.side} /></TD>
               <TD right>{fmtPrice(t.entry_price)}</TD>
               <TD right>{fmtPrice(t.exit_price)}</TD>
-              <TD><span className={`rounded-sm border px-1.5 py-0.5 text-[10px] uppercase ${REASON_CLS[t.reason]}`}>{REASON_LABELS[t.reason]}</span></TD>
+              <TD><span className={`rounded-sm border px-1.5 py-0.5 text-[10px] uppercase ${REASON_CLS[t.reason]}`}>{REASON_LABELS[t.reason]}</span>
+                {t.mfe_r != null && t.mfe_tp_pct != null && (
+                  <span data-testid={`trade-mfe-${t.id}`} className={`mt-0.5 block text-[10px] ${t.reason !== "TP" && t.mfe_tp_pct >= 70 ? "text-amber-300" : "text-slate-500"}`}
+                    title={`Máximo a favor +${t.mfe_r} R (${t.mfe_tp_pct} % del camino al TP) · máximo en contra ${t.mae_r} R${t.partial_tp ? " · con cierre parcial" : ""}`}>
+                    máx +{t.mfe_r}R · {Math.round(t.mfe_tp_pct)}% TP{t.partial_tp && <span className="ml-1 rounded-sm bg-emerald-500/20 px-1 text-[9px] text-emerald-300">½</span>}
+                  </span>
+                )}
+              </TD>
               <TD right className="text-slate-500">{t.fees.toFixed(2)}</TD>
               <TD right className={pnlClass(t.pnl)}>
                 {fmtSignedUsd(t.pnl)}

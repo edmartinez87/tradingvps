@@ -1,6 +1,7 @@
 from datetime import datetime, timezone, timedelta
 import numpy as np
 from backtest import run_backtest
+from risk import trade_rules
 from indicators import build_df
 
 WITHDRAW_PCT = 80
@@ -97,7 +98,7 @@ async def backtest_stats(fetch_klines, settings, initial: float) -> dict:
     for sym in settings.symbols:
         params = settings.symbol_params.get(sym) or {}
         df = build_df(await fetch_klines(sym, settings.timeframe, 1000, cache_sec=300), int(params.get("atr_period", 14)))
-        results.append((sym, run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, sym, params,
+        results.append((sym, run_backtest(df, settings.strategy, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial, sym, params,
                                           settings.signal_mode, settings.disabled_strategies)))
     return summarize(results, settings)
 

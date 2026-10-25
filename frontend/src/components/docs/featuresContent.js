@@ -49,7 +49,8 @@ export function buildFeatures(bot) {
       text: "El tamaño de cada orden se calcula con la equidad real del momento (incluidos tus depósitos) y nunca arriesga más del porcentaje que fijes.",
       bullets: [
         `Riesgo fijo por operación (por defecto 1 % de la equidad), stop por ATR (1,5×) y objetivo por ATR (3×) con R:R mínimo 1:2; ${fx ? "lotes cuantizados al paso del bróker (0,01) y la opción de usar el lote mínimo cuando el riesgo real sigue dentro del tope que indiques" : "cantidades ajustadas al lote y al nocional mínimo de Bybit"}.`,
-        "Protección dinámica: el stop pasa a breakeven al alcanzar +1R y a partir de +1,5R sigue al precio con un trailing basado en ATR.",
+        fx ? "Protección dinámica: el stop pasa a breakeven al alcanzar +1R y a partir de +1,5R sigue al precio con un trailing basado en ATR."
+           : "Protección dinámica configurable: breakeven a +N R, trailing por ATR desde +N R con distancia ajustable y cierre parcial (p. ej. 50 % a +1,5R) dejando correr el resto. Cada operación registra su recorrido (máximo a favor/en contra en R y % del TP alcanzado); en Rendimiento ves cuántas «rozaron el TP sin tocarlo» y la IA ajusta breakeven, trailing, cierre parcial y TP con esa evidencia (mínimo 20 operaciones).",
         "Límite de pérdida diaria: al tocarlo el bot deja de abrir hasta el siguiente día UTC. Tope de posiciones simultáneas, un par por posición y cierre por tiempo máximo (72 h).",
         `Cinco perfiles de riesgo con un deslizador (Conservador → Máximo) que ajustan pares, temporalidad, criterios, filtro de IA, riesgo, posiciones, ${fx ? "apalancamiento 1:100–1:500" : "apalancamiento 3x–10x"} y límite diario de golpe, con confirmación en los niveles agresivos.`,
         "Los depósitos y retiros se detectan y se excluyen del PnL diario, del límite diario, del retorno total y del drawdown: un aporte nunca parece ganancia ni un retiro una pérdida.",

@@ -162,8 +162,12 @@ function Dashboard({ onLogout }) {
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active} strategyKeys={meta?.strategy_keys} longKeys={meta?.long_horizon_keys}
-            extraNums={[{ k: "max_long_positions", label: "Máx. posiciones largo plazo", min: 1, max: 6, step: 1 }, { k: "maker_wait_bars", label: "Espera orden maker (velas)", min: 1, max: 3, step: 1 }]}
-            extraToggles={[{ k: "btc_regime_filter", label: "Filtro régimen BTC", hint: "Cortos plazos solo a favor de BTC vs SMA200 diaria" }, { k: "rotation_enabled", label: "Rotación semanal", hint: "Momentum 7 d ponderado por volumen: sesgo y tamaño por par" }]}
+            extraNums={[{ k: "max_long_positions", label: "Máx. posiciones largo plazo", min: 1, max: 6, step: 1 }, { k: "maker_wait_bars", label: "Espera orden maker (velas)", min: 1, max: 3, step: 1 },
+              { k: "be_start_r", label: "Breakeven a (R)", min: 0.5, max: 3, step: 0.25 }, { k: "trail_start_r", label: "Trailing desde (R)", min: 0.5, max: 3, step: 0.25 },
+              { k: "trail_atr_mult", label: "Distancia trailing (ATR)", min: 0.5, max: 3, step: 0.25 }, { k: "partial_tp_r", label: "Cierre parcial a (R)", min: 0.5, max: 3, step: 0.25 },
+              { k: "partial_tp_pct", label: "Cierre parcial (%)", min: 25, max: 75, step: 5 }]}
+            extraToggles={[{ k: "btc_regime_filter", label: "Filtro régimen BTC", hint: "Cortos plazos solo a favor de BTC vs SMA200 diaria" }, { k: "rotation_enabled", label: "Rotación semanal", hint: "Momentum 7 d ponderado por volumen: sesgo y tamaño por par" },
+              { k: "partial_tp_enabled", label: "Cierre parcial de beneficios", hint: "Cierra una parte al alcanzar el nivel en R y deja correr el resto con trailing" }]}
             onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")}
             onProfile={(level) => act(() => http.post("/profile", { level }), `Perfil de riesgo aplicado: ${meta?.profiles?.[level]?.name || level}`)} />
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />
