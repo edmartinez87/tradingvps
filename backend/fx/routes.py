@@ -368,7 +368,7 @@ async def rebase_account():
 
 @router.get("/performance")
 async def get_performance():
-    return await performance(engine.db, fx_shadow_stats)
+    return await performance(engine.db, fx_shadow_stats, with_excursion=False)
 
 
 @router.get("/evolution")

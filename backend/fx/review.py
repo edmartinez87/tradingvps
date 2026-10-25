@@ -26,7 +26,7 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
     ctx = {"mercado": "forex y metales (HFM, paper trading)" if not engine.live else "forex y metales (HFM, cuenta REAL vía MetaApi)",
            "settings_actuales": settings.model_dump(exclude={"bot_running"}), "cuenta": acc,
            "perfil_riesgo": {"nivel": pol["level"], "nombre": pol["name"], "topes_ia": pol["caps"]},
-           "rendimiento_real": await performance(engine.db, fx_shadow_stats), "chequeo_plan": await engine.checkin(settings, acc),
+           "rendimiento_real": await performance(engine.db, fx_shadow_stats, with_excursion=False), "chequeo_plan": await engine.checkin(settings, acc),
            "sesiones": {"ahora": market_status()["sessions"], "permitidas": settings.sessions_allowed or "todas", "ids": SESSION_NAMES},
            "motivos_rechazo_recientes_ia": await recent_rejections(engine.db)}
     ctx["rendimiento_real"]["shadow"]["_explicacion"] = (

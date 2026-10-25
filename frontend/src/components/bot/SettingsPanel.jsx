@@ -19,7 +19,7 @@ const NUMS = [
 ];
 const TOGGLES = [
   { k: "ai_enabled", label: "Confirmación con IA", hint: "La IA aprueba o rechaza cada señal" },
-  { k: "trailing_enabled", label: "Breakeven + trailing stop", hint: "Stop a breakeven y trailing por ATR según los niveles en R configurados abajo" },
+  { k: "trailing_enabled", label: "Breakeven + trailing stop", hint: "BE a +1R, trailing ATR desde +1.5R" },
   { k: "htf_filter", label: "Filtro de temporalidad superior", hint: "No operar contra la tendencia mayor" },
 ];
 const CHIP = "relative rounded-sm border px-2 py-1 font-mono text-[10px] transition-colors";
@@ -48,7 +48,8 @@ export default function SettingsPanel({ settings, meta, profileActive, onSave, o
   const toggleIn = (k, id) => { const cur = form[k] || []; set(k, cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]); };
   const active = activeStrategies(form, strategyKeys);
   const nums = [...NUMS.map((n) => (n.k === "leverage" ? { ...n, max: leverageMax } : n.k === "max_positions" ? { ...n, max: maxPositions } : n)), ...extraNums];
-  const toggles = [...TOGGLES, ...extraToggles];
+  const toggles = [...TOGGLES.map((t) => (t.k === "trailing_enabled" && extraNums.some((n) => n.k === "be_start_r")
+    ? { ...t, hint: "Stop a breakeven y trailing por ATR según los niveles en R de los campos superiores" } : t)), ...extraToggles];
   const toggleStrat = (k) => {
     const next = active.includes(k) ? active.filter((x) => x !== k) : [...active, k];
     if (!next.length) return;

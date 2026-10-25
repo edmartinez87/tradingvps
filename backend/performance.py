@@ -64,13 +64,13 @@ async def excursion_stats(db, since: str = None) -> dict:
             "open_partials": await db.positions.count_documents({"partial_done": True, "partial_gross": {"$ne": 0}})}
 
 
-async def performance(db, shadow=shadow_stats) -> dict:
+async def performance(db, shadow=shadow_stats, with_excursion: bool = True) -> dict:
     decisions = {r["_id"]: r["n"] async for r in db.signals.aggregate([{"$group": {"_id": "$ai_decision", "n": {"$sum": 1}}}])}
     return {
         "by_strategy": await _group(db, "strategy"), "by_symbol": await _group(db, "symbol"),
         "by_side": await _group(db, "side"), "by_reason": await _group(db, "reason"),
         "by_horizon": await _group(db, "horizon"), "by_entry_type": await _group(db, "entry_type"),
-        "maker": await maker_stats(db), "excursion": await excursion_stats(db),
+        "maker": await maker_stats(db), "excursion": await excursion_stats(db) if with_excursion else None,
         "signals": {"total": sum(decisions.values()), "executed": await db.signals.count_documents({"executed": True}),
                     "by_decision": decisions},
         "shadow": await shadow(db),

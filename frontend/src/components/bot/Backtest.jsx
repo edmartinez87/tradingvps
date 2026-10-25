@@ -100,6 +100,7 @@ export default function Backtest({ meta, settings, intro = DEFAULT_INTRO }) {
             {res.total_pips != null && <Metric label="Pips netos" value={`${res.total_pips > 0 ? "+" : ""}${res.total_pips}`} tone={res.total_pips} testId="backtest-pips" />}
             {res.excursion && <Metric label="Rozaron el TP sin tocarlo" value={`${res.excursion.near_miss} (${res.excursion.near_miss_pct}%)`} tone={res.excursion.near_miss ? -1 : 0} testId="backtest-near-miss" />}
             {res.excursion && <Metric label="Recorrido medio a favor" value={`+${res.excursion.avg_mfe_r} R`} tone={1} testId="backtest-mfe" />}
+            {res.excursion && <Metric label="Recorrido medio en contra" value={`${res.excursion.avg_mae_r} R`} tone={-1} testId="backtest-mae" />}
             {res.excursion && <Metric label="Cierres parciales" value={res.excursion.partial_closes} testId="backtest-partials" />}
             {res.total_pips != null && <Metric label="Pips / operación" value={`${res.avg_pips > 0 ? "+" : ""}${res.avg_pips}`} tone={res.avg_pips} testId="backtest-avg-pips" />}
             {res.weekend_closed != null && <Metric label="Cierres fin de semana" value={res.weekend_closed} testId="backtest-weekend" />}

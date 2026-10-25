@@ -1,0 +1,33 @@
+{
+  "summary": "Pruebas SOLO FRONTEND (Playwright, 1920x1080) de excursión MFE/MAE, breakeven y trailing ajustables y cierre parcial. Bot cripto (/bybit): los 5 inputs y el switch existen con los data-testid esperados y los valores actuales son correctos. Guardar 40 % / 0.75 R muestra el toast 'Configuración guardada' y GET /api/settings devuelve partial_tp_pct 40 y be_start_r 0.75. Con 90 % no aparece ningún error 422: el frontend recorta el valor a 75 a propósito (lógica de recorte ya existente en SettingsPanel), muestra el toast 'Valores ajustados al rango permitido: Cierre parcial → 75' y GUARDA 75. Ajustes restaurados (be_start_r 1, partial_tp_pct 50, comprobado por GET). En Rendimiento cripto aparecen excursion-stats y excursion-empty, con el bloque Shadow debajo. El hint del toggle ya no tiene +1R/+1.5R fijos. Backtest SOLUSDT, Multi-estrategia, 1h: 29 operaciones; backtest-near-miss '5 (17.2%)', backtest-mfe '+1.25 R', backtest-partials '7'; la lista de operaciones se muestra. La documentación cripto menciona 'cierre parcial' y 'rozaron el TP'; la FX mantiene el texto clásico +1R/+1,5R. FX: los nuevos inputs no aparecen, pero Rendimiento FX SÍ muestra el bloque 'Recorrido de las operaciones' (contrario a lo pedido). No hay errores de página.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "FX Performance (/hotforex → fx-tab-performance)", "issue": "Se muestra el bloque 'Recorrido de las operaciones' (excursion-stats + excursion-empty) en el bot FX, aunque la función es solo cripto. Causa raíz: performance.py:73 devuelve 'excursion': await excursion_stats(db) sin distinguir el bot (FX recibe {tracked:0,...}), y Performance.jsx:106 lo pinta siempre que data.excursion no sea nulo. Además, el texto del bloque promete que la IA ajustará breakeven, trailing y cierre parcial, algo que en FX no existe.", "selector": "[data-testid='excursion-stats']", "priority": "MEDIUM"},
+      {"component": "FX SettingsPanel, toggle 'Breakeven + trailing stop'", "issue": "El hint es compartido (SettingsPanel.jsx:22): 'según los niveles en R configurados abajo'. En FX no hay esos inputs (FX usa +1R/+1,5R fijos), así que el texto confunde.", "selector": "[data-testid='settings-trailing-enabled-switch']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Validación de 'Cierre parcial (%)' = 90", "issue": "Lo esperado era un error 422 o un toast de valor inválido sin guardar. Lo que ocurre: el frontend recorta a 75 antes de enviar (diseño ya existente para todos los extraNums), avisa con un toast informativo y guarda 75. El backend nunca recibe 90. Es una decisión de diseño, no un fallo. Hay que confirmar si es el comportamiento deseado.", "affected_selectors": ["settings-partial-tp-pct-input", "settings-save-button"]}
+    ],
+    "design_issues": [
+      {"screen": "Backtest cripto, cuadrícula de métricas", "issues": ["Con 11 métricas en una cuadrícula de 4 columnas, la última fila deja una celda vacía con el fondo del borde (#1E293B) visible como un bloque azulado. Se puede añadir una métrica de relleno o usar col-span."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Ocultar el bloque 'Recorrido' en FX: devolver excursion=None para el bot FX en performance.py (p. ej. condicionado a hasattr(settings,'partial_tp_enabled'), como ya hace weekly.py:69) o pasar una prop crypto-only a Performance.jsx",
+    "Hacer configurable el hint del toggle trailing_enabled por bot: en FX, volver a 'breakeven a +1R y trailing desde +1,5R'",
+    "(Opcional) Confirmar que recortar 90→75 en el cliente es aceptable frente a un error de validación",
+    "(Opcional) Rellenar la celda vacía de la cuadrícula de métricas del backtest"
+  ],
+  "critical_code_review_comments": [
+    "performance.py comparte excursion_stats para ambos bots sin filtro de tipo de bot; weekly.py sí lo condiciona con hasattr(settings,'partial_tp_enabled'). Es inconsistente.",
+    "SettingsPanel.jsx: el hint de trailing_enabled está fijo para ambos bots aunque solo cripto tiene niveles configurables."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "no probado (solo frontend)", "frontend": "90% (todos los puntos cripto pasan; la regresión FX falla porque se muestra el bloque Recorrido)"},
+  "seed_data_creation": "Ninguno. Ajustes modificados y restaurados: be_start_r 1, partial_tp_pct 50 (comprobado por GET /api/settings)",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "La pestaña Rendimiento FX tiene data-testid fx-tab-performance (cripto: tab-performance). Los inputs siguen el patrón settings-<k con guiones>-input/-switch. El recorte por rango ocurre en el cliente (SettingsPanel.jsx:62-75), así que la UI nunca dispara un 422 en los extraNums. El bot cripto se dejó DETENIDO en paper."
+}
