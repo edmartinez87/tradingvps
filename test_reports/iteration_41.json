@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only test of iteration 48 HotForex FX filters (route /hotforex) at 1920x1080. All 10 requested flows pass with no console errors: login, FX dashboard load, Filtros tab (USD regime/exposure/rollover/FOMC/vol/seasonality/12 pair rows/fix status), immediate-save toggle with toast, all new SettingsPanel switches/inputs/chips/LP strategy chip, save+reload persistence (restored to 2/50), fix_reversion backtest on EURUSD (1h forced, 10 trades, MFE/MAE/partials metrics), Rendimiento ExcursionStats (empty state), Plan de trading lists fix strategy, Docs mention 'Seis estrategias' + 'Filtros FX', /bybit has no Filtros tab.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: the fix_reversion EURUSD backtest gives avg MAE = 2.49 R. The SL sits beyond the 15:00->16:00 extreme, so average MAE should be about 1 R or less. Check how the backtest/excursion code computes MAE in R for fix_reversion (R denominator, or MAE tracked from before entry / on the 15:00 reference bar).",
+    "Optional: the backtest trade list shows fix_reversion entries at 14:00 browser time (UTC). That is 15:00 London (BST), the start of the reference move, not the 16:00-16:20 entry window. Check whether entry_time is the reference candle's open time instead of the real entry time.",
+    "Note: SettingsPanel ('Estrategia y riesgo') with the new FX fields is in the main dashboard, not under the header 'Ajustes' view (which shows FxAdminSettings). The review request description was inaccurate; this works as coded."
+  ],
+  "critical_code_review_comments": [
+    "FxFiltersPanel useEffect reloads /market/context only when certain settings change; it does not depend on seasonality_block_pairs/vol_min_pct, but those values are read from settings directly so this is fine. No polling, so vol percentiles stay static until a remount or a setting change (acceptable).",
+    "FxFiltersPanel: when data is null (fetch error) the spinner stays forever after the error toast. Consider an error/retry state.",
+    "Toggle buttons in FxFiltersPanel have no busy/disabled state, so a double-click can send two PUTs that cancel each other."
+  ],
+  "updated_files": ["/app/test_reports/iteration_41.json"],
+  "success_rate": {"backend": "not tested (frontend only)", "frontend": "100%"},
+  "test_credentials": "Panel password BlackCat2233@ from /app/memory/test_credentials.md",
+  "seed_data_creation": "None. fx fomc_rule toggled off then on (restored). currency_exposure_limit 2->3->2, partial_tp_pct 50->40->50 (restored, verified after reload). Bot not started, PAPER mode kept.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter48 FX filters UI verified. Testids: fx-tab-filters, fx-filters-panel, fx-usd-regime-*, fx-*-toggle, fx-filter-row-<SYM>, fx-fix-status. SettingsPanel lives on main /hotforex dashboard (not the Ajustes view). Backtest LP strategies show backtest-timeframe-fixed instead of the timeframe select. Browser clock was 2026-10-26; next fix shown 2026-10-30."
+}
