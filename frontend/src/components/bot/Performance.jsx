@@ -85,7 +85,7 @@ export default function Performance({ tradeCount, settings, onSave, strategyKeys
         ))}
       </div>
       {!hasTrades && <Empty testId="performance-empty" text="Aún no hay operaciones cerradas. Las estadísticas aparecerán con las primeras operaciones del bot; mientras tanto puedes activar o apagar cada estrategia desde la tabla." />}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className={`grid grid-cols-1 gap-4 ${hasTrades ? "xl:grid-cols-2" : ""}`}>
         <Group title="Por estrategia" label="Estrategia" rows={stratRows} render={(k) => STRATEGY_LABELS[k] || k} testId="perf-by-strategy"
           hint={`${active.length} de ${strategyKeys.length} activas`} isOn={(k) => active.includes(k)} onToggle={toggleStrategy} />
         {hasTrades && (

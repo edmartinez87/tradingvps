@@ -9,8 +9,8 @@ export function buildFeatures(bot) {
     title: `${name}: un operador algorítmico que trabaja 24/7 y piensa antes de entrar`,
     text: `Analiza ${market} en tiempo real, detecta configuraciones con ${fx ? "seis" : "siete"} estrategias clásicas, pide una segunda opinión a la IA con todo el contexto del mercado y, si pasa todos los filtros de riesgo, ejecuta la orden con stop, objetivo y trailing. Empieza en paper trading con dinero ficticio y datos reales; cuando las métricas lo avalen, pásalo a modo REAL sobre ${broker} con un clic y una confirmación.`,
     stats: [
-      ["5", "estrategias combinables"],
-      [fx ? "12" : "12", "pares disponibles"],
+      [fx ? "6" : "7", "estrategias combinables"],
+      ["12", "pares disponibles"],
       ["IA", "Claude Sonnet 5.5 o Gemini"],
       ["5", "perfiles de riesgo"],
       ["24/7", fx ? "en horario de mercado" : "sin descanso"],

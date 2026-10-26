@@ -22,3 +22,8 @@
 ## Iteración 25
 - `tests/test_trading_bot.py` (suite heredada) DETIENE el bot cripto, reinicia estadísticas y deja el perfil Conservador: no ejecutarla sobre la cuenta del usuario sin restaurar después (bot/start).
 - `tests/test_iter25_evolution_backup.py` limpia al final los eventos de evolución que crea (`changes`, `fx_changes`).
+
+## Iteración 49
+- El puerto 8011 (mock de Bybit) lo ocupa nginx en este pod: arrancar el mock con `BYBIT_MOCK_PORT=8013` (`tests/test_iter49_backlog.py` lo hace solo). `test_iter5_live_mode.py` y `test_iter28_cashflows.py` siguen apuntando a 8011 → fallan en el pod hasta migrarlos.
+- `tests/test_iter49_backlog.py -n 0` pasa el bot cripto a REAL contra el mock con `reset_stats: true` y vuelve a paper (también con reset): solo sobre una cuenta paper desechable (hoy 0 operaciones).
+- `tests/test_iter21_hfm_alert_cron_ai.py -k TestHfmDisconnectAlert` es la regresión del refactor `broker_health.transition` en el motor FX.

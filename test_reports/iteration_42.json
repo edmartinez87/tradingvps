@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only test of the 5 backlog items (iter49) with Playwright on the preview URL. Everything requested works: Rendimiento 'Por estrategia' (7 crypto / 6 FX rows with toggles, '—' cells, 'N de M activas' header, toggle off/on + toast, row dimmed), AI 'Descartar cambios' (source card + provider change, badge, toast, nothing saved after reload), Bybit Avanzado alert input (180 + label), no exchange-error-banner in PAPER, Optimizer confirm dialog (Case B: apply BTCUSDT -> dialog with correct title, Cancel = nothing runs, Confirm = runs + toast 'Revalidación walk-forward completada'; Case A with 0 applied pairs runs directly with no dialog), FX Filtros fix text 16:00–16:30, docs open in both bots, crypto docs mention 'Bybit deja de responder más de 180 s'. One minor doc stat inconsistency found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Documentation > Características stats (components/docs/featuresContent.js line 12)", "issue": "Stat card says '5 estrategias combinables' in both bots, but the text right above says 'seis' (FX) / 'siete' (crypto). It should be fx ? '6' : '7'.", "selector": "Documentation features stats", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Rendimiento (no trades)", "issues": ["With no trades only the 'Por estrategia' table shows, and it fills half of the xl:grid-cols-2 grid, so the right half is empty. Could span full width when !hasTrades (cosmetic)."]},
+      {"screen": "Optimizador > Revalidación semanal", "issues": ["After a manual revalidation, if the applied params are later removed with 'Volver a valores por defecto', the last-check table still shows that pair with the old 'SL 1× · TP 3×' params until the next revalidation. This is a historical record, but it may confuse users (optional: mark it as no longer applied)."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "LOW: fix the '5 estrategias combinables' stat in featuresContent.js (6 for FX, 7 for crypto)",
+    "Optional cosmetic: make perf-by-strategy full width when there are no trades"
+  ],
+  "critical_code_review_comments": [
+    "WalkForwardAuto: the ConfirmRun/RunButton switch reads appliedCount from settings.symbol_params of active symbols. That is correct and matches the backend scope.",
+    "AiSection discard(): resets from the config prop and clears the dirty flag and reply. Checked: works for source and provider changes.",
+    "Performance.toggleStrategy sends strategy:'all' every time. The risk-profile badge changes to 'Personalizado' while a strategy is off and goes back to the preset ('0. Conservador') when it is restored. This is expected."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend only)", "frontend": "100% of requested flows (1 low-priority doc text issue)"},
+  "seed_data_creation": "None. State restored: breakout_turtle (crypto) and fix_reversion (FX) toggled back to Activo; BTCUSDT optimized params applied then removed; wf_auto_remove still ON (it was ON initially); last WF check overwritten by a Case-A run with 0 pairs (wf-auto-empty visible again). AI config unchanged (emergent / anthropic / claude-sonnet-5-5).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Crypto initial disabled strategies: supertrend_momentum, ema_pullback (5 of 7 active). FX: supertrend_momentum off (5 of 6 active). The optimizer for BTCUSDT finishes in about 15 s. Its best result was 'no rentable', so the button reads 'Aplicar igualmente (no rentable)'. Revalidation of 1 pair took about 6 s."
+}
