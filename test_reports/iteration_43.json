@@ -1,0 +1,19 @@
+{
+  "summary": "Black-box regression of the HotForex backend refactor (engine mixins + routes_analysis/routes_hfm sub-routers). Backend: 36/36 pytest checks pass against the public URL. 401 is enforced on the moved endpoints (/mode GET+POST, /walk-forward/check, /market/context, /backtest, /hfm/test, /plan/checkin, /weekly-summary, /ai/optimize-all). Mode checklist keys are correct, all 4 HFM endpoints return 400 because no account is configured, live mode returns 409, paper returns 200, rebase returns 409. Backtest returns 200 for EURUSD and 400 for XAUUSD+fix_reversion. Optimize, ai/advise 400, optimize-all, market/context, meta (6 keys), dashboard PAPER, settings PUT round trip, core GETs, klines 1m 400 and bot start/stop/scan all behave as expected. Frontend: login → bot-card-fx → /hotforex. The dashboard, all 9 tabs (backtest run renders results, 'Por estrategia' shows '5 de 6 activas', wf-auto-card present, plan scenarios present, Filtros panel present) and Ajustes all render: HFM form buttons, Modo de operación with PAPER badge and checklist, weekly preview text, Revisión IA, Copias de seguridad. No console errors and no 4xx/5xx /api responses. The FX bot was left STOPPED in PAPER.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter50_fx_refactor_regression.py", "/app/test_reports/pytest/iter50.xml"],
+  "action_items": [
+    "Optional: the FX evolution log shows about 40 'Ajuste manual'/'profile' events from 03:25–04:02 UTC today, and the weekly summary reports '60 cambios esta semana · 60 pendientes'. They are residue from the pytest regression runs (symbol_params, sessions_allowed, min_lot_max_risk, disabled_strategies…). Consider cleaning them up or making the suites remove their evolution events, so the user's evolution history and weekly summary aren't polluted. disabled_strategies=['supertrend_momentum'] (hence '5 de 6 activas') was changed at 03:25. Verify that this is the user's intended setting and not left over from a test."
+  ],
+  "critical_code_review_comments": [
+    "The sub-routers are plain APIRouter() included into protected_router; auth dependencies propagate correctly (verified 401). Prefix /api/fx is applied via include_router and all paths resolve.",
+    "ModeRequest.reset_stats defaults to True: POST /mode {mode:'paper'} while already in live would reset the account unless the client sends reset_stats:false. This was already the case before the refactor, so it is not a regression."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter50_fx_refactor_regression.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. PUT /api/fx/settings was sent with identical values and created no evolution event. bot/start+stop round trip done; bot left stopped.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=<url> pytest tests/test_iter50_fx_refactor_regression.py -n 0 (~25 s; market/context cached after first call). /bot/start and /bot/stop return the status object at the top level (running key), not under 'status'. FX settings live-mode badge in Ajustes has no 'live-mode-badge' testid on FX (the text PAPER is visible)."
+}
