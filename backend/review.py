@@ -30,7 +30,11 @@ LABELS = {"symbols": "Pares", "strategy": "Estrategia", "disabled_strategies": "
           "rotation_enabled": "Rotación semanal por momentum", "entry_order_type": "Tipo de orden de entrada", "max_long_positions": "Máx. posiciones largo plazo",
           "maker_wait_bars": "Velas de espera orden límite", "rotation_lookback_days": "Días de la rotación",
           "be_start_r": "Breakeven (R)", "trail_start_r": "Inicio del trailing (R)", "trail_atr_mult": "Distancia del trailing (ATR)",
-          "partial_tp_enabled": "Cierre parcial", "partial_tp_r": "Nivel del cierre parcial (R)", "partial_tp_pct": "% del cierre parcial"}
+          "partial_tp_enabled": "Cierre parcial", "partial_tp_r": "Nivel del cierre parcial (R)", "partial_tp_pct": "% del cierre parcial",
+          "currency_exposure_limit": "Tope de exposición por divisa", "rollover_guard": "Ventana de rollover", "vol_filter_enabled": "Filtro de volatilidad",
+          "vol_min_pct": "Percentil mín. de volatilidad", "vol_high_pct": "Percentil alto de volatilidad", "seasonality_bias": "Estacionalidad intradía",
+          "seasonality_block_pairs": "Pares con bloqueo estacional", "seasonality_size_factor": "Tamaño contra el sesgo estacional", "usd_regime_filter": "Filtro régimen USD",
+          "usd_regime_sma": "SMA del régimen USD", "fomc_rule": "Regla FOMC"}
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
                   "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21", "multi_horizon": "Multi-Horizonte", "double_divergence": "Divergencia doble"}
 VALUE_LABELS = {"market": "a mercado", "maker": "límite maker"}
@@ -141,9 +145,16 @@ async def apply_ai_changes(engine, res: dict, before: dict, settings, *, policy:
         patch.pop("entry_order_type")
     if "btc_regime_sma" in patch and patch["btc_regime_sma"] not in REGIME_SMAS:
         patch.pop("btc_regime_sma")
-    for k in ("btc_regime_filter", "rotation_enabled", "partial_tp_enabled"):
+    for k in ("btc_regime_filter", "rotation_enabled", "partial_tp_enabled", "rollover_guard", "vol_filter_enabled", "seasonality_bias", "usd_regime_filter", "fomc_rule"):
         if k in patch and not isinstance(patch[k], bool):
             patch.pop(k)
+    for k, (lo, hi) in (("vol_min_pct", (0, 50)), ("vol_high_pct", (60, 100)), ("currency_exposure_limit", (1, 6)), ("seasonality_size_factor", (0.25, 1.0))):
+        if k in patch:
+            try:
+                v = float(patch[k])
+                patch[k] = round(min(max(v, lo), hi), 2) if k == "seasonality_size_factor" else int(min(max(v, lo), hi))
+            except (TypeError, ValueError):
+                patch.pop(k)
     for k, (lo, hi) in EXIT_RANGES.items():
         if k in patch:
             try:

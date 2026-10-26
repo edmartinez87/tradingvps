@@ -9,7 +9,7 @@ from fx.market import closing_soon, market_status
 from shadow import _agg, _by, BUCKETS
 
 MAX_AGE_H = 72
-KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "SESION", "ERROR", "NO_EJECUTADA")
+KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "SESION", "EXPOSICION", "ROLLOVER", "VOLATILIDAD", "ESTACIONAL", "REGIMEN_USD", "FOMC", "ERROR", "NO_EJECUTADA")
 AI_KINDS = ("RECHAZADA", "BAJA_CONFIANZA")
 
 
@@ -27,7 +27,7 @@ async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, 
         lots = MIN_LOT
         margin = lots * SPECS[symbol]["contract"] * risk.base_usd(symbol, tickers, entry) / settings.leverage
         real_risk = risk.min_lot_risk_pct(acc["equity"], entry, sl, symbol, tickers)
-    doc = {"signal_id": signal_id, "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "timeframe": settings.timeframe,
+    doc = {"signal_id": signal_id, "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "timeframe": settings.timeframe, "horizon": "long" if sig["strategy"] == "fix_reversion" else "short",
            "kind": kind, "note": note[:200], "ai_confidence": ai_confidence, "ai_risk": ai_risk, "entry_price": entry, "qty": lots,
            "leverage": settings.leverage, "margin": margin, "risk_pct": real_risk, "undersized": undersized, "sl": sl, "tp": tp, "initial_sl": sl,
            "atr": sig["atr"], "fees": risk.spread_cost(symbol, lots, tickers), "breakeven": False, "risk_factor": risk_factor,
@@ -39,6 +39,7 @@ async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, 
 
 async def monitor_shadows(engine, tickers: dict, settings, now: datetime):
     weekend = settings.close_before_weekend and closing_soon(30)
+    rules = risk.trade_rules(settings)
     async for d in engine.db.shadow_positions.find():
         t = tickers.get(d["symbol"])
         if not t:
@@ -63,8 +64,9 @@ async def monitor_shadows(engine, tickers: dict, settings, now: datetime):
             await engine.db.shadow_positions.delete_one({"_id": d["_id"]})
             continue
         upd = {"mark_price": price, "unrealized_pnl": round(risk.pnl(d["symbol"], d["side"], d["entry_price"], price, d["qty"], tickers), 4)}
-        if settings.trailing_enabled:
-            new_sl, be = risk.update_trailing(d["side"], d["entry_price"], d["sl"], d["initial_sl"], d["atr"], price, SPECS[d["symbol"]]["spread"])
+        if rules["trailing_enabled"]:
+            new_sl, be = risk.update_trailing(d["side"], d["entry_price"], d["sl"], d["initial_sl"], d["atr"], price, SPECS[d["symbol"]]["spread"],
+                                              rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
             if new_sl != d["sl"]:
                 upd.update(sl=new_sl, breakeven=be)
         await engine.db.shadow_positions.update_one({"_id": d["_id"]}, {"$set": upd})

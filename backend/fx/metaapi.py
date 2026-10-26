@@ -292,6 +292,9 @@ class MetaApi:
     async def close_position(self, account_id: str, position_id: str, region: str = None, client_id: str = "AIT_close_c") -> dict:
         return await self.trade(account_id, {"actionType": "POSITION_CLOSE_ID", "positionId": str(position_id), "clientId": client_id}, region)
 
+    async def close_position_partially(self, account_id: str, position_id: str, volume: float, region: str = None, client_id: str = "AIT_part_c") -> dict:
+        return await self.trade(account_id, {"actionType": "POSITION_PARTIAL", "positionId": str(position_id), "volume": volume, "clientId": client_id}, region)
+
     async def modify_position(self, account_id: str, position_id: str, sl: float, tp: float, region: str = None) -> dict:
         return await self.trade(account_id, {"actionType": "POSITION_MODIFY", "positionId": str(position_id), "stopLoss": sl, "takeProfit": tp}, region)
 

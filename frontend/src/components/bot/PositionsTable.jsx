@@ -53,6 +53,7 @@ export default function PositionsTable({ positions, onClose, onCloseAll }) {
                   <p className="text-[10px] text-slate-500">
                     {STRATEGY_LABELS[p.strategy]} · {p.leverage}x
                     {p.horizon === "long" && <span data-testid={`position-horizon-${p.id}`} className="ml-1 rounded-sm bg-sky-500/20 px-1 text-[9px] text-sky-300" title="Largo plazo: no cuenta en Máx. posiciones">LP</span>}
+                    {p.expires_at && <span data-testid={`position-expires-${p.id}`} className="ml-1 text-[9px] text-slate-500" title="Cierre por tiempo programado">⏱ {new Date(p.expires_at).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</span>}
                     {p.entry_type && p.entry_type !== "market" && <span data-testid={`position-entry-${p.id}`} className="ml-1 rounded-sm bg-slate-700/60 px-1 text-[9px] text-slate-300" title={ENTRY_LABELS[p.entry_type]}>{p.entry_type === "maker" ? "maker" : "mkt↩"}</span>}
                   </p>
                 </TD>

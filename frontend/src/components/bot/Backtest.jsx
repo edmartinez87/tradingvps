@@ -27,7 +27,7 @@ const Metric = ({ label, value, tone, testId }) => (
 );
 
 const DEFAULT_INTRO = (settings) => `Evalúa la estrategia sobre las últimas 1.000 velas reales (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes mínimos de Bybit y el mismo plan de riesgo: ${settings.risk_per_trade}% por operación, ${settings.leverage}x, comisiones 0.055% y trailing stop.`;
-const LP_INTRO = (settings, tf) => `Estrategia de largo plazo: se evalúa en su propia temporalidad (${tf}) con todo el histórico que sirve el exchange (hasta ${tf === "1d" ? "1.500 velas diarias, ≈4 años" : "1.000 velas de 4h, ≈6 meses"}), sin filtro IA, con el capital inicial de tu cuenta, lotes mínimos de Bybit y tu plan de riesgo: ${settings.risk_per_trade}% por operación, ${settings.leverage}x, comisiones 0.055% y trailing stop.`;
+const LP_INTRO = (settings, tf, fx) => `Estrategia de largo plazo: se evalúa en su propia temporalidad (${tf}) con todo el histórico disponible${fx ? " (≈1 año de velas horarias de Yahoo: unos 12 fines de mes)" : tf === "1d" ? " (hasta 1.500 velas diarias, ≈4 años)" : " (1.000 velas de 4h, ≈6 meses)"}, sin filtro IA, con el capital inicial de tu cuenta, ${fx ? "lotes de 0.01 y spread HFM" : "lotes mínimos de Bybit y comisiones 0.055%"} y tu plan de riesgo: ${settings.risk_per_trade}% por operación, ${fx ? `1:${settings.leverage}` : `${settings.leverage}x`}, trailing stop${fx ? " y cierre por tiempo al mediodía siguiente de Londres" : ""}.`;
 const fmtDateYear = (iso) => (iso ? new Date(iso).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—");
 
 const SessionStats = ({ stats }) => (
@@ -49,7 +49,9 @@ export default function Backtest({ meta, settings, intro = DEFAULT_INTRO }) {
   const [res, setRes] = useState(null);
   const [loading, setLoading] = useState(false);
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
-  const lpTf = (meta?.long_horizon_keys || []).includes(form.strategy) ? meta?.strategy_info?.[form.strategy]?.tf : null;
+  const lpInfo = (meta?.long_horizon_keys || []).includes(form.strategy) ? meta?.strategy_info?.[form.strategy] : null;
+  const lpTf = lpInfo ? lpInfo.bt_tf || lpInfo.tf : null;
+  const isFx = Boolean(meta?.currencies);
   const fmtD = lpTf || res?.timeframe === "1d" || res?.timeframe === "4h" ? fmtDateYear : fmtDateTime;
 
   const run = async () => {
@@ -66,7 +68,7 @@ export default function Backtest({ meta, settings, intro = DEFAULT_INTRO }) {
 
   return (
     <div data-testid="backtest-panel" className="space-y-4 p-4">
-      <p data-testid="backtest-intro" className="text-[12px] leading-relaxed text-slate-400">{lpTf ? LP_INTRO(settings, lpTf) : intro(settings)}</p>
+      <p data-testid="backtest-intro" className="text-[12px] leading-relaxed text-slate-400">{lpTf ? LP_INTRO(settings, lpTf, isFx) : intro(settings)}</p>
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Par" value={form.symbol} onChange={set("symbol")} options={meta?.symbols || []} testId="backtest-symbol-select" />
         <Field label="Estrategia" value={form.strategy} onChange={set("strategy")} options={meta?.strategies || []} testId="backtest-strategy-select" render={(o) => STRATEGY_LABELS[o]} />

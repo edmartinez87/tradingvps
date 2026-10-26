@@ -22,6 +22,8 @@ async def main(symbol: str, side: str, ai: bool):
     s = await eng.get_settings()
     await eng.market.fetch_tickers(s.symbols)
     s.ai_enabled = ai
+    if os.environ.get("FX_INJECT_GATES") != "1":  # QA injections bypass the market gates (regime/season/vol/FOMC/rollover) unless asked otherwise
+        s.usd_regime_filter = s.seasonality_bias = s.vol_filter_enabled = s.fomc_rule = s.rollover_guard = False
     if eng.live and eng.broker:
         await eng._monitor_once()  # sync broker health so the HFM connection gate applies like in the running engine
     df = eng._df(await eng.market.fetch_klines(symbol, s.timeframe, 300))

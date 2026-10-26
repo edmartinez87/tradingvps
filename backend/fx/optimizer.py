@@ -3,6 +3,7 @@ from functools import partial
 from types import SimpleNamespace
 import optimizer as core
 from backtest import scan_signals
+from fx.risk import trade_rules
 from fx.backtest import build_fx_df, simulate
 from fx.models import FxSettings
 
@@ -16,10 +17,10 @@ def kit(settings: FxSettings, tickers: dict):
 
 
 def optimize(klines: list, settings: FxSettings, initial: float, symbol: str, tickers: dict) -> dict:
-    return core.optimize(klines, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, symbol,
+    return core.optimize(klines, settings.strategy, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial, symbol,
                          settings.signal_mode, settings.disabled_strategies, kit=kit(settings, tickers))
 
 
 def walk_forward(klines: list, settings: FxSettings, initial: float, symbol: str, tickers: dict) -> dict:
-    return core.walk_forward(klines, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, symbol,
+    return core.walk_forward(klines, settings.strategy, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial, symbol,
                              settings.signal_mode, settings.disabled_strategies, settings.symbol_params.get(symbol), kit=kit(settings, tickers))

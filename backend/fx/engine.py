@@ -13,6 +13,9 @@ from fx.models import FxSettings
 from fx.market import FxMarket, HTF, market_open, market_status, closing_soon, in_sessions, session_names
 from fx.symbols import SPECS, fmt_price, pips
 from fx import risk
+from fx import filters
+from fx import regime as fx_regime
+from fx.strategies_slow import SLOW_INFO as FX_SLOW_INFO, fix_signal, fix_window
 from fx.ai import evaluate_signal
 from ai_advisor import label as ai_label
 from fx.backtest import build_fx_df
@@ -33,9 +36,11 @@ HFM_REMIND_SEC = 6 * 3600
 TRANSIENT_TG_SEC = 30 * 60
 PENDING_TTL_SEC = 2 * 3600
 HFM_OK_STATES, HFM_OK_CONN = ("DEPLOYED", ""), ("CONNECTED", "")
-BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado", "SESION": "sesión"}
+BLOCK_BY = {"NOTICIAS": "noticias", "BLOQUEADA": "riesgo", "MERCADO": "mercado cerrado", "SESION": "sesión", "EXPOSICION": "exposición por divisa",
+            "ROLLOVER": "ventana de rollover", "VOLATILIDAD": "régimen de volatilidad", "ESTACIONAL": "estacionalidad intradía", "REGIMEN_USD": "régimen USD", "FOMC": "regla FOMC"}
+HORIZON_LABEL = {"short": "corto plazo", "long": "largo plazo"}
 NEWS_STRATEGY = {"news_event": {"name": "Noticia macro", "rules": "Dato de alto impacto publicado con sorpresa clara frente a la previsión; Claude fija la dirección y la confianza, el precio debe confirmar en los primeros minutos. SL/TP por ATR 15m y cierre máximo por tiempo.", "basis": "Trading de noticias: el flujo posterior a sorpresas macro (tipos, NFP, IPC) tiende a persistir durante horas."}}
-FX_STRATEGY_INFO = {**STRATEGY_INFO, **NEWS_STRATEGY}
+FX_STRATEGY_INFO = {**STRATEGY_INFO, **NEWS_STRATEGY, **FX_SLOW_INFO}
 
 
 def today() -> str:
@@ -334,34 +339,19 @@ class FxEngine:
                 logger.warning(f"hfm positions sync: {e}")
             await self._hfm_health(ex is not None)
         local_ids = set()
+        rules = risk.trade_rules(settings)
+        rollover = settings.rollover_guard and filters.in_rollover(now)
         async for doc in self.db.positions.find():
             p = Position.from_mongo(doc)
             if p.live:
                 local_ids.add(p.order_id)
                 if ex is not None:
-                    await self._sync_live_position(p, ex.get(p.order_id), tickers.get(p.symbol), settings, now)
+                    await self._sync_live_position(p, ex.get(p.order_id), tickers.get(p.symbol), settings, now, rules)
                 continue
             t = tickers.get(p.symbol)
             if not t:
                 continue
-            price = t["price"]
-            hit, reason = risk.check_exit(p.side, p.sl, p.tp, price)
-            if hit is not None:
-                if reason == "SL" and p.breakeven:
-                    reason = "TRAILING"
-                await self.close_position(p.id, hit, reason)
-                continue
-            if p.expires_at and now >= datetime.fromisoformat(p.expires_at):
-                await self.close_position(p.id, price, "TIEMPO")
-                continue
-            updates = {"mark_price": price, "unrealized_pnl": round(risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers), 4)}
-            if settings.trailing_enabled:
-                new_sl, be = risk.update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price, SPECS[p.symbol]["spread"])
-                if new_sl != p.sl:
-                    updates.update(sl=new_sl, breakeven=be)
-                    if be and not p.breakeven:
-                        await self.log("RISK", f"{p.symbol}: stop movido a breakeven ({fmt_price(p.symbol, new_sl)})")
-            await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+            await self._manage_paper_position(p, t["price"], rules, now, rollover)
         if ex:
             for pid, xp in ex.items():
                 if pid in local_ids:
@@ -375,6 +365,58 @@ class FxEngine:
             await self._expire_pending(now)
         await monitor_shadows(self, tickers, settings, now)
         await self._update_account_metrics(settings)
+
+    def _excursion(self, p: Position, price: float) -> dict:
+        m = risk.move_in_r(p.side, p.entry_price, p.initial_sl, price)
+        return {"mfe_r": round(max(p.mfe_r, m), 3), "mae_r": round(max(p.mae_r, -m), 3)}
+
+    async def _manage_paper_position(self, p: Position, price: float, rules: dict, now: datetime, rollover: bool = False):
+        """One monitor tick for a PAPER position: MFE/MAE, SL/TP (skipped during the rollover spread spike), time stop, partial take-profit, trailing."""
+        tickers = self.market.tickers
+        updates = self._excursion(p, price)
+        p.mfe_r, p.mae_r = updates["mfe_r"], updates["mae_r"]
+        if not rollover:
+            hit, reason = risk.check_exit(p.side, p.sl, p.tp, price)
+            if hit is not None:
+                await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+                if reason == "SL" and p.breakeven:
+                    reason = "TRAILING"
+                await self.close_position(p.id, hit, reason)
+                return
+        if p.expires_at and now >= datetime.fromisoformat(p.expires_at):
+            await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+            await self.close_position(p.id, price, "TIEMPO")
+            return
+        updates.update(mark_price=price, unrealized_pnl=round(risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers), 4))
+        if rules["partial_tp_enabled"] and not p.partial_done and p.mfe_r >= rules["partial_tp_r"] and not rollover:
+            part = risk.partial_lots(p.qty, rules["partial_tp_pct"])
+            if part > 0:
+                fee = risk.spread_cost(p.symbol, part, tickers)
+                gross = risk.pnl(p.symbol, p.side, p.entry_price, price, part, tickers)
+                await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - fee}})
+                updates.update(qty=round(p.qty - part, 8), margin=round(p.margin * (p.qty - part) / p.qty, 6), fees=round(p.fees + fee, 6), partial_done=True,
+                               partial_gross=round(p.partial_gross + gross, 6), partial_fees=round(p.partial_fees + fee, 6), initial_qty=p.initial_qty or p.qty,
+                               unrealized_pnl=round(risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty - part, tickers), 4))
+                p.qty = updates["qty"]
+                await self._announce_partial(p, part, price, gross - fee, rules)
+            else:
+                updates["partial_done"] = True
+                await self.log("RISK", f"{p.symbol}: cierre parcial omitido · el lote mínimo (0.01) no permite dividir la posición")
+        if rules["trailing_enabled"]:
+            new_sl, be = risk.update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price, SPECS[p.symbol]["spread"],
+                                              rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
+            if new_sl != p.sl:
+                updates.update(sl=new_sl, breakeven=be)
+                if be and not p.breakeven:
+                    await self.log("RISK", f"{p.symbol}: stop movido a breakeven ({fmt_price(p.symbol, new_sl)})")
+        await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
+
+    async def _announce_partial(self, p: Position, part: float, price: float, net: float, rules: dict):
+        tag = "REAL " if p.live else ""
+        await self.log("ORDER", f"PARCIAL {tag}{p.side.upper()} {p.symbol}: cerrado {rules['partial_tp_pct']}% ({part:.2f} lotes) @ {fmt_price(p.symbol, price)} "
+                                f"a +{rules['partial_tp_r']:g}R · PnL {net:+.2f} USD · resto {p.qty:.2f} lotes sigue con trailing")
+        await self.tg(f"🎯 <b>PARCIAL {tag}{p.side.upper()} {p.symbol}</b> @ {fmt_price(p.symbol, price)} (+{rules['partial_tp_r']:g}R)\n"
+                      f"Cerrado {rules['partial_tp_pct']}% ({part:.2f} lotes) · PnL {net:+.2f} USD · resto {p.qty:.2f} lotes con trailing", "orders")
 
     async def _adopt_live(self, pid: str, xp: dict, settings: FxSettings, tickers: dict):
         """A broker position carries our clientId but has no DB record (order with unknown result, restored backup…): manage it like any other."""
@@ -456,7 +498,8 @@ class FxEngine:
         await self.tg(f"🔌 <b>Cuenta HFM {'sigue ' if remind else ''}sin conexión con MetaApi</b> · {dur}\n{h['error']}\n"
                       f"{n} posición(es) real(es) abiertas: siguen protegidas por su SL/TP en el bróker. El bot no abrirá nuevas operaciones hasta reconectar.{hint}", "system")
 
-    async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: FxSettings, now: datetime):
+    async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: FxSettings, now: datetime, rules: dict = None):
+        rules = rules or risk.trade_rules(settings)
         if not ex:
             if (now - datetime.fromisoformat(p.opened_at)).total_seconds() < LIVE_GRACE_SEC:
                 return
@@ -471,15 +514,35 @@ class FxEngine:
                 await self._close_live_from_broker(p)
                 return
         price = ex["mark"] or (ticker or {}).get("price") or p.mark_price
-        updates = {"mark_price": price, "unrealized_pnl": round(ex["profit"] + ex["swap"] + ex["commission"], 4)}
+        updates = {"mark_price": price, "unrealized_pnl": round(ex["profit"] + ex["swap"] + ex["commission"], 4), **self._excursion(p, price)}
+        p.mfe_r, p.mae_r = updates["mfe_r"], updates["mae_r"]
         if abs(ex["volume"] - p.qty) > 1e-9:
             updates["qty"] = ex["volume"]
+            p.qty = ex["volume"]
         if p.expires_at and now >= datetime.fromisoformat(p.expires_at):
             await self.db.positions.update_one({"_id": ObjectId(p.id)}, {"$set": updates})
             await self.close_position(p.id, price, "TIEMPO")
             return
-        if settings.trailing_enabled:
-            new_sl, be = risk.update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price, SPECS[p.symbol]["spread"])
+        if rules["partial_tp_enabled"] and not p.partial_done and p.mfe_r >= rules["partial_tp_r"]:
+            lot = await self.broker.lot(p.symbol)
+            part = risk.partial_lots(p.qty, rules["partial_tp_pct"], lot)
+            if part > 0:
+                try:
+                    r = await self.broker.close_partial(p.order_id, part, p.link_id)
+                    gross = risk.pnl(p.symbol, p.side, p.entry_price, price, part, self.market.tickers)
+                    updates.update(qty=round(p.qty - part, 8), margin=round(p.margin * (p.qty - part) / p.qty, 6), partial_done=True,
+                                   partial_gross=round(p.partial_gross + gross, 6), partial_fees=round(p.partial_fees + abs(r.get("commission") or 0), 6),
+                                   initial_qty=p.initial_qty or p.qty)
+                    p.qty = updates["qty"]
+                    await self._announce_partial(p, part, price, gross, rules)
+                except Exception as e:
+                    await self.log("ERROR", f"{p.symbol}: cierre parcial REAL fallido · {str(e)[:120]}")
+            else:
+                updates["partial_done"] = True
+                await self.log("RISK", f"{p.symbol}: cierre parcial omitido · el lote mínimo del bróker no permite dividir la posición")
+        if rules["trailing_enabled"]:
+            new_sl, be = risk.update_trailing(p.side, p.entry_price, p.sl, p.initial_sl, p.atr, price, SPECS[p.symbol]["spread"],
+                                              rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
             new_sl = round(new_sl, SPECS[p.symbol]["digits"])
             if new_sl != p.sl and abs(new_sl - p.sl) >= SPECS[p.symbol]["pip"]:
                 try:
@@ -509,8 +572,8 @@ class FxEngine:
             except Exception as e:
                 logger.warning(f"hfm deals {p.symbol}: {e}")
             price = (cr or {}).get("exit") or p.mark_price
-            fees = (cr or {}).get("fees") or p.fees
-            net = cr["pnl"] if cr else risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, self.market.tickers) - p.fees
+            fees = cr["fees"] if cr else p.fees + p.partial_fees
+            net = cr["pnl"] if cr else risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, self.market.tickers) + p.partial_gross - p.fees - p.partial_fees
             reason = (cr or {}).get("reason") or ("TP" if abs(price - p.tp) <= abs(price - p.sl) else ("TRAILING" if p.breakeven else "SL"))
             if reason == "SL" and p.breakeven:
                 reason = "TRAILING"
@@ -526,9 +589,15 @@ class FxEngine:
                       f"PnL <b>{trade.pnl:+.2f} USD</b> ({trade.pnl_pct:+.2f}%) · entrada {fmt_price(p.symbol, p.entry_price)}{est}", "orders")
 
     async def _record_trade(self, p: Position, price: float, net: float, fees: float, reason: str) -> Trade:
-        trade = Trade(symbol=p.symbol, side=p.side, strategy=p.strategy, entry_price=p.entry_price, exit_price=price, qty=p.qty,
-                      leverage=p.leverage, margin=p.margin, pnl=round(net, 4), pnl_pct=round(net / p.margin * 100, 2) if p.margin else 0,
-                      fees=round(fees, 4), reason=reason, opened_at=p.opened_at, live=p.live)
+        tp_r = risk.tp_in_r(p.side, p.entry_price, p.initial_sl, p.tp)
+        mfe = max(p.mfe_r, risk.move_in_r(p.side, p.entry_price, p.initial_sl, price))
+        hold = (datetime.now(timezone.utc) - datetime.fromisoformat(p.opened_at)).total_seconds() / 60
+        margin = p.margin * (p.initial_qty / p.qty) if p.initial_qty and p.qty else p.margin
+        trade = Trade(symbol=p.symbol, side=p.side, strategy=p.strategy, entry_price=p.entry_price, exit_price=price, qty=p.initial_qty or p.qty,
+                      leverage=p.leverage, margin=round(margin, 6), pnl=round(net, 4), pnl_pct=round(net / margin * 100, 2) if margin else 0,
+                      fees=round(fees, 4), reason=reason, opened_at=p.opened_at, live=p.live, horizon=p.horizon, entry_type=p.entry_type,
+                      mfe_r=round(mfe, 2), mae_r=round(p.mae_r, 2), mfe_tp_pct=round(mfe / tp_r * 100, 1) if tp_r else 0.0,
+                      partial_tp=p.partial_done and bool(p.partial_gross), hold_min=round(hold, 1))
         res = await self.db.trades.insert_one(trade.to_mongo())
         trade.id = str(res.inserted_id)
         return trade
@@ -567,16 +636,26 @@ class FxEngine:
             await self.db.equity.insert_one({"ts": now_iso(), "equity": s["equity"], "balance": s["balance"], "net_deposits": round(nd, 2)})
 
     # ---------- execution ----------
+    def _slot_block(self, open_docs: list, settings: FxSettings, horizon: str):
+        """Long-horizon positions (fix reversion) have their own cap and do not count towards «Máx. posiciones»."""
+        same = [p for p in open_docs if (p.get("horizon") or "short") == horizon]
+        cap = settings.max_long_positions if horizon == "long" else settings.max_positions
+        if len(same) >= cap:
+            return f"máximo de posiciones de {HORIZON_LABEL[horizon]} alcanzado ({cap})"
+        return None
+
     async def open_position(self, symbol: str, sig: dict, settings: FxSettings, signal_id: str, risk_factor: float = 1.0,
-                            risk_reason: str = "noticias", expires_at: str = None):
+                            risk_reason: str = "noticias", expires_at: str = None, horizon: str = "short"):
         """Returns (Position | None, reason) — reason explains why nothing was opened."""
         risk_pct = settings.risk_per_trade * risk_factor
         tickers = self.market.tickers
         async with self.lock:
-            open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
-            if symbol in open_syms or len(open_syms) >= settings.max_positions:
-                await self.log("RISK", f"{symbol}: apertura cancelada · límite de posiciones o par ya abierto")
-                return None, "límite de posiciones o par ya abierto"
+            open_docs = await self.db.positions.find({}, {"symbol": 1, "side": 1, "horizon": 1}).to_list(100)
+            open_syms = [p["symbol"] for p in open_docs]
+            slot = self._slot_block(open_docs, settings, horizon)
+            if symbol in open_syms or slot:
+                await self.log("RISK", f"{symbol}: apertura cancelada · {slot or 'par ya abierto'}")
+                return None, slot or "par ya abierto"
             price = tickers.get(symbol, {}).get("price") or sig["price"]
             long = sig["side"] == "long"
             entry = price
@@ -640,9 +719,9 @@ class FxEngine:
                 entry, lots, fee = (r["entry"] or entry), r["lots"], abs(r["commission"])
                 sl, tp = r["sl"], r["tp"]
                 margin = lots * SPECS[symbol]["contract"] * risk.base_usd(symbol, tickers, entry) / leverage
-                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, leverage=leverage, margin=margin,
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, initial_qty=lots, leverage=leverage, margin=margin,
                                sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"], fees=fee, mark_price=price, signal_id=signal_id, expires_at=expires_at,
-                               live=True, order_id=r["position_id"], link_id=r["link_id"])
+                               live=True, order_id=r["position_id"], link_id=r["link_id"], horizon=horizon)
                 res = await self.db.positions.insert_one(pos.to_mongo())
                 pos.id = str(res.inserted_id)
                 if not r["filled"]:
@@ -659,13 +738,14 @@ class FxEngine:
                     await self.log("RISK", f"{symbol}: {reason}")
                     return None, reason
                 fee = risk.spread_cost(symbol, lots, tickers)
-                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, leverage=settings.leverage,
-                               margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"], fees=fee, mark_price=price, signal_id=signal_id, expires_at=expires_at)
+                pos = Position(symbol=symbol, side=sig["side"], strategy=sig["strategy"], entry_price=entry, qty=lots, initial_qty=lots, leverage=settings.leverage,
+                               margin=margin, sl=sl, tp=tp, initial_sl=sl, atr=sig["atr"], fees=fee, mark_price=price, signal_id=signal_id, expires_at=expires_at, horizon=horizon)
                 res = await self.db.positions.insert_one(pos.to_mongo())
                 pos.id = str(res.inserted_id)
                 await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": -fee}})
         tag = "REAL " if self.live else ""
         reduced = f" · tamaño ajustado al {int(risk_factor * 100)}% por {risk_reason}" if risk_factor != 1 else ""
+        reduced += " · largo plazo (no cuenta en Máx. posiciones)" if horizon == "long" else ""
         if real_risk > risk_pct + 0.05:
             reduced += f" · lote mínimo: riesgo real {real_risk:g}% (objetivo {risk_pct:g}%)"
         f = lambda v: fmt_price(symbol, v)  # noqa: E731
@@ -707,8 +787,8 @@ class FxEngine:
                 except Exception as e:
                     logger.warning(f"hfm deals {p.symbol}: {e}")
                 price = (cr or {}).get("exit") or tickers.get(p.symbol, {}).get("price") or p.mark_price
-                fees = (cr or {}).get("fees") or p.fees
-                net = cr["pnl"] if cr else risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers) - p.fees
+                fees = cr["fees"] if cr else p.fees + p.partial_fees
+                net = cr["pnl"] if cr else risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers) + p.partial_gross - p.fees - p.partial_fees
                 await self.db.positions.delete_one({"_id": ObjectId(pos_id)})
                 trade = await self._record_trade(p, price, net, fees, reason)
                 estimated = cr is None
@@ -717,7 +797,7 @@ class FxEngine:
                 price = price or tickers.get(p.symbol, {}).get("price") or p.mark_price
                 exit_fee = risk.spread_cost(p.symbol, p.qty, tickers)
                 gross = risk.pnl(p.symbol, p.side, p.entry_price, price, p.qty, tickers)
-                net = gross - p.fees - exit_fee
+                net = gross + p.partial_gross - p.fees - exit_fee
                 await self.db.account.update_one({"_id": "main"}, {"$inc": {"balance": gross - exit_fee}})
                 trade = await self._record_trade(p, price, net, p.fees + exit_fee, reason)
                 estimated = False
@@ -769,9 +849,11 @@ class FxEngine:
                     if settings.htf_filter:
                         htf = htf_trend(self._df(await self.market.fetch_klines(symbol, htf_tf, 200, cache_sec=300)))
                     sig = evaluate(df, i, settings.strategy, htf, params, settings.signal_mode, settings.disabled_strategies)
+                    vol_pct = filters.vol_percentile(df["atr"].values, i)
                     self.analysis[symbol] = {
                         "trend": trend_label(row), "rsi": round(float(row["rsi"]), 1), "macd_hist": float(row["macd_hist"]),
                         "adx": round(float(row["adx"]), 1), "atr_pips": round(pips(symbol, float(row["atr"])), 1), "htf": htf,
+                        "vol_pct": vol_pct, "vol_regime": filters.vol_label(vol_pct, settings), "season_bias": filters.seasonality_bias(symbol),
                         "signal": sig["side"] if sig else None, "signal_strategy": sig["strategy"] if sig else None, "updated_at": now_iso(),
                     }
                     if sig and self.running:
@@ -780,41 +862,89 @@ class FxEngine:
                 except Exception as e:
                     logger.exception(f"scan {symbol}")
                     await self.log("ERROR", f"{symbol}: {e}")
+            if self.running and "fix_reversion" not in settings.disabled_strategies and settings.strategy in ("all", "fix_reversion"):
+                found += await self._scan_slow(settings)
             self.last_scan = now_iso()
             if self.running:
                 await self.log("SCAN", f"Escaneo {settings.timeframe} completado · {len(settings.symbols)} pares · {found} señales")
         finally:
             self.scanning = False
 
-    async def _blocks(self, symbol: str, settings: FxSettings, acc: dict):
-        open_syms = [p["symbol"] for p in await self.db.positions.find({}, {"symbol": 1}).to_list(100)]
+    async def _blocks(self, symbol: str, settings: FxSettings, acc: dict, side: str = None, horizon: str = "short"):
+        open_docs = await self.db.positions.find({}, {"symbol": 1, "side": 1, "horizon": 1}).to_list(100)
+        open_syms = [p["symbol"] for p in open_docs]
         if not market_open():
             return "mercado cerrado", "MERCADO", open_syms
-        if not in_sessions(settings.sessions_allowed):
+        if horizon == "short" and not in_sessions(settings.sessions_allowed):
             return f"fuera de las sesiones permitidas ({session_names(settings.sessions_allowed)})", "SESION", open_syms
         if symbol in open_syms:
             return "ya existe una posición abierta en el par", "BLOQUEADA", open_syms
-        if len(open_syms) >= settings.max_positions:
-            return f"máximo de posiciones alcanzado ({settings.max_positions})", "BLOQUEADA", open_syms
+        slot = self._slot_block(open_docs, settings, horizon)
+        if slot:
+            return slot, "BLOQUEADA", open_syms
         if acc["daily_paused"]:
             return "límite de pérdida diaria alcanzado", "BLOQUEADA", open_syms
+        roll = filters.rollover_block(settings.rollover_guard)
+        if roll:
+            return roll, "ROLLOVER", open_syms
+        if side:
+            exp = filters.exposure_block(open_docs, symbol, side, settings.currency_exposure_limit)
+            if exp:
+                return exp, "EXPOSICION", open_syms
         if self.live and self.hfm["down_since"]:
             return "cuenta HFM sin conexión con MetaApi", "BLOQUEADA", open_syms
         if self.live and self.cfg and symbol in (self.cfg.hfm_symbols_bad or []):
             return "par no operable en HFM con el sufijo de símbolos configurado (Ajustes → HotForex → Comprobar símbolos)", "BLOQUEADA", open_syms
         return None, None, open_syms
 
-    async def _handle_signal(self, symbol, sig, settings: FxSettings, df, htf, htf_tf):
+    async def _market_gates(self, symbol: str, side: str, settings: FxSettings, horizon: str) -> tuple:
+        """Short-horizon only: volatility regime, intraday seasonality, USD regime and the FOMC rule. Returns (block, kind, size_factor, ctx)."""
+        a = self.analysis.get(symbol, {})
+        ctx = {"vol_pct": a.get("vol_pct"), "vol_regime": a.get("vol_regime"), "season_bias": filters.seasonality_bias(symbol)}
+        if horizon != "short":
+            return None, None, 1.0, ctx
+        factor = 1.0
+        vb, vf = filters.vol_gate(a.get("vol_pct"), settings)
+        factor *= vf
+        if vb:
+            return vb, "VOLATILIDAD", factor, ctx
+        sb, sf = filters.seasonality_gate(symbol, side, settings)
+        factor *= sf
+        if sb:
+            return sb, "ESTACIONAL", factor, ctx
+        if settings.usd_regime_filter:
+            rg = await fx_regime.usd_regime(self.market, settings.usd_regime_sma)
+            ctx["usd_regime"] = rg.get("state")
+            rb = fx_regime.regime_block(rg, symbol, side)
+            if rb:
+                return rb, "REGIMEN_USD", factor, ctx
+        if settings.fomc_rule and self.news and "USD" in SPECS[symbol]["base"] + SPECS[symbol]["quote"]:
+            ev = filters.fomc_event(self.news.latest.get("events", []) if self.news.latest else [])
+            if ev:
+                rows = await self.market.fetch_klines(symbol, "1h", 100, cache_sec=120)
+                direction = filters.post_event_direction(rows, ev["t"], self.market.tickers.get(symbol, {}).get("price"))
+                ctx["fomc"] = {"event": ev["title"], "direction": direction}
+                fb = filters.fomc_block(symbol, side, ev, direction, True)
+                if fb:
+                    return fb, "FOMC", factor, ctx
+        return None, None, factor, ctx
+
+    async def _handle_signal(self, symbol, sig, settings: FxSettings, df, htf, htf_tf, horizon: str = "short", tf: str = None):
         key = f"{symbol}:{sig['strategy']}:{sig['side']}:{sig['key_ts']}"
         if key in self.signal_keys:
             return
         self.signal_keys.add(key)
-        await self.log("SIGNAL", f"{symbol} {sig['side'].upper()} · {FX_STRATEGY_INFO[sig['strategy']]['name']} · {sig['score']} confirmaciones")
+        tf = tf or settings.timeframe
+        await self.log("SIGNAL", f"{symbol} {sig['side'].upper()} · {FX_STRATEGY_INFO[sig['strategy']]['name']} · {sig['score']} confirmaciones" + (" · largo plazo" if horizon == "long" else ""))
         acc = await self.account_summary()
-        block, kind, open_syms = await self._blocks(symbol, settings, acc)
+        block, kind, open_syms = await self._blocks(symbol, settings, acc, sig["side"], horizon)
         news_block, risk_factor = self.news.gate(symbol) if self.news else (None, 1.0)
         if not block and news_block:
             block, kind = news_block, "NOTICIAS"
+        g_block, g_kind, g_factor, g_ctx = await self._market_gates(symbol, sig["side"], settings, horizon)
+        if not block and g_block:
+            block, kind = g_block, g_kind
+        risk_factor *= g_factor
         t = self.market.tickers.get(symbol, {})
         news_ctx = self.news.context(symbol) if self.news else None
         context = {"mode": "REAL" if self.live else "PAPER", "sessions": [x["id"] for x in market_status()["sessions"] if x["open"]], "htf_tf": htf_tf,
@@ -822,9 +952,10 @@ class FxEngine:
                    "spread_pips": round(pips(symbol, SPECS[symbol]["spread"]), 1), "sl_pips": round(pips(symbol, abs(sig["price"] - sig["sl"])), 1),
                    "open_positions": len(open_syms), "max_positions": settings.max_positions, "daily_pnl_pct": acc["daily_pnl_pct"], "equity": acc["equity"],
                    "news_risk": (news_ctx or {}).get("mercado", {}).get("risk") if news_ctx else None, "news_pair": (news_ctx or {}).get("par") if news_ctx else None,
-                   "news_size_factor": risk_factor, "ai_enabled": settings.ai_enabled, "ai_min_confidence": settings.ai_min_confidence}
-        base = dict(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=settings.timeframe, price=sig["price"], sl=sig["sl"], tp=sig["tp"],
-                    score=sig["score"], reasons=sig["reasons"], indicators=sig["indicators"], key=key, context=context)
+                   "news_size_factor": risk_factor, "ai_enabled": settings.ai_enabled, "ai_min_confidence": settings.ai_min_confidence,
+                   "horizon": horizon, **g_ctx}
+        base = dict(symbol=symbol, side=sig["side"], strategy=sig["strategy"], timeframe=tf, price=sig["price"], sl=sig["sl"], tp=sig["tp"],
+                    score=sig["score"], reasons=sig["reasons"], indicators=sig["indicators"], key=key, context=context, horizon=horizon)
         if block:
             await self.log("RISK", f"{symbol}: señal descartada · {block}")
             res = await self.db.signals.insert_one(Signal(**base, ai_decision=kind, note=f"Bloqueada por {BLOCK_BY.get(kind, 'riesgo')}: {block}").to_mongo())
@@ -842,6 +973,7 @@ class FxEngine:
                 "recent_changes": [round(x, 3) for x in (closes.pct_change().dropna() * 100).tolist()],
                 "open_positions": len(open_syms), "daily_pnl_pct": acc["daily_pnl_pct"],
                 "news": news_ctx, "news_weight": settings.ai_news_weight,
+                "horizon": horizon, "vol_regime": g_ctx.get("vol_regime"), "season_bias": g_ctx.get("season_bias"), "usd_regime": g_ctx.get("usd_regime"),
             }
             try:
                 res = await evaluate_signal(symbol, settings.timeframe, sig, ctx)
@@ -861,13 +993,35 @@ class FxEngine:
         res = await self.db.signals.insert_one(signal.to_mongo())
         sid = str(res.inserted_id)
         if approve:
-            risk_reason = "riesgo de noticias" if risk_factor < 1 else ""
-            pos, reason = await self.open_position(symbol, sig, settings, sid, risk_factor, risk_reason)
+            risk_reason = ("riesgo de noticias" if news_block or (self.news and self.news.gate(symbol)[1] < 1) else "volatilidad extrema / sesgo estacional") if risk_factor < 1 else ""
+            pos, reason = await self.open_position(symbol, sig, settings, sid, risk_factor, risk_reason, expires_at=sig.get("expires_at"), horizon=horizon)
             await self.db.signals.update_one({"_id": res.inserted_id}, {"$set": {"executed": True} if pos else {"note": f"No ejecutada: {reason}"}})
             if not pos:
                 await open_shadow(self, sid, symbol, sig, settings, "NO_EJECUTADA", acc, signal.ai_confidence, signal.ai_risk, risk_factor, note=reason or "")
         elif shadow_kind:
             await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc, signal.ai_confidence, signal.ai_risk, risk_factor, note=signal.note or signal.ai_reasoning)
+
+    async def _scan_slow(self, settings: FxSettings) -> int:
+        """Month-end London fix reversion on 15m candles (long horizon). Only evaluated inside the 20-minute window after the fix."""
+        now = datetime.now(timezone.utc)
+        if not fix_window(now):
+            return 0
+        found = 0
+        for symbol in settings.symbols:
+            if SPECS[symbol]["group"] == "Metales":
+                continue
+            try:
+                price = self.market.tickers.get(symbol, {}).get("price")
+                rows15 = await self.market.fetch_klines(symbol, "15m", 300, cache_sec=60)
+                df1h = self._df(await self.market.fetch_klines(symbol, "1h", 300, cache_sec=120))
+                sig = fix_signal(symbol, rows15, float(df1h["atr"].iloc[-2]), now, price)
+                if sig:
+                    found += 1
+                    await self._handle_signal(symbol, sig, settings, df1h, None, "1h", horizon="long", tf="15m")
+            except Exception as e:
+                logger.exception(f"fix scan {symbol}")
+                await self.log("ERROR", f"{symbol}: fix reversion · {e}")
+        return found
 
     # ---------- news trading ----------
     async def news_trade(self, symbol: str, side: str, confidence: int, reasoning: str, event: dict, cfg) -> dict:
@@ -877,7 +1031,7 @@ class FxEngine:
         if symbol not in settings.symbols:
             return {"status": "OMITIDA", "reason": "par no activo en ajustes"}
         acc = await self.account_summary()
-        block, _, _ = await self._blocks(symbol, settings, acc)
+        block, _, _ = await self._blocks(symbol, settings, acc, side)
         if block:
             return {"status": "OMITIDA", "reason": block}
         tickers = await self.market.fetch_tickers(settings.symbols, cache_sec=5)

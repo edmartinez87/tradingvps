@@ -93,22 +93,55 @@ def check_exit(side: str, sl: float, tp: float, price: float):
     return None, None
 
 
-def update_trailing(side: str, entry: float, sl: float, initial_sl: float, atr: float, price: float, spread: float):
-    """Breakeven (+spread) at +1R, ATR trailing from +1.5R. Returns (new_sl, breakeven_flag)."""
+def update_trailing(side: str, entry: float, sl: float, initial_sl: float, atr: float, price: float, spread: float,
+                    be_r: float = 1.0, trail_r: float = 1.5, trail_atr: float = 1.0):
+    """Breakeven (+spread) at +be_r R, ATR trailing (trail_atr × ATR) from +trail_r R. Returns (new_sl, breakeven_flag)."""
     r = abs(entry - initial_sl)
     if r <= 0:
         return sl, False
     move = (price - entry) if side == "long" else (entry - price)
     new_sl = sl
     if side == "long":
-        if move >= r:
+        if move >= be_r * r:
             new_sl = max(new_sl, entry + spread)
-        if move >= 1.5 * r:
-            new_sl = max(new_sl, price - atr)
+        if move >= trail_r * r:
+            new_sl = max(new_sl, price - trail_atr * atr)
     else:
-        if move >= r:
+        if move >= be_r * r:
             new_sl = min(new_sl, entry - spread)
-        if move >= 1.5 * r:
-            new_sl = min(new_sl, price + atr)
+        if move >= trail_r * r:
+            new_sl = min(new_sl, price + trail_atr * atr)
     be = (new_sl >= entry) if side == "long" else (new_sl <= entry)
     return new_sl, be
+
+
+DEFAULT_RULES = {"trailing_enabled": True, "be_start_r": 1.0, "trail_start_r": 1.5, "trail_atr_mult": 1.0,
+                 "partial_tp_enabled": False, "partial_tp_r": 1.5, "partial_tp_pct": 50}
+
+
+def trade_rules(settings) -> dict:
+    """Exit-management rules (trailing + partial take-profit) from FxSettings / bool / dict; missing fields = classic constants."""
+    if isinstance(settings, dict):
+        return {**DEFAULT_RULES, **settings}
+    if isinstance(settings, bool):
+        return {**DEFAULT_RULES, "trailing_enabled": settings}
+    return {k: getattr(settings, k, v) for k, v in DEFAULT_RULES.items()}
+
+
+def move_in_r(side: str, entry: float, initial_sl: float, price: float) -> float:
+    r = abs(entry - initial_sl)
+    return (((price - entry) if side == "long" else (entry - price)) / r) if r > 0 else 0.0
+
+
+def tp_in_r(side: str, entry: float, initial_sl: float, tp: float) -> float:
+    r = abs(entry - initial_sl)
+    return abs(tp - entry) / r if r > 0 else 0.0
+
+
+def partial_lots(lots: float, pct: int, lot: dict = None) -> float:
+    """Lots to close at the partial take-profit; 0 when either leg would fall below the broker minimum."""
+    mn, step = (lot["min"], lot["step"]) if lot else (MIN_LOT, LOT_STEP)
+    part = round(math.floor(lots * pct / 100 / step + 1e-9) * step, 8)
+    if part < mn - 1e-9 or round(lots - part, 8) < mn - 1e-9:
+        return 0.0
+    return part

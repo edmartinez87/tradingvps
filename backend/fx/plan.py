@@ -3,6 +3,7 @@
 import time
 import asyncio
 import plan as core
+from fx.risk import trade_rules
 from fx.optimizer import kit
 
 CURRENCY = "USD"
@@ -18,7 +19,7 @@ def _bt(klines: list, settings, initial: float, symbol: str, params: dict, ticke
     k = kit(settings, tickers)
     df = k.build_df(klines, int(params.get("atr_period", 14)))
     sigs = k.scan_signals(df, settings.strategy, None, settings.signal_mode, settings.disabled_strategies)
-    return k.simulate(df, sigs, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial, symbol, params.get("sl_atr"), params.get("tp_atr"))
+    return k.simulate(df, sigs, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial, symbol, params.get("sl_atr"), params.get("tp_atr"))
 
 
 async def backtest_stats(engine, settings, initial: float) -> dict:
@@ -35,7 +36,7 @@ async def backtest_stats(engine, settings, initial: float) -> dict:
 
 
 async def plan_stats(engine, settings, initial: float) -> dict:
-    key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled,
+    key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade, settings.leverage, str(trade_rules(settings)),
            settings.max_positions, initial, str(settings.symbol_params), settings.signal_mode, tuple(settings.disabled_strategies),
            settings.min_lot_max_risk, settings.close_before_weekend, tuple(settings.sessions_allowed))
     hit = _cache.get(key)

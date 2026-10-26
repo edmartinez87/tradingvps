@@ -324,6 +324,27 @@ async def _trade(body: dict, action: str):
             return _retcode("TRADE_RETCODE_POSITION_CLOSED", 10045, "Position already closed")
         deal = _close(p, await price_of(p["symbol"]), "")
         return _retcode("TRADE_RETCODE_DONE", 10009, "Request completed", orderId=deal["orderId"], positionId=pid)
+    if action == "POSITION_PARTIAL":
+        if not p:
+            return _retcode("TRADE_RETCODE_POSITION_CLOSED", 10045, "Position already closed")
+        vol = float(body.get("volume") or 0)
+        if vol < 0.01 or vol > p["volume"] + 1e-9:
+            return _retcode("TRADE_RETCODE_INVALID_VOLUME", 10014, "Invalid volume")
+        price = await price_of(p["symbol"])
+        if vol >= p["volume"] - 1e-9:
+            deal = _close(p, price, "")
+            return _retcode("TRADE_RETCODE_DONE", 10009, "Request completed", orderId=deal["orderId"], positionId=pid)
+        part = {**p, "volume": vol}
+        profit = _pnl(part, price)
+        state["balance"] += profit
+        deal = {"id": nid(), "platform": "mt5", "type": "DEAL_TYPE_SELL" if p["type"] == "POSITION_TYPE_BUY" else "DEAL_TYPE_BUY", "entryType": "DEAL_ENTRY_OUT",
+                "symbol": p["symbol"], "positionId": pid, "orderId": nid(), "volume": vol, "price": price, "profit": profit, "swap": 0.0,
+                "commission": 0.0, "time": now_iso(), "comment": "partial", "magic": p["magic"]}
+        state["deals"][pid].append(deal)
+        p["volume"] = round(p["volume"] - vol, 2)
+        p["profit"] = _pnl(p, price)
+        p["updateTime"] = now_iso()
+        return _retcode("TRADE_RETCODE_DONE", 10009, "Request completed", orderId=deal["orderId"], positionId=pid)
     if action == "POSITION_MODIFY":
         if not p:
             return _retcode("TRADE_RETCODE_INVALID", 10013, "Position not found")

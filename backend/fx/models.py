@@ -5,6 +5,8 @@ from fx.symbols import AVAILABLE, DEFAULT_SYMBOLS
 from fx.market import SESSION_IDS
 
 NEWS_WEIGHTS = ("normal", "bajo")  # weight of market-wide news alerts in the per-signal AI verdict
+FX_SLOW_KEYS = ["fix_reversion"]
+FX_STRATEGY_KEYS = STRATEGY_KEYS + FX_SLOW_KEYS
 
 FX_TIMEFRAMES = ["5m", "15m", "1h", "4h"]
 
@@ -35,7 +37,79 @@ class FxSettings(BaseModel):
     plan_target_monthly: float = 1000.0
     plan_monthly_deposit: float = 0.0
     plan_phase: int = 0
+    currency_exposure_limit: int = 2
+    rollover_guard: bool = True
+    vol_filter_enabled: bool = True
+    vol_min_pct: int = 20
+    vol_high_pct: int = 90
+    seasonality_bias: bool = True
+    seasonality_block_pairs: List[str] = ["EURUSD"]
+    seasonality_size_factor: float = 0.75
+    usd_regime_filter: bool = True
+    usd_regime_sma: int = 200
+    fomc_rule: bool = True
+    max_long_positions: int = 2
+    be_start_r: float = 1.0
+    trail_start_r: float = 1.5
+    trail_atr_mult: float = 1.0
+    partial_tp_enabled: bool = True
+    partial_tp_r: float = 1.5
+    partial_tp_pct: int = 50
     bot_running: bool = False
+
+    @field_validator("seasonality_block_pairs")
+    @classmethod
+    def _season_pairs(cls, v):
+        return [s for s in dict.fromkeys(v or []) if s in AVAILABLE]
+
+    @field_validator("usd_regime_sma")
+    @classmethod
+    def _usd_sma(cls, v):
+        if v not in (50, 200):
+            raise ValueError("La SMA del régimen USD debe ser 50 o 200")
+        return v
+
+    @field_validator("vol_min_pct")
+    @classmethod
+    def _vol_min(cls, v):
+        if not 0 <= v <= 50:
+            raise ValueError("Percentil mínimo de volatilidad fuera de rango (0–50)")
+        return v
+
+    @field_validator("vol_high_pct")
+    @classmethod
+    def _vol_high(cls, v):
+        if not 60 <= v <= 100:
+            raise ValueError("Percentil alto de volatilidad fuera de rango (60–100)")
+        return v
+
+    @field_validator("currency_exposure_limit", "max_long_positions")
+    @classmethod
+    def _small_caps(cls, v):
+        if not 1 <= v <= 6:
+            raise ValueError("Tope fuera de rango (1–6)")
+        return v
+
+    @field_validator("seasonality_size_factor")
+    @classmethod
+    def _season_factor(cls, v):
+        if not 0.25 <= v <= 1.0:
+            raise ValueError("Factor de tamaño estacional fuera de rango (0,25–1)")
+        return v
+
+    @field_validator("be_start_r", "trail_start_r", "partial_tp_r", "trail_atr_mult")
+    @classmethod
+    def _r_levels(cls, v):
+        if not 0.5 <= v <= 3.0:
+            raise ValueError("nivel fuera de rango (0,5–3)")
+        return v
+
+    @field_validator("partial_tp_pct")
+    @classmethod
+    def _partial_pct(cls, v):
+        if not 25 <= v <= 75:
+            raise ValueError("porcentaje de cierre parcial fuera de rango (25–75)")
+        return v
 
     @field_validator("sessions_allowed")
     @classmethod
@@ -59,8 +133,8 @@ class FxSettings(BaseModel):
     @field_validator("disabled_strategies")
     @classmethod
     def _disabled(cls, v):
-        v = [s for s in dict.fromkeys(v or []) if s in STRATEGY_KEYS and s != "all"]
-        if len(v) >= len(STRATEGY_KEYS) - 1:
+        v = [s for s in dict.fromkeys(v or []) if s in FX_STRATEGY_KEYS and s != "all"]
+        if len(v) >= len(FX_STRATEGY_KEYS) - 1:
             raise ValueError("Debe quedar al menos una estrategia activa")
         return v
 
@@ -78,7 +152,7 @@ class FxSettings(BaseModel):
     @field_validator("strategy")
     @classmethod
     def _strategy(cls, v):
-        if v not in STRATEGY_KEYS:
+        if v not in FX_STRATEGY_KEYS:
             raise ValueError("Estrategia inválida")
         return v
 
@@ -122,6 +196,24 @@ class FxSettingsUpdate(BaseModel):
     plan_target_monthly: Optional[float] = Field(default=None, ge=50, le=10_000_000)
     plan_monthly_deposit: Optional[float] = Field(default=None, ge=0, le=1_000_000)
     plan_phase: Optional[int] = Field(default=None, ge=0, le=4)
+    currency_exposure_limit: Optional[int] = Field(default=None, ge=1, le=6)
+    rollover_guard: Optional[bool] = None
+    vol_filter_enabled: Optional[bool] = None
+    vol_min_pct: Optional[int] = Field(default=None, ge=0, le=50)
+    vol_high_pct: Optional[int] = Field(default=None, ge=60, le=100)
+    seasonality_bias: Optional[bool] = None
+    seasonality_block_pairs: Optional[List[str]] = None
+    seasonality_size_factor: Optional[float] = Field(default=None, ge=0.25, le=1.0)
+    usd_regime_filter: Optional[bool] = None
+    usd_regime_sma: Optional[int] = None
+    fomc_rule: Optional[bool] = None
+    max_long_positions: Optional[int] = Field(default=None, ge=1, le=6)
+    be_start_r: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    trail_start_r: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    trail_atr_mult: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    partial_tp_enabled: Optional[bool] = None
+    partial_tp_r: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    partial_tp_pct: Optional[int] = Field(default=None, ge=25, le=75)
 
 
 class HfmTestRequest(BaseModel):

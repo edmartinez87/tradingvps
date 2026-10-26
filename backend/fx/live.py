@@ -298,6 +298,22 @@ class FxLiveBroker:
         self.invalidate()
         return {"order_id": str(res.get("orderId") or ""), "attempts": attempts, "note": note}
 
+    async def close_partial(self, position_id: str, lots: float, link_id: str = "") -> dict:
+        """Reduce a live position by `lots` (POSITION_PARTIAL). Unknown result → reconciled when the broker volume already dropped."""
+        before = await self.position(position_id, max_age=0)
+
+        async def send():
+            return await self.api.close_position_partially(self.account_id, position_id, lots, self.region, close_link(link_id)[:28] + "p")
+
+        async def on_unknown():
+            self.invalidate()
+            p = await self.position(position_id, max_age=0)
+            return {"orderId": "", "reconciled": True} if (p is None or (before and p["volume"] < before["volume"] - 1e-9)) else None
+
+        res, attempts, note = await self._with_retries(send, on_unknown)
+        self.invalidate()
+        return {"order_id": str(res.get("orderId") or ""), "attempts": attempts, "note": note, "commission": 0.0}
+
     async def set_stop(self, symbol: str, position_id: str, sl: float, tp: float):
         lot = await self.lot(symbol)
         d = lot["digits"]
@@ -320,7 +336,9 @@ class FxLiveBroker:
         for i in range(tries):
             deals = await self.api.deals_by_position(self.account_id, position_id, self.region)
             outs = [d for d in deals if str(d.get("entryType", "")).endswith("OUT")]
-            if outs:
+            vol_in = sum(float(d.get("volume") or 0) for d in deals if str(d.get("entryType", "")).endswith("IN"))
+            vol_out = sum(float(d.get("volume") or 0) for d in outs)
+            if outs and (vol_out >= vol_in - 1e-9 or i == tries - 1):
                 commission = sum(float(d.get("commission") or 0) for d in deals)
                 swap = sum(float(d.get("swap") or 0) for d in deals)
                 profit = sum(float(d.get("profit") or 0) for d in outs)

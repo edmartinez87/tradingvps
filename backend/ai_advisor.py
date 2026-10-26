@@ -291,8 +291,17 @@ FX_MARKET = {
                    "RECHAZADA/BAJA_CONFIANZA y según by_confidence (sube el mínimo si los tramos bajos pierden, bájalo si los tramos justo por debajo del mínimo ganan de forma consistente); "
                    "ai_news_weight ('normal' o 'bajo') regula cuánto pesan las alertas generales de mercado en el veredicto por señal: ponlo en 'bajo' solo si ai_by_news_risk "
                    "muestra que las señales rechazadas con riesgo ALTO habrían ganado (pnl > 0) con ≥ 20 sombras, y devuélvelo a 'normal' si con ≥ 20 sombras pierden. "
-                   "Sin esa muestra, no toques el filtro IA y explica en notes cuántas sombras faltan. "),
-    "extra_keys": ", sessions_allowed (lista de ids), ai_news_weight ('normal'|'bajo')",
+                   "Sin esa muestra, no toques el filtro IA y explica en notes cuántas sombras faltan. "
+                   "(8) Filtros FX (filtros_fx) ajustables con evidencia de sombras del motivo correspondiente (≥ 20 sombras: filter_value < 0 → relajar, > 0 → mantener/endurecer): "
+                   "currency_exposure_limit (1-6), rollover_guard (bool), vol_filter_enabled (bool) / vol_min_pct (0-50) / vol_high_pct (60-100), seasonality_bias (bool) / "
+                   "seasonality_block_pairs (lista de pares) / seasonality_size_factor (0,25-1), usd_regime_filter (bool) / usd_regime_sma (50|200), fomc_rule (bool), "
+                   "max_long_positions (1-6; la estrategia fix_reversion se apaga/enciende con disabled_strategies como las demás). "
+                   "(9) Gestión de salidas (filtros_fx.gestion_salidas): be_start_r, trail_start_r (≥ be_start_r), trail_atr_mult (0,5-3), partial_tp_enabled, partial_tp_r (0,5-3), "
+                   "partial_tp_pct (25-75). Solo con ≥ 20 operaciones con recorrido (excursion.tracked): near_miss_pct alto → acercar el parcial o apretar el trailing; "
+                   "TRAILING con mfe alto y pnl bajo → trailing demasiado lejos; mae alto en ganadoras → breakeven demasiado pronto. Pasos máximos ±0,25 R / ±0,25 ATR / ±10 % por revisión. "),
+    "extra_keys": (", sessions_allowed (lista de ids), ai_news_weight ('normal'|'bajo'), currency_exposure_limit, rollover_guard, vol_filter_enabled, vol_min_pct, vol_high_pct, "
+                   "seasonality_bias, seasonality_block_pairs, seasonality_size_factor, usd_regime_filter, usd_regime_sma, fomc_rule, max_long_positions, "
+                   "be_start_r, trail_start_r, trail_atr_mult, partial_tp_enabled, partial_tp_r, partial_tp_pct"),
     "strategy_keys": STRATEGY_KEYS_TXT,
 }
 

@@ -5,7 +5,7 @@ import logging
 from fastapi import HTTPException, Request, Query
 from bson import ObjectId
 
-from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, ModeRequest, PlanRequest, AdviseRequest, STRATEGY_KEYS, SIGNAL_MODES, now_iso
+from models import Position, Trade, Signal, LogEntry, ResetRequest, OptimizeRequest, ModeRequest, PlanRequest, AdviseRequest, SIGNAL_MODES, now_iso
 from strategies import MODE_INFO
 import chart
 from performance import performance
@@ -16,7 +16,10 @@ from ai_advisor import current as ai_current, friendly_error
 import notify
 from deps import store, fx_engine as engine, fx_store, fx_news as news, protected_router, ai_usage
 from routers.shared_routes import add_shared_routes
-from fx.models import FxSettingsUpdate, HfmTestRequest, FxBacktestRequest, FxProfileRequest, FX_TIMEFRAMES
+from fx.models import FxSettingsUpdate, HfmTestRequest, FxBacktestRequest, FxProfileRequest, FX_TIMEFRAMES, FX_STRATEGY_KEYS, FX_SLOW_KEYS
+from fx import filters as fx_filters
+from fx.risk import trade_rules
+from fx.strategies_slow import fix_window, last_business_day
 from fx.config import FxConfigUpdate
 from fx.symbols import SPECS, AVAILABLE, CURRENCIES, CURRENCY_NAMES, pips
 from fx.market import TF_SECONDS, market_status, SESSIONS
@@ -57,7 +60,8 @@ async def _equity_curve(limit: int = 1440) -> list:
 @router.get("/meta")
 async def meta():
     return {"symbols": AVAILABLE, "symbol_info": {s: {k: v for k, v in SPECS[s].items() if k in ("name", "group", "digits", "pip")} for s in AVAILABLE},
-            "timeframes": FX_TIMEFRAMES, "strategies": STRATEGY_KEYS, "strategy_info": FX_STRATEGY_INFO, "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO,
+            "timeframes": FX_TIMEFRAMES, "strategies": FX_STRATEGY_KEYS, "strategy_keys": FX_STRATEGY_KEYS[1:], "long_horizon_keys": list(FX_SLOW_KEYS),
+            "strategy_info": FX_STRATEGY_INFO, "signal_modes": SIGNAL_MODES, "mode_info": MODE_INFO,
             "profiles": PROFILES, "currencies": CURRENCIES, "currency_names": CURRENCY_NAMES, "sessions": SESSION_LIST}
 
 
@@ -85,15 +89,27 @@ async def _initial_balance() -> float:
 
 @router.post("/backtest")
 async def backtest(req: FxBacktestRequest):
-    if req.symbol not in AVAILABLE or req.timeframe not in FX_TIMEFRAMES or req.strategy not in STRATEGY_KEYS:
+    if req.symbol not in AVAILABLE or req.timeframe not in FX_TIMEFRAMES or req.strategy not in FX_STRATEGY_KEYS:
         raise HTTPException(400, "Parámetros inválidos")
     s = await engine.get_settings()
-    klines = await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60)
-    result = await asyncio.to_thread(run_backtest, klines, req.strategy, req.risk_per_trade, req.leverage, s.trailing_enabled, await _initial_balance(),
+    tf = req.timeframe
+    if req.strategy == "fix_reversion":
+        if SPECS[req.symbol]["group"] == "Metales":
+            raise HTTPException(400, "La reversión del fix de fin de mes no opera metales")
+        tf = "1h"
+        klines = await engine.market.fetch_klines(req.symbol, "1h", 1000, cache_sec=600)
+        while klines and len(klines) < 6000:  # ≈ 1 year of hourly candles → ~12 month-ends
+            older = await engine.market.fetch_before(req.symbol, "1h", klines[0][0] // 1000, 1000)
+            if not older:
+                break
+            klines = older + klines
+    else:
+        klines = await engine.market.fetch_klines(req.symbol, req.timeframe, 1000, cache_sec=60)
+    result = await asyncio.to_thread(run_backtest, klines, req.strategy, req.risk_per_trade, req.leverage, trade_rules(s), await _initial_balance(),
                                      req.symbol, s.signal_mode, s.disabled_strategies, dict(engine.market.tickers), s.min_lot_max_risk, s.close_before_weekend,
                                      tuple(s.sessions_allowed))
     result.pop("r_multiples", None)
-    return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": req.timeframe, "spread_pips": round(pips(req.symbol, SPECS[req.symbol]["spread"]), 1),
+    return {"symbol": req.symbol, "strategy": req.strategy, "timeframe": tf, "spread_pips": round(pips(req.symbol, SPECS[req.symbol]["spread"]), 1),
             "sessions_allowed": s.sessions_allowed, **result}
 
 
@@ -242,6 +258,29 @@ async def _chart_rows(symbol: str, tf: str, n: int, before: int | None):
     return await engine.market.fetch_klines(symbol, tf, n, cache_sec=20), "yahoo"
 
 
+@router.get("/market/context")
+async def market_context():
+    """FX gates dashboard: USD regime, net exposure, volatility regimes, seasonality bias, rollover window, FOMC and the next month-end fix."""
+    s = await engine.get_settings()
+    from datetime import datetime, timezone, timedelta
+    from fx.market import LONDON
+    ctx = await fx_review.gates_context(engine, s)
+    now = datetime.now(timezone.utc)
+    ldn = now.astimezone(LONDON).date()
+    d = ldn
+    for _ in range(45):
+        if last_business_day(d) and (d > ldn or (d == ldn and now.astimezone(LONDON).hour < 16)):
+            break
+        d += timedelta(days=1)
+    ev = fx_filters.fomc_event(news.latest.get("events", []) if news and news.latest else [])
+    ctx["fomc"].update(evento_activo=({"title": ev["title"], "time": ev["time"]} if ev else None))
+    ctx["fix_reversion"] = {"enabled": "fix_reversion" not in s.disabled_strategies and s.strategy in ("all", "fix_reversion"), "window_open": bool(fix_window(now)),
+                            "next_fix_london": f"{d.isoformat()} 16:00", "pairs": [x for x in s.symbols if SPECS[x]["group"] != "Metales"]}
+    ctx["watch"] = {sym: {k: engine.analysis.get(sym, {}).get(k) for k in ("vol_pct", "vol_regime", "season_bias")} for sym in s.symbols}
+    ctx["open_positions"] = [{"symbol": p["symbol"], "side": p["side"], "horizon": p.get("horizon", "short")} for p in await engine.db.positions.find({}, {"symbol": 1, "side": 1, "horizon": 1}).to_list(50)]
+    return ctx
+
+
 @router.get("/klines")
 async def klines(symbol: str, tf: str = "1h", limit: int = chart.DEFAULT_LIMIT, before: int | None = Query(None, ge=1)):
     if symbol not in AVAILABLE or tf not in CHART_TIMEFRAMES:
@@ -368,7 +407,7 @@ async def rebase_account():
 
 @router.get("/performance")
 async def get_performance():
-    return await performance(engine.db, fx_shadow_stats, with_excursion=False)
+    return await performance(engine.db, fx_shadow_stats)
 
 
 @router.get("/evolution")

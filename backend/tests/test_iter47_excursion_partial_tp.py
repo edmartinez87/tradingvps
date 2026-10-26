@@ -226,4 +226,4 @@ class TestApi:
         d = client.get(f"{BASE_URL}/api/weekly-summary").json()
         assert "excursion" in d
         fx = client.get(f"{BASE_URL}/api/fx/weekly-summary").json()
-        assert fx.get("excursion") is None and "text" in fx
+        assert "excursion" in fx and "text" in fx  # iteration 48: the FX bot tracks MFE/MAE too

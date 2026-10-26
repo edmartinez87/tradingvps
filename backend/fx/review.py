@@ -15,9 +15,16 @@ from fx.profiles import ai_policy, PROFILES
 from fx.optimizer import optimize, walk_forward, WF_CANDLES
 from fx.backtest import run_backtest
 from fx.plan import plan_stats
+from fx import filters
+from fx import regime as fx_regime
+from fx.risk import trade_rules
+from performance import excursion_stats
 
 logger = logging.getLogger("fx.review")
-ALLOWED_AI_KEYS = review.ALLOWED_AI_KEYS | {"sessions_allowed", "ai_news_weight"}
+FX_GATE_KEYS = {"currency_exposure_limit", "rollover_guard", "vol_filter_enabled", "vol_min_pct", "vol_high_pct", "seasonality_bias", "seasonality_block_pairs",
+                "seasonality_size_factor", "usd_regime_filter", "usd_regime_sma", "fomc_rule", "max_long_positions",
+                "be_start_r", "trail_start_r", "trail_atr_mult", "partial_tp_enabled", "partial_tp_r", "partial_tp_pct"}
+ALLOWED_AI_KEYS = review.ALLOWED_AI_KEYS | {"sessions_allowed", "ai_news_weight"} | FX_GATE_KEYS
 job: dict = {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None, "step": ""}
 
 
@@ -26,7 +33,7 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
     ctx = {"mercado": "forex y metales (HFM, paper trading)" if not engine.live else "forex y metales (HFM, cuenta REAL vía MetaApi)",
            "settings_actuales": settings.model_dump(exclude={"bot_running"}), "cuenta": acc,
            "perfil_riesgo": {"nivel": pol["level"], "nombre": pol["name"], "topes_ia": pol["caps"]},
-           "rendimiento_real": await performance(engine.db, fx_shadow_stats, with_excursion=False), "chequeo_plan": await engine.checkin(settings, acc),
+           "rendimiento_real": await performance(engine.db, fx_shadow_stats), "chequeo_plan": await engine.checkin(settings, acc),
            "sesiones": {"ahora": market_status()["sessions"], "permitidas": settings.sessions_allowed or "todas", "ids": SESSION_NAMES},
            "motivos_rechazo_recientes_ia": await recent_rejections(engine.db)}
     ctx["rendimiento_real"]["shadow"]["_explicacion"] = (
@@ -37,6 +44,11 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
         "by_session indica si conviene ampliar o recortar sessions_allowed; undersized = sombras simuladas con lote mínimo forzado (capital insuficiente). "
         "ai_by_news_risk = sombras de señales rechazadas por la IA según el riesgo general de mercado por noticias (ALTO/MEDIO/BAJO) en el momento del rechazo: "
         "pnl > 0 en ALTO con muestra suficiente = la IA rechaza señales rentables en días de alertas generales → ai_news_weight 'bajo'; pnl < 0 = el filtro acierta → 'normal'.")
+    ctx["rendimiento_real"]["shadow"]["_explicacion"] += (
+        " Motivos nuevos: EXPOSICION (tope de posiciones en la misma dirección por divisa), ROLLOVER (ventana 16:50–17:15 Nueva York), VOLATILIDAD (ATR bajo el percentil mínimo), "
+        "ESTACIONAL (señal contra el sesgo horario de la divisa), REGIMEN_USD (par con USD contra el régimen del índice USD), FOMC (continuación en las 24 h tras la Fed). "
+        "filter_value > 0 en un motivo = el filtro ahorra dinero; < 0 con ≥ 20 sombras = relajarlo.")
+    ctx["filtros_fx"] = await gates_context(engine, settings)
     if engine.news and engine.news.latest:
         ctx["noticias"] = {"mercado": engine.news.latest["market"], "alertas": engine.news.latest.get("alerts", [])[:5]}
     ctx["evolucion"] = await evolution.ai_context(engine)
@@ -50,6 +62,29 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
         ctx["backtest"] = {k: bt[k] for k in ("per_symbol", "by_strategy", "monte_carlo", "trades_per_month", "days", "total_pips", "rejected_lot")}
         ctx["backtest"]["_explicacion"] = "Backtest por par en lotes con spread HFM; total_pips = pips netos de spread; rejected_lot = señales sin operar por lote mínimo."
     return ctx
+
+
+async def gates_context(engine, settings) -> dict:
+    """Current state of the FX gates + exit rules + trade-path analytics, for the AI and the weekly summary."""
+    open_docs = await engine.db.positions.find({}, {"symbol": 1, "side": 1, "horizon": 1}).to_list(100)
+    rg = await fx_regime.usd_regime(engine.market, settings.usd_regime_sma) if settings.usd_regime_filter else {"state": "apagado"}
+    vol = {s: {"pct": a.get("vol_pct"), "regimen": a.get("vol_regime")} for s, a in engine.analysis.items() if a.get("vol_pct") is not None}
+    return {
+        "exposicion_por_divisa": {"tope": settings.currency_exposure_limit, "neta_actual": filters.exposure_counts(open_docs)},
+        "rollover": {"activo": settings.rollover_guard, **filters.rollover_status()},
+        "volatilidad": {"activo": settings.vol_filter_enabled, "percentil_min": settings.vol_min_pct, "percentil_alto": settings.vol_high_pct, "por_par": vol},
+        "estacionalidad": {"activo": settings.seasonality_bias, "pares_bloqueo": settings.seasonality_block_pairs, "factor_tamano": settings.seasonality_size_factor,
+                           "sesgo_ahora": {s: filters.seasonality_bias(s) for s in settings.symbols}},
+        "regimen_usd": {"activo": settings.usd_regime_filter, **rg},
+        "fomc": {"activo": settings.fomc_rule},
+        "largo_plazo": {"max_long_positions": settings.max_long_positions, "estrategia": "fix_reversion (reversión fin de mes del fix de Londres, ≈1 día, no cuenta en max_positions)"},
+        "gestion_salidas": {"reglas_actuales": trade_rules(settings), "excursion": await excursion_stats(engine.db)},
+        "_explicacion": ("exposicion: cuenta neta de posiciones por divisa (long EURUSD = +1 EUR, −1 USD); el tope evita apostar 3 veces al mismo dólar. "
+                         "volatilidad: percentil del ATR actual frente a las últimas 200 velas; bajo el mínimo no se abre, sobre el alto se opera a la mitad. "
+                         "estacionalidad: una divisa tiende a depreciarse en su horario local (Breedon & Ranaldo); en pares_bloqueo la señal contraria se bloquea, en el resto se reduce el tamaño. "
+                         "regimen_usd: índice USD sintético (EUR, JPY, GBP, CAD, CHF) frente a su SMA diaria; con USD FUERTE los pares xxxUSD solo cortos y USDxxx solo largos. "
+                         "gestion_salidas.excursion: recorrido real de cada operación (mfe_r máximo a favor, mae_r máximo en contra, mfe_tp_pct % del TP alcanzado, near_miss = rozó el TP sin tocarlo)."),
+    }
 
 
 def _apply(engine, res, before, settings, source: str = "optimize_all"):
@@ -116,7 +151,7 @@ async def run_global_optimization(engine, db) -> dict:
         job["step"] = f"Optimizando {sym}"
         klines = await engine.market.fetch_klines(sym, settings.timeframe, 1000, cache_sec=300)
         res = await asyncio.to_thread(optimize, klines, settings, initial, sym, tickers)
-        bt = await asyncio.to_thread(run_backtest, klines, settings.strategy, settings.risk_per_trade, settings.leverage, settings.trailing_enabled, initial,
+        bt = await asyncio.to_thread(run_backtest, klines, settings.strategy, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial,
                                      sym, settings.signal_mode, settings.disabled_strategies, tickers, settings.min_lot_max_risk, settings.close_before_weekend)
         job["step"] = f"Validando {sym} (walk-forward)"
         wf = await _safe_walk_forward(engine, settings, initial, sym)

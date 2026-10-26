@@ -25,6 +25,7 @@ import { Panel } from "@/components/bot/Panel";
 import SessionsStrip from "./SessionsStrip";
 import FxNewsPanel from "./FxNewsPanel";
 import FxAdminSettings from "./FxAdminSettings";
+import FxFiltersPanel from "./FxFiltersPanel";
 import Documentation from "@/components/docs/Documentation";
 import VpsInstall from "@/components/deploy/VpsInstall";
 
@@ -44,9 +45,30 @@ export const FX_BRAND = {
 export const NEWS_WEIGHT_LABELS = { normal: "Normal · las alertas generales pueden rechazar", bajo: "Bajo · solo restan confianza" };
 const EXTRA_SELECTS = [{ k: "ai_news_weight", label: "Peso de las noticias en la IA", options: ["normal", "bajo"], render: (o) => NEWS_WEIGHT_LABELS[o] || o,
   hint: "Cuánto pesan las alertas generales de mercado (no específicas del par) en el veredicto de la IA por señal. La optimización con IA lo calibra sola con las operaciones sombra «Rechazos de la IA por riesgo de noticias»." }];
-const EXTRA_TOGGLES = [{ k: "close_before_weekend", label: "Cerrar antes del fin de semana", hint: "Cierra todo 30 min antes del cierre del viernes (evita gaps del domingo)" }];
-const EXTRA_NUMS = [{ k: "min_lot_max_risk", label: "Riesgo máx. lote mínimo (%)", step: 0.5, min: 0, max: 10,
-  hint: "Si el tamaño ideal queda por debajo de 0.01 lotes (típico en oro/plata con poco capital), se abre el lote mínimo siempre que su riesgo no supere este % de la equidad. 0 = nunca." }];
+const EXTRA_TOGGLES = [
+  { k: "close_before_weekend", label: "Cerrar antes del fin de semana", hint: "Cierra todo 30 min antes del cierre del viernes (evita gaps del domingo)" },
+  { k: "rollover_guard", label: "Guardia de rollover (17:00 NY)", hint: "Sin entradas 16:50–17:15 Nueva York; en paper los stops no se evalúan durante el pico de spread" },
+  { k: "vol_filter_enabled", label: "Filtro de volatilidad (ATR)", hint: "Sin entradas con ATR bajo el percentil mínimo; riesgo a la mitad por encima del percentil alto" },
+  { k: "seasonality_bias", label: "Estacionalidad intradía", hint: "Una divisa tiende a depreciarse en su horario local: señales contra el sesgo bloqueadas en los pares marcados y reducidas en el resto" },
+  { k: "usd_regime_filter", label: "Filtro de régimen USD", hint: "Índice USD sintético vs SMA diaria: pares con USD solo a favor del régimen (cruces y metales no)" },
+  { k: "fomc_rule", label: "Regla FOMC sin continuación", hint: "24 h tras la decisión de la Fed no se opera la continuación del movimiento en pares con USD" },
+  { k: "partial_tp_enabled", label: "Cierre parcial de beneficios", hint: "Cierra una parte al alcanzar el nivel en R y deja correr el resto con trailing" },
+];
+const EXTRA_NUMS = [
+  { k: "min_lot_max_risk", label: "Riesgo máx. lote mínimo (%)", step: 0.5, min: 0, max: 10,
+    hint: "Si el tamaño ideal queda por debajo de 0.01 lotes (típico en oro/plata con poco capital), se abre el lote mínimo siempre que su riesgo no supere este % de la equidad. 0 = nunca." },
+  { k: "currency_exposure_limit", label: "Tope exposición por divisa", step: 1, min: 1, max: 6, hint: "Máximo de posiciones en la misma dirección sobre una misma divisa (long EURUSD + long GBPUSD = 2 cortos de USD)" },
+  { k: "max_long_positions", label: "Máx. posiciones largo plazo", step: 1, min: 1, max: 6, hint: "Tope propio de la reversión de fin de mes; no consume «Máx. posiciones»" },
+  { k: "vol_min_pct", label: "Volatilidad: percentil mínimo", step: 5, min: 0, max: 50 },
+  { k: "vol_high_pct", label: "Volatilidad: percentil alto", step: 5, min: 60, max: 100 },
+  { k: "seasonality_size_factor", label: "Tamaño contra sesgo estacional", step: 0.05, min: 0.25, max: 1 },
+  { k: "be_start_r", label: "Breakeven a (R)", min: 0.5, max: 3, step: 0.25 }, { k: "trail_start_r", label: "Trailing desde (R)", min: 0.5, max: 3, step: 0.25 },
+  { k: "trail_atr_mult", label: "Distancia trailing (ATR)", min: 0.5, max: 3, step: 0.25 }, { k: "partial_tp_r", label: "Cierre parcial a (R)", min: 0.5, max: 3, step: 0.25 },
+  { k: "partial_tp_pct", label: "Cierre parcial (%)", min: 25, max: 75, step: 5 },
+];
+const SEASON_CHIPS = (meta) => [{ k: "seasonality_block_pairs", label: "Pares con bloqueo estacional", emptyLabel: "ninguno · solo reduce tamaño",
+  options: (meta?.symbols || []).map((s) => ({ id: s, name: s })),
+  hint: "En estos pares la señal contra el sesgo horario se bloquea (evidencia neta solo en EURUSD); en el resto se opera con el tamaño reducido configurado." }];
 const BT_INTRO = (s) => `Evalúa la estrategia sobre las últimas 1.000 velas de Yahoo Finance (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes de 0.01 y el mismo plan de riesgo: ${s.risk_per_trade}% por operación, 1:${s.leverage}, spread HFM como único coste, trailing stop${s.close_before_weekend ? " y cierre antes del fin de semana" : ""}. Cada operación se atribuye a la sesión (Sídney, Tokio, Londres, Nueva York) en la que se abrió${s.sessions_allowed?.length ? `; solo se abren entradas en ${s.sessions_allowed.map((x) => SESSION_NAMES[x]).join(" y ")}, como en el bot` : ""}.`;
 const OPT_INTRO = "Optimización por par con lotes, spread y cierre de fin de semana como en el bot: ";
 const AI_ALL_INTRO = (n) => `Corre el optimizador y el walk-forward en los ${n} pares activos y la IA cruza esos resultados con las operaciones reales del bot, las estadísticas por sesión del backtest, las noticias y la revalidación semanal. Aplica los SL/TP que se sostienen fuera de muestra, restringe las sesiones si hay evidencia y poda lo que pierde, siempre dentro de los topes de tu perfil de riesgo forex. Los cambios se aplican directamente y te avisa por Telegram.`;
@@ -160,9 +182,13 @@ export default function FxDashboard({ onLogout }) {
                     )}
                   </TabsTrigger>
                   <TabsTrigger data-testid="fx-tab-evolution" value="evolution" className={TAB_CLS}>Evolución</TabsTrigger>
+                  <TabsTrigger data-testid="fx-tab-filters" value="filters" className={TAB_CLS}>Filtros</TabsTrigger>
                 </TabsList>
               </div>
               <TabsContent value="evolution" className="mt-0"><EvolutionPanel /></TabsContent>
+              <TabsContent value="filters" className="mt-0">
+                <FxFiltersPanel settings={data.settings} symbolNames={meta?.symbol_info} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
+              </TabsContent>
               <TabsContent value="positions" className="mt-0">
                 <PositionsTable positions={data.positions} onClose={(id) => act(() => http.post(`/positions/${id}/close`), "Posición cerrada")}
                   onCloseAll={() => act(() => http.post("/positions/close-all"), "Cierre de emergencia ejecutado")} />
@@ -170,7 +196,7 @@ export default function FxDashboard({ onLogout }) {
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
               <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} intro={BT_INTRO} /></TabsContent>
               <TabsContent value="performance" className="mt-0">
-                <Performance tradeCount={data.account.total_trades} settings={data.settings} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
+                <Performance tradeCount={data.account.total_trades} settings={data.settings} strategyKeys={meta?.strategy_keys} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
               </TabsContent>
               <TabsContent value="optimizer" className="mt-0">
                 <Optimizer settings={data.settings} refresh={refresh} intro={OPT_INTRO} aiAllIntro={AI_ALL_INTRO}
@@ -187,7 +213,7 @@ export default function FxDashboard({ onLogout }) {
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <SettingsPanel settings={data.settings} meta={meta} profileActive={data.profile_active} leverageMax={500} maxPositions={12} extraToggles={EXTRA_TOGGLES} extraNums={EXTRA_NUMS}
-            extraChips={SESSION_CHIPS(meta)} extraSelects={EXTRA_SELECTS} fmtLeverage={fmtLev}
+            extraChips={[...SESSION_CHIPS(meta), ...SEASON_CHIPS(meta)]} extraSelects={EXTRA_SELECTS} fmtLeverage={fmtLev} strategyKeys={meta?.strategy_keys} longKeys={meta?.long_horizon_keys}
             onSave={(body) => act(() => http.put("/settings", body), "Configuración guardada")}
             onProfile={(level) => act(() => http.post("/profile", { level }), `Perfil de riesgo aplicado: ${meta?.profiles?.[level]?.name || level}`)} />
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />

@@ -8,7 +8,7 @@ import ShadowStats from "./performance/ShadowStats";
 import ExcursionStats from "./performance/ExcursionStats";
 
 const SIDE = { long: "Long", short: "Short" };
-const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", FUNDING: "Bloqueadas funding", REGIMEN: "Bloqueadas régimen BTC", ROTACION: "Bloqueadas rotación", MERCADO: "Mercado cerrado", SESION: "Fuera de sesión", SIN_IA: "Sin IA", ERROR: "Error IA" };
+const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", FUNDING: "Bloqueadas funding", REGIMEN: "Bloqueadas régimen BTC", ROTACION: "Bloqueadas rotación", EXPOSICION: "Bloqueadas exposición", ROLLOVER: "Bloqueadas rollover", VOLATILIDAD: "Bloqueadas volatilidad", ESTACIONAL: "Bloqueadas estacionalidad", REGIMEN_USD: "Bloqueadas régimen USD", FOMC: "Bloqueadas FOMC", MERCADO: "Mercado cerrado", SESION: "Fuera de sesión", SIN_IA: "Sin IA", ERROR: "Error IA" };
 
 const Group = ({ title, label, rows, render = (k) => k, testId, isOn, onToggle }) => (
   <div data-testid={testId} className="overflow-hidden rounded-sm border border-[#1E293B]">

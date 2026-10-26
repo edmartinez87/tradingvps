@@ -7,7 +7,7 @@ export function buildFeatures(bot) {
   const cur = fx ? "USD" : "USDT";
   const hero = {
     title: `${name}: un operador algorítmico que trabaja 24/7 y piensa antes de entrar`,
-    text: `Analiza ${market} en tiempo real, detecta configuraciones con ${fx ? "cinco" : "siete"} estrategias clásicas, pide una segunda opinión a la IA con todo el contexto del mercado y, si pasa todos los filtros de riesgo, ejecuta la orden con stop, objetivo y trailing. Empieza en paper trading con dinero ficticio y datos reales; cuando las métricas lo avalen, pásalo a modo REAL sobre ${broker} con un clic y una confirmación.`,
+    text: `Analiza ${market} en tiempo real, detecta configuraciones con ${fx ? "seis" : "siete"} estrategias clásicas, pide una segunda opinión a la IA con todo el contexto del mercado y, si pasa todos los filtros de riesgo, ejecuta la orden con stop, objetivo y trailing. Empieza en paper trading con dinero ficticio y datos reales; cuando las métricas lo avalen, pásalo a modo REAL sobre ${broker} con un clic y una confirmación.`,
     stats: [
       ["5", "estrategias combinables"],
       [fx ? "12" : "12", "pares disponibles"],
@@ -23,9 +23,9 @@ export function buildFeatures(bot) {
       text: "Cada pocos segundos el bot vuelve a mirar el mercado y cada minuto (configurable) escanea todos los pares en busca de una entrada.",
       bullets: [
         "Indicadores calculados sobre velas reales: EMA 9/21/50/200, RSI 14, MACD, ATR, Bandas de Bollinger, ADX, Donchian 20 y Supertrend 10/3.",
-        fx ? "Cinco estrategias que puedes encender o apagar: Tendencia EMA, Reversión a la media, Ruptura Turtle, Supertrend + momentum y Pullback a la EMA21. En modo Multi-estrategia compiten entre sí y gana la señal con mejor puntuación."
+        fx ? "Seis estrategias que puedes encender o apagar: cinco de corto plazo (Tendencia EMA, Reversión a la media, Ruptura Turtle, Supertrend + momentum, Pullback a la EMA21) y una de largo plazo (LP): Reversión fin de mes del fix de Londres (último día hábil del mes, opera contra el movimiento 15:00→16:00 Londres y cierra al mediodía siguiente). En modo Multi-estrategia compiten entre sí y gana la señal con mejor puntuación."
            : "Siete estrategias que puedes encender o apagar: cinco de corto plazo (Tendencia EMA, Reversión a la media, Ruptura Turtle, Supertrend + momentum, Pullback a la EMA21) y dos de largo plazo (LP): Tendencia Multi-Horizonte (diaria: cuatro canales Donchian 20/55/100/200 votan y la SMA200 diaria confirma) y Divergencia doble RSI+MACD en 4h. En modo Multi-estrategia compiten entre sí y gana la señal con mejor puntuación.",
-        fx ? null : "Las operaciones de largo plazo tienen su propio tope («Máx. posiciones largo plazo») y no consumen el límite de posiciones de corto plazo; se señalan con la etiqueta LP.",
+        "Las operaciones de largo plazo tienen su propio tope («Máx. posiciones largo plazo») y no consumen el límite de posiciones de corto plazo; se señalan con la etiqueta LP.",
         "Tres niveles de criterios de entrada (Estrictos / Relajados / Mínimos) que endurecen o relajan RSI, ADX, volumen y confirmaciones MACD/EMA200.",
         "Filtro de temporalidad superior: solo se opera a favor de la tendencia del marco mayor (4h si operas en 1h, 1h si operas en 15m).",
         fx ? "Horario forex real: respeta el cierre del mercado, puede cerrar posiciones antes del hueco del fin de semana y filtra entradas por sesión (Sídney, Tokio, Londres, Nueva York)."
@@ -49,8 +49,7 @@ export function buildFeatures(bot) {
       text: "El tamaño de cada orden se calcula con la equidad real del momento (incluidos tus depósitos) y nunca arriesga más del porcentaje que fijes.",
       bullets: [
         `Riesgo fijo por operación (por defecto 1 % de la equidad), stop por ATR (1,5×) y objetivo por ATR (3×) con R:R mínimo 1:2; ${fx ? "lotes cuantizados al paso del bróker (0,01) y la opción de usar el lote mínimo cuando el riesgo real sigue dentro del tope que indiques" : "cantidades ajustadas al lote y al nocional mínimo de Bybit"}.`,
-        fx ? "Protección dinámica: el stop pasa a breakeven al alcanzar +1R y a partir de +1,5R sigue al precio con un trailing basado en ATR."
-           : "Protección dinámica configurable: breakeven a +N R, trailing por ATR desde +N R con distancia ajustable y cierre parcial (p. ej. 50 % a +1,5R) dejando correr el resto. Cada operación registra su recorrido (máximo a favor/en contra en R y % del TP alcanzado); en Rendimiento ves cuántas «rozaron el TP sin tocarlo» y la IA ajusta breakeven, trailing, cierre parcial y TP con esa evidencia (mínimo 20 operaciones).",
+        "Protección dinámica configurable: breakeven a +N R, trailing por ATR desde +N R con distancia ajustable y cierre parcial (p. ej. 50 % a +1,5R) dejando correr el resto. Cada operación registra su recorrido (máximo a favor/en contra en R y % del TP alcanzado); en Rendimiento ves cuántas «rozaron el TP sin tocarlo» y la IA ajusta breakeven, trailing, cierre parcial y TP con esa evidencia (mínimo 20 operaciones).",
         "Límite de pérdida diaria: al tocarlo el bot deja de abrir hasta el siguiente día UTC. Tope de posiciones simultáneas, un par por posición y cierre por tiempo máximo (72 h).",
         `Cinco perfiles de riesgo con un deslizador (Conservador → Máximo) que ajustan pares, temporalidad, criterios, filtro de IA, riesgo, posiciones, ${fx ? "apalancamiento 1:100–1:500" : "apalancamiento 3x–10x"} y límite diario de golpe, con confirmación en los niveles agresivos.`,
         "Los depósitos y retiros se detectan y se excluyen del PnL diario, del límite diario, del retorno total y del drawdown: un aporte nunca parece ganancia ni un retiro una pérdida.",
@@ -66,7 +65,7 @@ export function buildFeatures(bot) {
            : "Filtro de funding: si la tasa de financiación va en tu contra y es ALTA reduce el tamaño; si es EXTREMA bloquea la entrada. Normaliza pares que liquidan cada 4h/1h a su equivalente de 8h.",
         fx ? "Sesiones permitidas: elige en qué sesiones puede abrir el bot; fuera de ellas la señal queda como SESION y se simula en la sombra para ver qué habrías ganado o perdido."
            : "Filtro de régimen de BTC: con Bitcoin sobre su SMA200 diaria las estrategias de corto plazo solo abren largos; por debajo, solo cortos (la señal contraria queda como REGIMEN en la sombra).",
-        fx ? null : "Rotación semanal por momentum ponderado por volumen: cada semana se ordenan tus pares por rendimiento de 7 días; el tercio líder solo largos, el tercio rezagado solo cortos y la mitad menos líquida opera al 75 % de tamaño (pestaña Régimen).",
+        fx ? "Filtros FX con evidencia (pestaña Filtros): tope de exposición neta por divisa (no apostar tres veces al mismo dólar), guardia de rollover 16:50–17:15 Nueva York (spreads ×4, sin entradas y stops no evaluados en paper), régimen de volatilidad por percentil de ATR (sin entradas en mercado muerto, mitad de riesgo en extremos), estacionalidad intradía (Breedon & Ranaldo: una divisa se deprecia en su horario local), régimen USD con índice sintético vs SMA200 y regla FOMC sin continuación 24 h. Cada bloqueo queda en sombra (EXPOSICION, ROLLOVER, VOLATILIDAD, ESTACIONAL, REGIMEN_USD, FOMC) para medir su valor." : "Rotación semanal por momentum ponderado por volumen: cada semana se ordenan tus pares por rendimiento de 7 días; el tercio líder solo largos, el tercio rezagado solo cortos y la mitad menos líquida opera al 75 % de tamaño (pestaña Régimen).",
         fx ? null : "Entradas con orden límite maker (comisión 0,02 % en vez de 0,055 %): la señal aprobada espera hasta N velas a su precio límite y, si no se llena, entra a mercado. En Rendimiento ves la tasa de llenado y la comisión ahorrada.",
       ],
     },
