@@ -27,3 +27,9 @@
 - El puerto 8011 (mock de Bybit) lo ocupa nginx en este pod: arrancar el mock con `BYBIT_MOCK_PORT=8013` (`tests/test_iter49_backlog.py` lo hace solo). `test_iter5_live_mode.py` y `test_iter28_cashflows.py` siguen apuntando a 8011 → fallan en el pod hasta migrarlos.
 - `tests/test_iter49_backlog.py -n 0` pasa el bot cripto a REAL contra el mock con `reset_stats: true` y vuelve a paper (también con reset): solo sobre una cuenta paper desechable (hoy 0 operaciones).
 - `tests/test_iter21_hfm_alert_cron_ai.py -k TestHfmDisconnectAlert` es la regresión del refactor `broker_health.transition` en el motor FX.
+
+## Iteración 50 (refactor FX)
+- `fx/engine.py` ahora es `FxEngine(AccountMixin, PositionsMixin, SignalsMixin)` (mixins en `fx/engine_account.py`, `fx/engine_positions.py`, `fx/engine_signals.py`; constantes y `PrefixedDB` en `fx/engine_core.py`). Los tests que hacen `FxEngine.__new__(FxEngine)` y llaman a `_manage_paper_position`/`_blocks` siguen funcionando; `importlib.reload(fx.engine)` solo recarga el núcleo (los mixins no se recargan).
+- `fx/routes.py` incluye `fx/routes_analysis.py` y `fx/routes_hfm.py` como sub-routers (`APIRouter()` sin prefijo; el prefijo `/api/fx` y `require_auth` los hereda al hacer `include_router`).
+- Para lanzar procesos largos desde el agente (mock, suites): `setsid nohup … < /dev/null & disown` — si no, el timeout del shell mata el grupo de procesos (ocurrió con el mock y una tanda de pytest).
+- `GET /api/fx/market/context` tarda > 60 s la primera vez tras reiniciar el backend (régimen USD: 5 series diarias de Yahoo con reintentos por 429); después responde de la caché (600 s). Comportamiento previo al refactor.

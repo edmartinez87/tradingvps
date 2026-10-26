@@ -328,6 +328,12 @@
 - Bybit API blocks the US server region (CloudFront 403) → prices from Bitget perps mirror. Real Bybit order execution requires running from an allowed region.
 - HotForex paper: precios de Yahoo Finance (mayores con 4 decimales → granularidad 1 pip; 429 esporádicos reintentados). MetaApi integrado (iter 18) pero sin credenciales reales del usuario; aquí solo mock local.
 
+## Implemented (2026-06, iteration 50 · orden del código del bot HotForex: engine.py y routes.py divididos por responsabilidad, sin cambio de comportamiento)
+- Regresión previa de la iteración 49 a petición del usuario: `test_iter49_backlog.py` 11/11 + captura del panel FX (Rendimiento) OK.
+- `fx/engine.py` (1050 → 231 líneas) = `FxEngine(AccountMixin, PositionsMixin, SignalsMixin)`: ciclo de vida, `apply_config`, settings/log, `_monitor_loop/_monitor_once`, `_hfm_health`. Nuevos: `fx/engine_core.py` (constantes, `today`, `PrefixedDB`, `FX_STRATEGY_INFO`, logger), `fx/engine_account.py` (cuenta paper/HFM, `rebase_account`, `reset_account`, `account_summary`, `checkin`, `_update_account_metrics`), `fx/engine_positions.py` (tick paper, sincronización/adopción REAL, `open_position`/`close_position`), `fx/engine_signals.py` (`_scan_loop`, `scan_once`, `_blocks`, `_market_gates`, `_handle_signal`, `_scan_slow`, `news_trade`). `fx.engine` sigue re-exportando `fmt_duration`, `_fresh_health`, `PrefixedDB`, `FX_STRATEGY_INFO` y las constantes (tests/scripts intactos).
+- `fx/routes.py` (795 → 319 líneas) conserva bot/dashboard/cuenta/posiciones/noticias/config/klines e incluye dos sub-routers (`router.include_router`, heredan prefijo `/api/fx` y la autenticación): `fx/routes_analysis.py` (backtest, optimizador, walk-forward + revalidación, IA asesor/optimize-all/auto-review, plan, resumen semanal, `market/context`) y `fx/routes_hfm.py` (hfm/test·link·recreate·redeploy·symbols·detect-suffix, `_mode_checks`, GET/POST `/mode`). Las 50 rutas (método+path) y los 49 métodos del motor son idénticos a la versión anterior (verificado por diff).
+- Regresión completa FX con mock MetaApi (:8012): iter48 26, iter49 11, iter24 10, iter16 14, iter17 14, iter19 11, iter21 HFM 7, iter18 11, iter42 7, iter37 14, iter33 6, iter32 10, iter15 24 → 165/165. Ambos bots quedaron como estaban (paper, detenidos, 0 operaciones).
+
 ## Backlog
 - P2: FX `fix_reversion`: si el bot está apagado durante toda la ventana 16:00–16:30 Londres del último día hábil, la oportunidad del mes se pierde (sin recuperación posterior, por diseño).
 - P2: Regla FOMC depende del calendario ForexFactory (título con «FOMC»/«Federal Funds Rate»); si el agente de noticias está apagado no se aplica.
@@ -336,5 +342,5 @@
 - P2: Depósitos en REAL: la ventana de detección es 60 s (inmediata si la equidad salta > 0,5 %); aportes pequeños (< 0,5 % y < $20) pueden alterar el pico/drawdown hasta un minuto. Opcional: alerta Telegram propia ("Depósitos y retiros") en vez de agrupar con "plan".
 - P1: Probar el ejecutor REAL contra Bybit testnet/demo desde el VPS de Singapur (aquí solo mock)
 - P1: Telegram: configurar token/chat en el VPS y validar alertas end-to-end
-- P3: server.py ~350 líneas (routers cron/weekly/walk-forward/bybit/ai/analysis separados); candidatos siguientes: klines/positions, fx/routes.py (~580 líneas)
+- P3: server.py ~350 líneas (routers cron/weekly/walk-forward/bybit/ai/analysis separados); candidato siguiente: klines/positions del bot cripto (fx/engine.py y fx/routes.py ya divididos en la iteración 50)
 - P3: `test_iter5_live_mode.py` / `test_iter28_cashflows.py` usan el mock de Bybit en el puerto 8011, ocupado por nginx en este pod: migrarlos a `BYBIT_MOCK_PORT=8013` como `test_iter49`.
