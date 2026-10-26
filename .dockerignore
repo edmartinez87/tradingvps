@@ -10,3 +10,4 @@ memory
 tests
 **/__pycache__
 backend/backups
+frontend/build_vps

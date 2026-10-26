@@ -2,29 +2,35 @@ import axios from "axios";
 
 export const BACKEND = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND}/api`;
-export const http = axios.create({ baseURL: API, timeout: 90000 });
-// One shared client: the active bot (crypto → /api, HotForex → /api/fx) switches the base URL so every panel is reusable.
-export const setApiBase = (bot) => { http.defaults.baseURL = bot === "fx" ? `${BACKEND}/api/fx` : API; };
-
 const TOKEN_KEY = "bot_token";
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY));
 
-http.interceptors.request.use((cfg) => {
-  const t = getToken();
-  if (t) cfg.headers.Authorization = `Bearer ${t}`;
-  return cfg;
-});
-http.interceptors.response.use(
-  (r) => r,
-  (err) => {
-    if (err?.response?.status === 401 && !String(err.config?.url).includes("/auth/")) {
-      setToken(null);
-      window.dispatchEvent(new Event("auth:logout"));
-    }
-    return Promise.reject(err);
-  },
-);
+const withAuth = (client) => {
+  client.interceptors.request.use((cfg) => {
+    const t = getToken();
+    if (t) cfg.headers.Authorization = `Bearer ${t}`;
+    return cfg;
+  });
+  client.interceptors.response.use(
+    (r) => r,
+    (err) => {
+      if (err?.response?.status === 401 && !String(err.config?.url).includes("/auth/")) {
+        setToken(null);
+        window.dispatchEvent(new Event("auth:logout"));
+      }
+      return Promise.reject(err);
+    },
+  );
+  return client;
+};
+
+// One shared client: the active bot (crypto → /api, HotForex → /api/fx) switches the base URL so every panel is reusable.
+export const http = withAuth(axios.create({ baseURL: API, timeout: 90000 }));
+export const setApiBase = (bot) => { http.defaults.baseURL = bot === "fx" ? `${BACKEND}/api/fx` : API; };
+// Global features (chat, backups, VPS package) always talk to /api, whichever dashboard is open. Use relative paths ("/chat").
+// (In the VPS build REACT_APP_BACKEND_URL is "" so API is relative and could not be used as an absolute URL with `http`.)
+export const api = withAuth(axios.create({ baseURL: API, timeout: 90000 }));
 
 const num = (v, d) =>
   Number(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });

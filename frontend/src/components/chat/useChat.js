@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { http, API, errMsg } from "@/lib/api";
+import { api, errMsg } from "@/lib/api";
 
 // Global (both bots): the chat lives under /api/chat regardless of which dashboard is open.
-const CHAT = `${API}/chat`;
+const CHAT = "/chat";
 const POLL_MS = 1500;
 
 export function useChat(open, bot, onApplied) {
@@ -28,17 +28,17 @@ export function useChat(open, bot, onApplied) {
     stopPoll();
     pollRef.current = setTimeout(async () => {
       try {
-        const { data } = await http.get(`${CHAT}/jobs/${id}`);
+        const { data } = await api.get(`${CHAT}/jobs/${id}`);
         if (data.status === "running") { setJob(data); poll(id); } else finishJob(data);
       } catch (e) {
         stopPoll(); setJob(null);
         toast.error(errMsg(e));
-        http.get(CHAT).then((r) => setState(r.data)).catch(() => {});
+        api.get(CHAT).then((r) => setState(r.data)).catch(() => {});
       }
     }, POLL_MS);
   }, [finishJob]);
 
-  const load = useCallback(() => http.get(CHAT).then((r) => {
+  const load = useCallback(() => api.get(CHAT).then((r) => {
     setState(r.data); setLoadError(null);
     if (r.data.job?.status === "running") { setJob(r.data.job); poll(r.data.job.id); }
   }).catch((e) => setLoadError(errMsg(e))), [poll]);
@@ -48,7 +48,7 @@ export function useChat(open, bot, onApplied) {
   const send = async (text) => {
     setState((s) => ({ ...s, messages: [...s.messages, { id: "tmp", role: "user", content: text, ts: new Date().toISOString(), proposals: [], tools: [] }] }));
     try {
-      const { data } = await http.post(`${CHAT}/message`, { text, panel: bot });
+      const { data } = await api.post(`${CHAT}/message`, { text, panel: bot });
       setJob(data); poll(data.id);
       return true;
     } catch (e) {
@@ -61,7 +61,7 @@ export function useChat(open, bot, onApplied) {
   const resolve = async (id, apply) => {
     setResolving(id);
     try {
-      const { data } = await http.post(`${CHAT}/proposals/${id}/${apply ? "apply" : "discard"}`);
+      const { data } = await api.post(`${CHAT}/proposals/${id}/${apply ? "apply" : "discard"}`);
       setState((s) => ({ ...s, messages: [...s.messages.map((m) => ({ ...m, proposals: (m.proposals || []).map((p) => (p.id === id ? data.proposal : p)) })), data.event] }));
       if (data.proposal.status === "applied") { toast.success(data.proposal.result); onApplied?.(); }
       else if (data.proposal.status === "failed") toast.error(data.proposal.result);
@@ -75,12 +75,12 @@ export function useChat(open, bot, onApplied) {
   };
 
   const reset = async () => {
-    try { const { data } = await http.post(`${CHAT}/new`); setState(data); toast.success("Conversación nueva · la memoria duradera se conserva"); }
+    try { const { data } = await api.post(`${CHAT}/new`); setState(data); toast.success("Conversación nueva · la memoria duradera se conserva"); }
     catch (e) { toast.error(errMsg(e)); }
   };
 
   const saveMemory = async (notes) => {
-    try { const { data } = await http.put(`${CHAT}/memory`, { notes }); setState((s) => ({ ...s, memory: data.notes })); return true; }
+    try { const { data } = await api.put(`${CHAT}/memory`, { notes }); setState((s) => ({ ...s, memory: data.notes })); return true; }
     catch (e) { toast.error(errMsg(e)); return false; }
   };
 

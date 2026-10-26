@@ -11,7 +11,7 @@ from typing import Optional
 PKG_NAME = "ai-trader"
 INCLUDE_DIRS = ("backend", "frontend", "deploy", "scripts")
 INCLUDE_ROOT_FILES = (".dockerignore",)
-EXCLUDE_DIRS = {"node_modules", "__pycache__", ".git", "build", "backups", "tests", ".pytest_cache", ".ruff_cache", "coverage", ".cache"}
+EXCLUDE_DIRS = {"node_modules", "__pycache__", ".git", "build", "build_vps", "backups", "tests", ".pytest_cache", ".ruff_cache", "coverage", ".cache"}
 EXCLUDE_FILES = {"backend.env", ".DS_Store", "VERSION"}
 EXCLUDE_SUFFIXES = (".pyc", ".pyo", ".log", ".enc")
 README = ("# AI Trader · Bybit AI Trader + HotForex AI Trading\n\n"

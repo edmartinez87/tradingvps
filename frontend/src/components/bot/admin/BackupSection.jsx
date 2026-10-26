@@ -3,7 +3,7 @@ import { DatabaseBackup, Download, FileUp, Loader2, Plus, RotateCcw, Send } from
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Panel } from "../Panel";
-import { http, errMsg, fmtDateTime, API } from "@/lib/api";
+import { api, errMsg, fmtDateTime } from "@/lib/api";
 import { BTN, BTN_OUT } from "./SecuritySection";
 import RestoreBackupDialog from "./RestoreBackupDialog";
 
@@ -27,14 +27,14 @@ export default function BackupSection() {
   // The panel never waits for the list: a new server (no backups yet) or a failing listing must still allow «Restaurar desde archivo».
   const load = useCallback(() => {
     setLoadError("");
-    return http.get(`${API}/backup`, { timeout: 20000 }).then((r) => setData(r.data)).catch((e) => setLoadError(errMsg(e)));
+    return api.get(`/backup`, { timeout: 20000 }).then((r) => setData(r.data)).catch((e) => setLoadError(errMsg(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const create = async () => {
     setBusy("create");
     try {
-      const { data: rec } = await http.post(`${API}/backup/create`);
+      const { data: rec } = await api.post(`/backup/create`);
       toast.success(`Copia creada · ${rec.filename} · ${fmtMb(rec.size_mb)}`);
       await load();
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(""); }
@@ -43,7 +43,7 @@ export default function BackupSection() {
   const download = async (filename) => {
     setBusy(`dl:${filename}`);
     try {
-      const r = await http.get(`${API}/backup/download/${encodeURIComponent(filename)}`, { responseType: "blob", timeout: 300000 });
+      const r = await api.get(`/backup/download/${encodeURIComponent(filename)}`, { responseType: "blob", timeout: 300000 });
       const url = URL.createObjectURL(r.data);
       const a = Object.assign(document.createElement("a"), { href: url, download: filename });
       document.body.appendChild(a); a.click(); a.remove();
@@ -58,13 +58,13 @@ export default function BackupSection() {
       if (target.kind === "file") {
         const id = uid(); const total = Math.ceil(file.size / CHUNK);
         for (let i = 0; i < total; i++) {
-          await http.post(`${API}/backup/upload`, file.slice(i * CHUNK, (i + 1) * CHUNK), { timeout: 120000,
+          await api.post(`/backup/upload`, file.slice(i * CHUNK, (i + 1) * CHUNK), { timeout: 120000,
             headers: { "Content-Type": "application/octet-stream", "X-Upload-Id": id, "X-Chunk-Index": i, "X-Chunk-Total": total } });
           setProgress(Math.round(((i + 1) / total) * 100));
         }
         body.upload_id = id;
       } else body.filename = target.filename;
-      const { data: out } = await http.post(`${API}/backup/restore`, body, { timeout: 300000 });
+      const { data: out } = await api.post(`/backup/restore`, body, { timeout: 300000 });
       toast.success(`Copia restaurada · ${out.documents} documentos · ambos bots quedan detenidos. Recargando…`);
       setTimeout(() => window.location.reload(), 1800);
     } catch (e) { toast.error(errMsg(e)); setBusy(""); load(); }

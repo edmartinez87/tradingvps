@@ -107,3 +107,5 @@ frontend/node_modules/.cache/default-development/5.pack
 deploy/backups/
 backend/backups/
 frontend/node_modules/.cache/default-development/13.pack
+frontend/build_vps
+frontend/node_modules/.cache/default-development/10.pack

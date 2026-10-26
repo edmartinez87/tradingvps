@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { HardDriveDownload, Loader2, Package, CheckCircle2, XCircle, GitCommitHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { http, API, errMsg, fmtDateTime } from "@/lib/api";
+import { api, errMsg, fmtDateTime } from "@/lib/api";
 
 const fileNameFrom = (r, fallback) => {
   const m = /filename="?([^";]+)"?/.exec(r.headers?.["content-disposition"] || "");
@@ -15,13 +15,13 @@ export function VpsDownloadCard() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    http.get(`${API}/deploy/info`).then((r) => setInfo(r.data)).catch((e) => setErr(errMsg(e)));
+    api.get(`/deploy/info`).then((r) => setInfo(r.data)).catch((e) => setErr(errMsg(e)));
   }, []);
 
   const download = async () => {
     setBusy(true);
     try {
-      const r = await http.get(`${API}/deploy/package`, { responseType: "blob", timeout: 300000 });
+      const r = await api.get(`/deploy/package`, { responseType: "blob", timeout: 300000 });
       const name = fileNameFrom(r, info?.package || "ai-trader.zip");
       const url = URL.createObjectURL(r.data);
       const a = Object.assign(document.createElement("a"), { href: url, download: name });
