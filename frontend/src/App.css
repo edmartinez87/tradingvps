@@ -131,6 +131,11 @@
 .chat-gold-bar {
   background: radial-gradient(120% 140% at 0% 0%, rgba(247, 166, 0, 0.14) 0%, rgba(7, 9, 14, 0) 55%), #07090E;
 }
+/* While the chat panel is open, toasts move to the top so they never cover the composer. */
+body.chat-open [data-sonner-toaster][data-y-position="bottom"] {
+  bottom: auto !important;
+  top: 16px !important;
+}
 
 ::selection {
   background: rgba(247, 166, 0, 0.35);

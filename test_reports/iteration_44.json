@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend E2E of the 'Chatea con IA expert' feature using the real LLM (Claude Sonnet 5.5), plus quick backend guard checks. Everything requested works: the header button, the panel (title, subtitle with model and panel name, Memoria, Nueva conversación, message counter), the empty state with 5 suggestions, sending a message (user bubble, then the thinking steps 'Pensando…' / 'Leyendo el estado en vivo de los bots', then a Markdown answer with bold text and lists, about 5-10 s), the settings proposal card (Cambio de ajustes, Bybit chip, diff 60 → 70, Descartar sets the Descartada badge, buttons hidden, event logged, /api/settings still 60), the scan action card (Escanear el mercado ahora, Aplicar sets Aplicada, result 'Escaneo solicitado en Bybit', event logged, success toast), memory add/delete with the counter updating, Nueva conversación cancel/confirm (memory kept, checked via API), a conversation shared between /bybit and /hotforex (subtitle 'panel HotForex', same message IDs), persistence after reload, closing with X and Escape, and the header regression (Ajustes/Documentación/Instalar/Cambiar bot). Mobile 390px layout is OK.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/chat/proposals/{id}/apply", "issue": "An invalid ObjectId returns 400 'ID inválido' rather than 404. This is acceptable; just noting it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ChatPanel textarea", "issue": "The spec says the input is disabled while the AI responds. In practice only the send button is disabled; the textarea stays editable (placeholder changes to 'La IA está respondiendo…'). Enter is ignored because submit() returns early. Minor deviation; could be intended.", "selector": "[data-testid='chat-input']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Chat panel header", "issues": ["chat-subtitle is truncated with an ellipsis even on desktop at 1920px ('… PANEL BYB…' / 'PANEL HOT…'), so the bot name the user should see gets cut off. Consider wrapping it or putting the panel name on its own line or chip. On mobile it is cut at 'CLAUDE …'."]},
+      {"screen": "Chat panel footer", "issues": ["Sonner toasts (bottom-right) sit on top of the chat input and send button for several seconds after a proposal arrives or is applied or discarded, hiding the send button. Consider moving toasts to top-right/top-center while the panel is open, or raising the composer above them."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter52_chat_quick.py", "/app/backend/tests/test_iter51_chat.py"],
+  "action_items": [
+    "Optional: stop chat-subtitle being truncated at desktop width (show the panel name in full)",
+    "Optional: stop toasts overlapping the chat composer/send button while the Sheet is open",
+    "Optional: disable the textarea while a job is running, if the spec requires it"
+  ],
+  "critical_code_review_comments": [
+    "useChat.send adds a 'tmp' user message. If the job later fails in poll() it reloads the state from the server, so this is consistent.",
+    "The chat-new-button AlertDialog is nested inside the Sheet and works fine. AlertDialogAction closes before reset() resolves; there is no loading state, but this is harmless."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter52_chat_quick.py"],
+  "success_rate": {"backend": "100% (5 passed, 1 partially skipped: resolved-proposal 409 skipped because the conversation had none at that moment; covered by iter51)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None persisted. The TEST_ memory note was removed, the conversation was left empty via Nueva conversación, scan_interval_sec is still 60.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login lands on the bot selector (/), so navigate to /bybit directly. The token is in localStorage 'bot_token'. The real LLM answers in about 5-10 s. Close the chat panel with Escape or the Sheet's last button child. Only the scan action was applied; the scan_interval proposal was discarded."
+}

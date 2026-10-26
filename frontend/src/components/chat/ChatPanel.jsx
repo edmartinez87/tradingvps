@@ -42,6 +42,8 @@ export function ChatPanel({ open, onOpenChange, bot, onApplied }) {
   const n = state?.messages?.length || 0;
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [n, job?.steps?.length, open]);
   useEffect(() => { if (open) setTimeout(() => taRef.current?.focus(), 350); }, [open]);
+  useEffect(() => { if (open && !job) setTimeout(() => taRef.current?.focus(), 50); }, [job, open]);
+  useEffect(() => { document.body.classList.toggle("chat-open", open); return () => document.body.classList.remove("chat-open"); }, [open]);
 
   const submit = async (t) => {
     const msg = (t ?? text).trim();
@@ -60,10 +62,11 @@ export function ChatPanel({ open, onOpenChange, bot, onApplied }) {
             <div className="flex h-9 w-9 items-center justify-center rounded-sm border border-amber-400/60 bg-gradient-to-br from-amber-400/25 via-black to-black text-amber-300 shadow-[0_0_16px_rgba(247,166,0,0.25)]">
               <Sparkles className="h-4.5 w-4.5" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <SheetTitle className="font-display text-base font-extrabold uppercase tracking-tight text-amber-100">IA <span className="text-amber-400">expert</span></SheetTitle>
-              <SheetDescription data-testid="chat-subtitle" className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                Trader y gestor de riesgo · {state?.ai?.label || "IA"} · panel {bot === "fx" ? "HotForex" : "Bybit"}
+              <SheetDescription data-testid="chat-subtitle" className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                <span>Trader y gestor de riesgo · {state?.ai?.label || "IA"}</span>
+                <span data-testid="chat-panel-chip" className={`rounded-sm border px-1.5 py-0.5 text-[9.5px] tracking-wider ${bot === "fx" ? "border-sky-500/40 text-sky-300" : "border-amber-500/40 text-amber-300"}`}>panel {bot === "fx" ? "HotForex" : "Bybit"}</span>
               </SheetDescription>
             </div>
           </div>
@@ -133,7 +136,7 @@ export function ChatPanel({ open, onOpenChange, bot, onApplied }) {
 
         <div className="border-t border-[#1E293B] bg-[#0A0D14] px-4 py-3">
           <div className="flex items-end gap-2 rounded-md border border-[#1E293B] bg-[#07090E] px-3 py-2 transition-colors focus-within:border-amber-400/60">
-            <textarea ref={taRef} data-testid="chat-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} rows={1} maxLength={6000} disabled={!state}
+            <textarea ref={taRef} data-testid="chat-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} rows={1} maxLength={6000} disabled={!state || !!job}
               placeholder={job ? "La IA está respondiendo…" : "Pregunta, pide un análisis o propón un cambio… (Enter envía · Shift+Enter salto de línea)"}
               className="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none"
               onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`; }} />
