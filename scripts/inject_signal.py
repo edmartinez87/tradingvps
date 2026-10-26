@@ -21,6 +21,8 @@ async def main(symbol: str, side: str, ai: bool):
     print("mode:", eng.mode_label, "broker:", bool(eng.broker))
     await eng.market.detect()
     await eng.market.fetch_tickers()
+    if eng.live and eng.broker:
+        await eng._monitor_once()  # sync broker health so the Bybit connection gate applies like in the running engine
     s = await eng.get_settings()
     s.ai_enabled = ai
     df = build_df(await eng.market.fetch_klines(symbol, s.timeframe, 300))

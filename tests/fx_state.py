@@ -1,5 +1,5 @@
 import os, sys, json, requests
-B = "https://dual-trading-hub.preview.emergentagent.com"
+B = "https://forex-exit-lab.preview.emergentagent.com"
 t = requests.post(f"{B}/api/auth/login", json={"password": "BlackCat2233@"}).json()["token"]
 H = {"Authorization": f"Bearer {t}"}
 d = requests.get(f"{B}/api/fx/dashboard", headers=H).json()

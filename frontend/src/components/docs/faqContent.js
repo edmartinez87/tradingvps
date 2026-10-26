@@ -78,8 +78,8 @@ export function buildFaq(bot) {
     { cat: "Modo REAL", q: "¿Qué comprueba la lista antes de pasar a REAL?", tags: ["checklist", "pasar a real"],
       a: `Credenciales guardadas y verificadas${fx ? ", cuenta vinculada y conectada, trading permitido (contraseña master)" : ""}, bot detenido y sin posiciones abiertas. Además recomienda haber superado la Fase 0 del plan. Hay que escribir REAL para confirmar y las estadísticas se reinician con la equidad real.` },
     { cat: "Modo REAL", q: "¿Qué pasa si se pierde la conexión con el bróker?", tags: ["desconexión", "caída", "conexión"],
-      a: fx ? "Si MetaApi pierde la conexión con HFM más de 60 s (configurable) aparece un banner rojo, llega un aviso por Telegram y el bot no abre nuevas operaciones hasta recuperarse (las abiertas siguen protegidas por su SL/TP en el bróker). Al volver, otro aviso."
-            : "Aparece un banner rojo «Bybit no responde» y el bot no envía órdenes hasta que vuelve; las posiciones abiertas conservan su stop y objetivo en el exchange." },
+      a: fx ? "Si MetaApi pierde la conexión con HFM más de 180 s (configurable) aparece un banner rojo, llega un aviso por Telegram y el bot no abre nuevas operaciones hasta recuperarse (las abiertas siguen protegidas por su SL/TP en el bróker). Al volver, otro aviso."
+            : "Si Bybit deja de responder más de 180 s (configurable en Ajustes → Bybit → Avanzado) aparece un banner rojo con la hora y la duración del corte, llega un aviso por Telegram (recordatorio cada 6 h si persiste) y el bot no envía órdenes nuevas hasta que vuelve; las posiciones abiertas conservan su stop y objetivo en el exchange. Al recuperarse, otro aviso. Los cortes breves (segundos) no generan alertas." },
     { cat: "Modo REAL", q: "¿Puedo tener operaciones manuales en la misma cuenta?", tags: ["manual", "externas", "posiciones externas"],
       a: "Puedes, pero no es recomendable: el bot detecta posiciones que no gestiona y lo avisa en el log, pero no las toca ni las cuenta en sus estadísticas, y su equidad sí afecta al tamaño de las órdenes del bot. Lo ideal es una subcuenta o cuenta dedicada." },
     ...(fx ? [

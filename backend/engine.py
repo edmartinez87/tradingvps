@@ -20,6 +20,8 @@ import funding
 import cashflow
 import regime
 import maker
+import broker_health
+from broker_health import fmt_duration
 
 STRATEGY_INFO = {**FAST_INFO, **SLOW_INFO}
 BLOCK_BY = {"NOTICIAS": "noticias", "FUNDING": "funding", "BLOQUEADA": "riesgo", "REGIMEN": "régimen de BTC", "ROTACION": "rotación semanal"}
@@ -58,6 +60,7 @@ class TradingEngine:
         self.cfg = None
         self._last_equity = None
         self._cash_checked = 0.0
+        self.bybit = broker_health.fresh_health()
 
     async def apply_config(self, cfg):
         self.cfg = cfg
@@ -70,6 +73,14 @@ class TradingEngine:
             self.broker = LiveBroker(BybitClient(*key)) if cfg.bybit_api_key and cfg.bybit_api_secret else None
             self._broker_key = key
             self.exchange_error = None
+            self.bybit = broker_health.fresh_health()
+        if not self.live:
+            self.bybit = broker_health.fresh_health()
+
+    def broker_health(self) -> dict | None:
+        if not (self.live and self.broker):
+            return None
+        return broker_health.summary(self.bybit, self.cfg.bybit_alert_after_sec if self.cfg else None)
 
     @property
     def mode_label(self) -> str:
@@ -144,9 +155,7 @@ class TradingEngine:
         if not (self.live and self.broker):
             return None
         try:
-            w = await self.broker.wallet()
-            self.exchange_error = None
-            return w
+            return await self.broker.wallet()  # cached 10 s: the monitor's positions sync owns clearing exchange_error
         except Exception as e:
             self.exchange_error = str(e)[:160]
             logger.warning(f"wallet: {e}")
@@ -226,6 +235,7 @@ class TradingEngine:
             except Exception as e:
                 self.exchange_error = str(e)[:160]
                 logger.warning(f"positions sync: {e}")
+            await self._bybit_health(ex is not None)
         local_syms = set()
         rules = trade_rules(settings)
         async for doc in self.db.positions.find():
@@ -250,6 +260,19 @@ class TradingEngine:
     def _excursion(self, p: Position, price: float) -> dict:
         m = move_in_r(p.side, p.entry_price, p.initial_sl, price)
         return {"mfe_r": round(max(p.mfe_r, m), 3), "mae_r": round(max(p.mae_r, -m), 3)}
+
+    async def _bybit_health(self, synced: bool):
+        """REAL mode: one Telegram alert per Bybit outage (positions not answering for > bybit_alert_after_sec), reminder every 6 h, recovery notice."""
+        event, dur = broker_health.transition(self.bybit, synced, self.exchange_error or "Bybit no responde", self.cfg.bybit_alert_after_sec)
+        if event == "up":
+            await self.log("INFO", f"Conexión con Bybit restablecida · estuvo sin respuesta {fmt_duration(dur)}")
+            await tg(f"✅ <b>Conexión con Bybit restablecida</b> · estuvo sin respuesta {fmt_duration(dur)}. El bot vuelve a operar con normalidad.", "system")
+        elif event:
+            n = await self.db.positions.count_documents({"live": True})
+            await self.log("ERROR", f"Bybit sin respuesta desde hace {fmt_duration(dur)} · {self.bybit['error']}")
+            await tg(f"🔌 <b>Bybit {'sigue ' if event == 'remind' else ''}sin respuesta</b> · {fmt_duration(dur)} · {self.env}\n{self.bybit['error']}\n"
+                     f"{n} posición(es) real(es) abiertas: siguen protegidas por su SL/TP en el exchange. El bot no abrirá nuevas operaciones hasta reconectar.\n"
+                     "Si persiste, revisa el estado de Bybit y las credenciales en Ajustes → Bybit (Probar conexión).", "system")
 
     async def _manage_paper_position(self, p: Position, price: float, rules: dict):
         """One monitor tick for a PAPER position: exits, partial take-profit, trailing and MFE/MAE tracking."""
@@ -381,7 +404,7 @@ class TradingEngine:
 
     async def _update_account_metrics(self, settings: Settings):
         s = await self.account_summary()
-        if self.live and self.broker and await cashflow.poll(self, "bybit", force=cashflow.jumped(self._last_equity, s["equity"])):
+        if self.live and self.broker and not self.bybit["down_since"] and await cashflow.poll(self, "bybit", force=cashflow.jumped(self._last_equity, s["equity"])):
             s = await self.account_summary()
         self._last_equity = s["equity"]
         acc = await self.db.account.find_one({"_id": "main"})
@@ -449,6 +472,10 @@ class TradingEngine:
                 if fill and fill.get("qty"):
                     r = {"entry": fill["entry"], "qty": fill["qty"], "fee": fill.get("fee") or 0.0, "order_id": fill.get("order_id"), "link_id": fill.get("link_id"), "filled": True}
                 else:
+                    if self.bybit["down_since"]:
+                        await self.log("RISK", f"{symbol}: orden no enviada · Bybit sin respuesta ({self.bybit['error']})")
+                        self._open_fail = "Bybit sin respuesta"
+                        return None
                     try:
                         size = await self.live_size(symbol, entry, sl, risk_pct, settings.leverage)
                         if not size:
@@ -649,6 +676,8 @@ class TradingEngine:
             block = self._slot_block(open_docs, settings, horizon)
         elif acc["daily_paused"]:
             block = "límite de pérdida diaria alcanzado"
+        elif self.live and self.bybit["down_since"]:
+            block = "Bybit sin respuesta · sin conexión con el exchange"
         # BTC regime and weekly rotation only gate short-horizon strategies; long-horizon ones carry their own daily filters
         regime_now = await regime.btc_regime(self.market, settings.btc_regime_sma) if settings.btc_regime_filter else None
         r_block = regime.regime_block(regime_now, sig["side"]) if regime_now and horizon == "short" else None

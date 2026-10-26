@@ -10,22 +10,23 @@ import ExcursionStats from "./performance/ExcursionStats";
 const SIDE = { long: "Long", short: "Short" };
 const DECISION = { APROBADA: "Aprobadas IA", RECHAZADA: "Rechazadas IA", BLOQUEADA: "Bloqueadas riesgo", NOTICIAS: "Bloqueadas noticias", FUNDING: "Bloqueadas funding", REGIMEN: "Bloqueadas régimen BTC", ROTACION: "Bloqueadas rotación", EXPOSICION: "Bloqueadas exposición", ROLLOVER: "Bloqueadas rollover", VOLATILIDAD: "Bloqueadas volatilidad", ESTACIONAL: "Bloqueadas estacionalidad", REGIMEN_USD: "Bloqueadas régimen USD", FOMC: "Bloqueadas FOMC", MERCADO: "Mercado cerrado", SESION: "Fuera de sesión", SIN_IA: "Sin IA", ERROR: "Error IA" };
 
-const Group = ({ title, label, rows, render = (k) => k, testId, isOn, onToggle }) => (
+const Group = ({ title, label, rows, render = (k) => k, testId, isOn, onToggle, hint }) => (
   <div data-testid={testId} className="overflow-hidden rounded-sm border border-[#1E293B]">
-    <p className="border-b border-[#1E293B] bg-[#0D111A] px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">{title}</p>
+    <p className="border-b border-[#1E293B] bg-[#0D111A] px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">{title}{hint && <span className="ml-2 normal-case tracking-normal text-slate-600">· {hint}</span>}</p>
     <table className="w-full text-sm">
       <thead><tr><TH>{label}</TH><TH right>Ops</TH><TH right>Acierto</TH><TH right>PF</TH><TH right>PnL medio</TH><TH right>PnL</TH>{onToggle && <TH right>Estado</TH>}</tr></thead>
       <tbody className="num text-[12px]">
         {rows.map((r) => {
           const on = isOn ? isOn(r.key) : true;
+          const none = !r.trades;
           return (
-            <tr key={r.key} data-testid={`perf-row-${r.key}`} className={`border-t border-[#1E293B]/60 transition-colors hover:bg-[#111827] ${on ? "" : "opacity-50"}`}>
+            <tr key={r.key} data-testid={`perf-row-${r.key}`} className={`border-t border-[#1E293B]/60 transition-colors hover:bg-[#111827] ${on ? "" : "opacity-50"}`} title={none ? "Sin operaciones cerradas todavía" : undefined}>
               <TD className="font-display text-[13px] font-semibold text-slate-100">{render(r.key)}</TD>
-              <TD right>{r.trades}</TD>
-              <TD right>{r.win_rate}%</TD>
-              <TD right className={r.profit_factor == null ? "text-slate-500" : r.profit_factor >= 1 ? "text-emerald-400" : "text-rose-400"}>{r.profit_factor ?? "∞"}</TD>
-              <TD right className={pnlClass(r.avg_pnl)}>{fmtSignedUsd(r.avg_pnl)}</TD>
-              <TD right className={`font-semibold ${pnlClass(r.pnl)}`}>{fmtSignedUsd(r.pnl)}</TD>
+              <TD right className={none ? "text-slate-500" : ""}>{r.trades}</TD>
+              <TD right className={none ? "text-slate-600" : ""}>{none ? "—" : `${r.win_rate}%`}</TD>
+              <TD right className={none ? "text-slate-600" : r.profit_factor == null ? "text-slate-500" : r.profit_factor >= 1 ? "text-emerald-400" : "text-rose-400"}>{none ? "—" : r.profit_factor ?? "∞"}</TD>
+              <TD right className={none ? "text-slate-600" : pnlClass(r.avg_pnl)}>{none ? "—" : fmtSignedUsd(r.avg_pnl)}</TD>
+              <TD right className={`font-semibold ${none ? "text-slate-600" : pnlClass(r.pnl)}`}>{none ? "—" : fmtSignedUsd(r.pnl)}</TD>
               {onToggle && (
                 <TD right>
                   <button data-testid={`perf-toggle-${r.key}`} onClick={() => onToggle(r.key, !on)} title={on ? "Apagar: el bot dejará de operarlo" : "Volver a activar"}
@@ -54,6 +55,10 @@ export default function Performance({ tradeCount, settings, onSave, strategyKeys
   const sig = data.signals;
   const active = activeStrategies(settings, strategyKeys);
   const mk = data.maker;
+  const hasTrades = data.by_strategy.length > 0;
+  // every strategy of this bot, with or without closed trades, so each one can be switched on/off from here
+  const stratRows = [...strategyKeys.map((k) => data.by_strategy.find((r) => r.key === k) || { key: k, trades: 0, win_rate: 0, profit_factor: null, avg_pnl: 0, pnl: 0 }),
+    ...data.by_strategy.filter((r) => !strategyKeys.includes(r.key))];
 
   const toggleStrategy = (k, on) => {
     const next = on ? [...active, k] : active.filter((x) => x !== k);
@@ -79,19 +84,20 @@ export default function Performance({ tradeCount, settings, onSave, strategyKeys
           </div>
         ))}
       </div>
-      {!data.by_strategy.length ? (
-        <Empty testId="performance-empty" text="Aún no hay operaciones cerradas. Las estadísticas aparecerán con las primeras operaciones del bot." />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <Group title="Por estrategia" label="Estrategia" rows={data.by_strategy} render={(k) => STRATEGY_LABELS[k] || k} testId="perf-by-strategy"
-            isOn={(k) => active.includes(k)} onToggle={toggleStrategy} />
-          <Group title="Por par" label="Par" rows={data.by_symbol} testId="perf-by-symbol" isOn={(k) => settings.symbols.includes(k)} onToggle={toggleSymbol} />
-          <Group title="Por dirección" label="Lado" rows={data.by_side} render={(k) => SIDE[k] || k} testId="perf-by-side" />
-          <Group title="Por tipo de salida" label="Salida" rows={data.by_reason} render={(k) => REASON_LABELS[k] || k} testId="perf-by-reason" />
-          {data.by_horizon?.length > 0 && <Group title="Por horizonte" label="Horizonte" rows={data.by_horizon} render={(k) => HORIZON_LABELS[k] || k} testId="perf-by-horizon" />}
-          {data.by_entry_type?.length > 0 && <Group title="Por tipo de entrada" label="Entrada" rows={data.by_entry_type} render={(k) => ENTRY_LABELS[k] || k} testId="perf-by-entry-type" />}
-        </div>
-      )}
+      {!hasTrades && <Empty testId="performance-empty" text="Aún no hay operaciones cerradas. Las estadísticas aparecerán con las primeras operaciones del bot; mientras tanto puedes activar o apagar cada estrategia desde la tabla." />}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Group title="Por estrategia" label="Estrategia" rows={stratRows} render={(k) => STRATEGY_LABELS[k] || k} testId="perf-by-strategy"
+          hint={`${active.length} de ${strategyKeys.length} activas`} isOn={(k) => active.includes(k)} onToggle={toggleStrategy} />
+        {hasTrades && (
+          <>
+            <Group title="Por par" label="Par" rows={data.by_symbol} testId="perf-by-symbol" isOn={(k) => settings.symbols.includes(k)} onToggle={toggleSymbol} />
+            <Group title="Por dirección" label="Lado" rows={data.by_side} render={(k) => SIDE[k] || k} testId="perf-by-side" />
+            <Group title="Por tipo de salida" label="Salida" rows={data.by_reason} render={(k) => REASON_LABELS[k] || k} testId="perf-by-reason" />
+            {data.by_horizon?.length > 0 && <Group title="Por horizonte" label="Horizonte" rows={data.by_horizon} render={(k) => HORIZON_LABELS[k] || k} testId="perf-by-horizon" />}
+            {data.by_entry_type?.length > 0 && <Group title="Por tipo de entrada" label="Entrada" rows={data.by_entry_type} render={(k) => ENTRY_LABELS[k] || k} testId="perf-by-entry-type" />}
+          </>
+        )}
+      </div>
       {mk && (mk.maker_fills > 0 || mk.market_fallbacks > 0 || mk.pending > 0) && (
         <div data-testid="perf-maker" className="flex flex-wrap gap-2">
           {[["Entradas maker llenadas", mk.maker_fills], ["A mercado tras esperar", mk.market_fallbacks], ["Tasa de llenado", mk.fill_rate == null ? "—" : `${mk.fill_rate}%`],

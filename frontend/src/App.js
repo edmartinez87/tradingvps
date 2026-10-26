@@ -4,7 +4,7 @@ import "@/App.css";
 import { Toaster, toast } from "sonner";
 import { Layers, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { http, errMsg, getToken, setToken, setApiBase } from "@/lib/api";
+import { http, errMsg, getToken, setToken, setApiBase, fmtTime } from "@/lib/api";
 import BotSelector from "@/pages/BotSelector";
 import FxDashboard from "@/fx/FxDashboard";
 import { usePolling } from "@/hooks/usePolling";
@@ -97,9 +97,11 @@ function Dashboard({ onLogout }) {
       ) : (
       <main className="mx-auto max-w-[1920px] space-y-4 p-4 md:p-6">
         <AiHealthBanner ai={data.status.ai} />
-        {data.status.exchange_error && (
+        {(data.status.exchange_error || data.status.broker_health?.ok === false) && (
           <div data-testid="exchange-error-banner" className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 font-mono text-[11px] text-rose-200">
-            Bybit sin respuesta: {data.status.exchange_error} · mostrando los últimos datos locales
+            {data.status.broker_health?.down_since
+              ? <>Bybit sin respuesta desde las {fmtTime(data.status.broker_health.down_since)} ({data.status.broker_health.down_sec < 60 ? `${data.status.broker_health.down_sec} s` : `${Math.round(data.status.broker_health.down_sec / 60)} min`}) · {data.status.broker_health.error} · el bot no abrirá nuevas operaciones hasta reconectar{data.status.broker_health.alerted ? " · aviso enviado por Telegram" : ""}</>
+              : <>Bybit sin respuesta: {data.status.exchange_error} · mostrando los últimos datos locales</>}
           </div>
         )}
         <KpiStrip account={data.account} />

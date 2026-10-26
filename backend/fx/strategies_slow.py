@@ -11,7 +11,8 @@ SLOW_INFO = {
     "fix_reversion": {
         "name": "Reversión fin de mes (fix de Londres)", "tf": "15m", "bt_tf": "1h", "horizon": "long", "bars": 300,
         "rules": "Último día hábil del mes, tras el fix de las 16:00 de Londres: si el movimiento 15:00→16:00 supera 0,6×ATR(1h), se abre en contra "
-                 "entre 16:00 y 16:20. SL en el extremo del movimiento + 0,3×ATR, TP en el precio de las 15:00 (reversión completa), cierre por tiempo "
+                 "entre 16:00 y 16:30 (dos velas de 15 m, por si el bot arranca tarde) siempre que el precio no haya deshecho ya más de la mitad del movimiento. "
+                 "SL en el extremo del movimiento + 0,3×ATR, TP en el precio de las 15:00 (reversión completa), cierre por tiempo "
                  "a las 12:00 de Londres del día siguiente. Solo mayores y cruces (no metales). No cuenta en «Máx. posiciones».",
         "basis": "Flujos de cobertura de fin de mes concentrados en la ventana del fix WM/Reuters: reversión media del 72 % del movimiento previo "
                  "(Melvin & Prins 2015; Norges Bank). Baja frecuencia: ~12 oportunidades al año por par.",
@@ -19,7 +20,8 @@ SLOW_INFO = {
 }
 SLOW_KEYS = list(SLOW_INFO)
 MIN_MOVE_ATR = 0.6
-ENTRY_WINDOW_MIN = 20
+ENTRY_WINDOW_MIN = 30  # two 15m candles after the fix: a late scan (bot restarted, missed tick) still catches the setup
+MAX_REVERTED = 0.5     # skip when the price has already undone more than half of the pre-fix move (edge mostly gone)
 EXIT_HOUR_LONDON = 12
 
 
@@ -77,6 +79,9 @@ def fix_signal(symbol: str, rows15: list, atr_1h: float, now_utc: datetime, pric
     if abs(move) < MIN_MOVE_ATR * atr_1h:
         return None
     side = "short" if move > 0 else "long"
+    reverted = (fix_px - price_now) / move
+    if reverted > MAX_REVERTED:
+        return None
     hi, lo = max(k[2] for k in hour), min(k[3] for k in hour)
     sl = hi + 0.3 * atr_1h if side == "short" else lo - 0.3 * atr_1h
     tp = pre
@@ -85,8 +90,9 @@ def fix_signal(symbol: str, rows15: list, atr_1h: float, now_utc: datetime, pric
     return {"side": side, "strategy": "fix_reversion", "price": float(price_now), "sl": float(sl), "tp": float(tp), "atr": float(atr_1h),
             "score": 3, "key_ts": int(w["fix"].timestamp()), "expires_at": w["exit_at"].isoformat(),
             "reasons": [f"Último día hábil del mes · movimiento pre-fix {pips(symbol, move):+.1f} pips ({abs(move) / atr_1h:.1f}×ATR 1h)",
-                        "Reversión esperada ≈ 72 % del movimiento hacia el precio de las 15:00 de Londres", "Cierre por tiempo: 12:00 Londres del día siguiente"],
-            "indicators": {"pre_fix": pre, "fix": fix_px, "move_atr": round(abs(move) / atr_1h, 2)}}
+                        f"Reversión esperada ≈ 72 % del movimiento hacia el precio de las 15:00 de Londres · ya deshecho {max(0.0, reverted) * 100:.0f} %",
+                        "Cierre por tiempo: 12:00 Londres del día siguiente"],
+            "indicators": {"pre_fix": pre, "fix": fix_px, "move_atr": round(abs(move) / atr_1h, 2), "reverted_pct": round(max(0.0, reverted) * 100, 1)}}
 
 
 def scan_fix(rows1h: list, atr_series) -> dict:

@@ -126,8 +126,8 @@ export function buildFeatures(bot) {
       bullets: [
         "Lista de comprobación antes de cambiar de modo: credenciales verificadas, bot detenido, sin posiciones abiertas; confirmación escribiendo REAL y reinicio de estadísticas con la equidad real.",
         "Sincronización continua: marca, PnL, trailing enviado al bróker, detección de cierres hechos fuera del bot y de posiciones externas.",
-        fx ? "Alerta de desconexión: si MetaApi pierde la conexión con HFM más de 60 s, banner rojo + Telegram, y el bot no abre nada hasta que vuelve."
-           : "Banner si Bybit no responde y cierre total de posiciones con confirmación.",
+        fx ? "Alerta de desconexión: si MetaApi pierde la conexión con HFM más de 180 s (configurable), banner rojo + Telegram, y el bot no abre nada hasta que vuelve."
+           : "Alerta de desconexión: si Bybit deja de responder más de 180 s (configurable), banner rojo + Telegram, y el bot no abre nada hasta que vuelve; cierre total de posiciones con confirmación.",
         "Depósitos y retiros detectados automáticamente en la cuenta real (cada minuto o al instante si la equidad salta) y excluidos de las estadísticas.",
       ],
     },

@@ -11,7 +11,7 @@ import { Field, INPUT, BTN, BTN_OUT } from "./SecuritySection";
 const ENV_LABEL = { mainnet: "Mainnet · dinero real", testnet: "Testnet · fondos de prueba", demo: "Demo trading · cuenta demo de Bybit" };
 
 export default function BybitSection({ config, onSave }) {
-  const [form, setForm] = useState({ bybit_env: config.bybit_env, bybit_api_key: "", bybit_api_secret: "", bybit_base_url: config.bybit_base_url || "" });
+  const [form, setForm] = useState({ bybit_env: config.bybit_env, bybit_api_key: "", bybit_api_secret: "", bybit_base_url: config.bybit_base_url || "", bybit_alert_after_sec: config.bybit_alert_after_sec ?? 180 });
   const [advanced, setAdvanced] = useState(!!config.bybit_base_url);
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState(null);
@@ -19,9 +19,10 @@ export default function BybitSection({ config, onSave }) {
 
   const save = async () => {
     setBusy("save");
-    const ok = await onSave(form, "Credenciales de Bybit guardadas · verifica la conexión");
+    const body = { ...form, bybit_alert_after_sec: Math.min(3600, Math.max(10, Number(form.bybit_alert_after_sec) || 180)) };
+    const ok = await onSave(body, "Credenciales de Bybit guardadas · verifica la conexión");
     setBusy("");
-    if (ok) setForm((f) => ({ ...f, bybit_api_key: "", bybit_api_secret: "" }));
+    if (ok) setForm((f) => ({ ...f, bybit_api_key: "", bybit_api_secret: "", bybit_alert_after_sec: body.bybit_alert_after_sec }));
   };
   const test = async () => {
     setBusy("test");
@@ -64,12 +65,17 @@ export default function BybitSection({ config, onSave }) {
         <Input data-testid="bybit-api-secret-input" type="password" autoComplete="off" value={form.bybit_api_secret} placeholder={config.bybit_api_secret || "API secret"} onChange={set("bybit_api_secret")} className={INPUT} />
       </Field>
       <button type="button" data-testid="bybit-advanced-toggle" onClick={() => setAdvanced((a) => !a)} className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-slate-500 hover:text-slate-300">
-        <ChevronDown className={`h-3 w-3 transition-transform ${advanced ? "rotate-180" : ""}`} /> Avanzado · endpoint personalizado
+        <ChevronDown className={`h-3 w-3 transition-transform ${advanced ? "rotate-180" : ""}`} /> Avanzado · endpoint personalizado y aviso de desconexión
       </button>
       {advanced && (
-        <Field label="Endpoint (opcional)" hint="Vacío = URL oficial del entorno. Útil para dominios alternativos de Bybit (p. ej. api.bytick.com).">
-          <Input data-testid="bybit-base-url-input" value={form.bybit_base_url} placeholder="https://api.bybit.com" onChange={set("bybit_base_url")} className={INPUT} />
-        </Field>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Endpoint (opcional)" hint="Vacío = URL oficial del entorno. Útil para dominios alternativos de Bybit (p. ej. api.bytick.com).">
+            <Input data-testid="bybit-base-url-input" value={form.bybit_base_url} placeholder="https://api.bybit.com" onChange={set("bybit_base_url")} className={INPUT} />
+          </Field>
+          <Field label="Aviso de desconexión (segundos)" hint="En modo REAL, si Bybit deja de responder durante más de este tiempo, recibirás un aviso por Telegram (y otro al volver). Mientras tanto el bot no abre operaciones nuevas; las abiertas conservan su SL/TP en el exchange. Recomendado 180–300 s. 10–3600 s.">
+            <Input data-testid="bybit-alert-after-input" type="number" min={10} max={3600} step={5} value={form.bybit_alert_after_sec} onChange={set("bybit_alert_after_sec")} className={`${INPUT} num`} />
+          </Field>
+        </div>
       )}
       <div className="flex flex-wrap gap-2">
         <Button data-testid="bybit-save-button" onClick={save} disabled={busy === "save"} className={BTN}>{busy === "save" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Guardar</Button>

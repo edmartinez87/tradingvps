@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrainCircuit, Loader2, Plug, KeyRound, Sparkles, ExternalLink } from "lucide-react";
+import { BrainCircuit, Loader2, Plug, KeyRound, Sparkles, ExternalLink, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,12 @@ export default function AiSection({ config, onSave }) {
     const ok = await onSave({ ...form, ...extra }, "Configuración de IA guardada");
     setBusy("");
     if (ok) setDirty(false);
+  };
+  const discard = () => {
+    setForm(fromConfig(config));
+    setDirty(false);
+    setReply(null);
+    toast.info("Cambios descartados · se mantiene la configuración guardada");
   };
   const test = async () => {
     setBusy("test");
@@ -91,14 +97,20 @@ export default function AiSection({ config, onSave }) {
           </Field>
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button data-testid="ai-save-button" onClick={() => save()} disabled={!!busy} className={BTN}>{busy === "save" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />} Guardar</Button>
         <Button data-testid="ai-test-button" variant="outline" onClick={test} disabled={!!busy} className={BTN_OUT}>
           {busy === "test" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plug className="mr-1.5 h-3.5 w-3.5" />} Probar conexión
         </Button>
+        {dirty && (
+          <Button data-testid="ai-discard-button" variant="ghost" onClick={discard} disabled={!!busy} className="h-9 font-mono text-[11px] uppercase tracking-wider text-slate-400 hover:text-slate-100">
+            <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Descartar cambios
+          </Button>
+        )}
         {config.gemini_configured && (
           <Button data-testid="ai-clear-gemini-button" variant="outline" onClick={() => save({ clear_gemini_api_key: true })} disabled={!!busy} className={`${BTN_OUT} text-rose-300 hover:bg-rose-500/10`}>Quitar clave de Gemini</Button>
         )}
+        {dirty && <span data-testid="ai-dirty-badge" className="rounded-sm border border-amber-500/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-amber-300">Cambios sin guardar</span>}
       </div>
       {reply && <p data-testid="ai-test-reply" className="rounded-sm border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[12px] text-emerald-200">{reply}</p>}
     </Panel>

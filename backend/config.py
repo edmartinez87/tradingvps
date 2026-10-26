@@ -53,6 +53,7 @@ class AppConfig(BaseModel):
     bybit_api_secret: str = ""
     bybit_env: str = "mainnet"
     bybit_base_url: str = ""
+    bybit_alert_after_sec: int = 180
     bybit_verified_at: Optional[str] = None
     bybit_verified_equity: Optional[float] = None
     live_since: Optional[str] = None
@@ -104,6 +105,7 @@ class ConfigUpdate(BaseModel):
     bybit_api_secret: Optional[str] = Field(default=None, max_length=200)
     bybit_env: Optional[str] = None
     bybit_base_url: Optional[str] = Field(default=None, max_length=200)
+    bybit_alert_after_sec: Optional[int] = Field(default=None, ge=10, le=3600)
     clear_gemini_api_key: bool = False
     clear_telegram_bot_token: bool = False
     clear_bybit: bool = False
@@ -195,7 +197,7 @@ class ConfigStore:
             raise ValueError("Entorno de Bybit inválido")
         if "bybit_base_url" in patch and patch["bybit_base_url"] and not patch["bybit_base_url"].startswith("http"):
             raise ValueError("El endpoint personalizado debe empezar por http(s)://")
-        if any(k in patch for k in ("bybit_api_key", "bybit_api_secret", "bybit_env", "bybit_base_url")):
+        if any(k in patch and patch[k] != getattr(self.cfg, k) for k in ("bybit_api_key", "bybit_api_secret", "bybit_env", "bybit_base_url")):
             patch.update(bybit_verified_at=None, bybit_verified_equity=None)
         if "auto_review_frequency" in patch and patch["auto_review_frequency"] not in ("daily", "weekly"):
             raise ValueError("Frecuencia inválida")

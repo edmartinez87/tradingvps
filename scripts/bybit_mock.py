@@ -2,6 +2,7 @@
 Run: python3 scripts/bybit_mock.py  (port 8011)  · credentials: mockkey / mocksecret
 """
 import hmac
+import os
 import time
 import json
 import hashlib
@@ -13,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 API_KEY, API_SECRET = "mockkey", "mocksecret"
 EQUITY = 1000.0
-state = {"wallet": EQUITY, "positions": {}, "orders": {}, "closed": [], "leverage": {}, "prices": {}, "translog": []}
+state = {"wallet": EQUITY, "positions": {}, "orders": {}, "closed": [], "leverage": {}, "prices": {}, "translog": [], "connected": True}
 app = FastAPI()
 INSTRUMENTS = {"BTCUSDT": ("0.001", "0.001", "0.1"), "ETHUSDT": ("0.01", "0.01", "0.01"), "SOLUSDT": ("0.1", "0.1", "0.01"),
                "XRPUSDT": ("1", "1", "0.0001"), "AVAXUSDT": ("0.1", "0.1", "0.001"), "LINKUSDT": ("0.1", "0.1", "0.001")}
@@ -50,6 +51,8 @@ async def verify(request: Request, body: bytes) -> bool:
 @app.middleware("http")
 async def auth_mw(request: Request, call_next):
     if request.url.path.startswith("/v5/") and not request.url.path.startswith("/v5/market/"):
+        if not state["connected"]:
+            return JSONResponse({"retCode": 10016, "retMsg": "mock: exchange unreachable (connection down)", "result": {}}, status_code=503)
         body = await request.body()
         if not await verify(request, body):
             return err(10004, "error sign! origin_string[...]", 200)
@@ -198,6 +201,13 @@ async def force_close(symbol: str, price: float = None, reason: str = "sl"):
     return {"ok": True, "exit": px}
 
 
+@app.post("/mock/connection")
+async def mock_connection(connected: bool = True):
+    """Simulates Bybit becoming unreachable (every signed endpoint answers 503) or coming back."""
+    state["connected"] = connected
+    return {"ok": True, "connected": connected}
+
+
 @app.get("/mock/state")
 async def mock_state():
     return state
@@ -205,9 +215,9 @@ async def mock_state():
 
 @app.post("/mock/reset")
 async def mock_reset():
-    state.update(wallet=EQUITY, positions={}, orders={}, closed=[], leverage={}, prices={}, translog=[])
+    state.update(wallet=EQUITY, positions={}, orders={}, closed=[], leverage={}, prices={}, translog=[], connected=True)
     return {"ok": True}
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8011, log_level="warning")
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("BYBIT_MOCK_PORT", "8011")), log_level="warning")

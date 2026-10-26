@@ -100,7 +100,7 @@ export default function FxFiltersPanel({ settings, onSave, symbolNames = {} }) {
         </span>
       </div>
       <p className="text-[11px] text-slate-500">
-        Último día hábil del mes, 16:00–16:20 Londres: si el movimiento 15:00→16:00 supera 0,6×ATR(1h) se abre en contra; TP en el precio de las 15:00, SL tras el extremo, cierre a las 12:00 del día siguiente. Pares: {fix.pairs?.join(", ")}. Sesiones permitidas para el corto plazo: {(settings.sessions_allowed || []).map((s) => SESSION_NAMES[s]).join(", ") || "todas"} (la estrategia LP ignora ese filtro y no cuenta en «Máx. posiciones»).
+        Último día hábil del mes, 16:00–16:30 Londres (dos velas de 15 m, por si el bot arranca tarde): si el movimiento 15:00→16:00 supera 0,6×ATR(1h) y el precio no ha deshecho aún más de la mitad, se abre en contra; TP en el precio de las 15:00, SL tras el extremo, cierre a las 12:00 del día siguiente. Pares: {fix.pairs?.join(", ")}. Sesiones permitidas para el corto plazo: {(settings.sessions_allowed || []).map((s) => SESSION_NAMES[s]).join(", ") || "todas"} (la estrategia LP ignora ese filtro y no cuenta en «Máx. posiciones»).
       </p>
     </div>
   );

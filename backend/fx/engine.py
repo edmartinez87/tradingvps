@@ -24,6 +24,8 @@ from fx.metaapi import MetaApiError, TRADE_DISABLED_CODES
 from fx.shadow import open_shadow, monitor_shadows
 import evolution
 import cashflow
+import broker_health
+from broker_health import fmt_duration, fresh_health as _fresh_health  # noqa: F401 (re-exported for tests)
 from fx import plan as fx_plan
 from plan import last30_stats
 
@@ -32,7 +34,6 @@ INITIAL_BALANCE = 500.0
 LIVE_GRACE_SEC = 20
 HFM_HEALTH_SEC = 60
 HFM_HEALTH_RETRY_SEC = 15
-HFM_REMIND_SEC = 6 * 3600
 TRANSIENT_TG_SEC = 30 * 60
 PENDING_TTL_SEC = 2 * 3600
 HFM_OK_STATES, HFM_OK_CONN = ("DEPLOYED", ""), ("CONNECTED", "")
@@ -45,19 +46,6 @@ FX_STRATEGY_INFO = {**STRATEGY_INFO, **NEWS_STRATEGY, **FX_SLOW_INFO}
 
 def today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def fmt_duration(sec: float) -> str:
-    sec = int(sec)
-    if sec < 90:
-        return f"{sec} s"
-    if sec < 3600:
-        return f"{sec // 60} min"
-    return f"{sec // 3600} h {(sec % 3600) // 60:02d} min"
-
-
-def _fresh_health() -> dict:
-    return {"ok": None, "state": "", "connection": "", "api_error": None, "error": None, "down_since": None, "alerted_at": None, "checked_at": 0.0}
 
 
 class PrefixedDB:
@@ -121,11 +109,7 @@ class FxEngine:
     def broker_health(self) -> dict | None:
         if not (self.live and self.broker):
             return None
-        h = self.hfm
-        return {"ok": h["ok"] is not False, "state": h["state"], "connection": h["connection"], "error": h["error"],
-                "down_since": datetime.fromtimestamp(h["down_since"], timezone.utc).isoformat() if h["down_since"] else None,
-                "down_sec": int(time.time() - h["down_since"]) if h["down_since"] else 0, "alerted": bool(h["alerted_at"]),
-                "alert_after_sec": self.cfg.hfm_alert_after_sec if self.cfg else None}
+        return broker_health.summary(self.hfm, self.cfg.hfm_alert_after_sec if self.cfg else None)
 
     @property
     def mode_label(self) -> str:
@@ -474,29 +458,18 @@ class FxEngine:
             if self.store and h["state"] and (h["state"], h["connection"]) != (self.cfg.hfm_state, self.cfg.hfm_connection):
                 await self.store.update({"hfm_state": h["state"], "hfm_connection": h["connection"]})
         ok = synced and h["state"] in HFM_OK_STATES and h["connection"] in HFM_OK_CONN
-        h["ok"] = ok
-        if ok:
-            if h["alerted_at"]:
-                dur = fmt_duration(now - h["down_since"])
-                await self.log("INFO", f"Conexión con HFM restablecida · estuvo sin conexión {dur}")
-                await self.tg(f"✅ <b>Conexión con HFM restablecida</b> · estuvo sin conexión {dur}. El bot vuelve a operar con normalidad.", "system")
-            h.update(down_since=None, alerted_at=None, error=None)
-            return
-        h["error"] = (self.broker_error if not synced else None) or h["api_error"] or f"MetaApi: cuenta {h['state'] or '?'} · conexión {h['connection'] or '?'}"
-        if h["down_since"] is None:
-            h["down_since"] = now
-            return
-        first = h["alerted_at"] is None and now - h["down_since"] >= self.cfg.hfm_alert_after_sec
-        remind = h["alerted_at"] is not None and now - h["alerted_at"] >= HFM_REMIND_SEC
-        if not (first or remind):
-            return
-        h["alerted_at"] = now
-        dur = fmt_duration(now - h["down_since"])
-        n = await self.db.positions.count_documents({"live": True})
-        await self.log("ERROR", f"Cuenta HFM sin conexión con MetaApi desde hace {dur} · {h['error']}")
-        hint = "\nSi persiste, revisa la cuenta en Ajustes → HotForex (Probar conexión / Redesplegar)." if (h["state"] not in HFM_OK_STATES or "DISCONNECTED" in h["connection"]) else ""
-        await self.tg(f"🔌 <b>Cuenta HFM {'sigue ' if remind else ''}sin conexión con MetaApi</b> · {dur}\n{h['error']}\n"
-                      f"{n} posición(es) real(es) abiertas: siguen protegidas por su SL/TP en el bróker. El bot no abrirá nuevas operaciones hasta reconectar.{hint}", "system")
+        error = (self.broker_error if not synced else None) or h["api_error"] or f"MetaApi: cuenta {h['state'] or '?'} · conexión {h['connection'] or '?'}"
+        event, dur = broker_health.transition(h, ok, error, self.cfg.hfm_alert_after_sec, now)
+        if event == "up":
+            await self.log("INFO", f"Conexión con HFM restablecida · estuvo sin conexión {fmt_duration(dur)}")
+            await self.tg(f"✅ <b>Conexión con HFM restablecida</b> · estuvo sin conexión {fmt_duration(dur)}. El bot vuelve a operar con normalidad.", "system")
+        elif event:
+            remind = event == "remind"
+            n = await self.db.positions.count_documents({"live": True})
+            await self.log("ERROR", f"Cuenta HFM sin conexión con MetaApi desde hace {fmt_duration(dur)} · {h['error']}")
+            hint = "\nSi persiste, revisa la cuenta en Ajustes → HotForex (Probar conexión / Redesplegar)." if (h["state"] not in HFM_OK_STATES or "DISCONNECTED" in h["connection"]) else ""
+            await self.tg(f"🔌 <b>Cuenta HFM {'sigue ' if remind else ''}sin conexión con MetaApi</b> · {fmt_duration(dur)}\n{h['error']}\n"
+                          f"{n} posición(es) real(es) abiertas: siguen protegidas por su SL/TP en el bróker. El bot no abrirá nuevas operaciones hasta reconectar.{hint}", "system")
 
     async def _sync_live_position(self, p: Position, ex: dict, ticker: dict, settings: FxSettings, now: datetime, rules: dict = None):
         rules = rules or risk.trade_rules(settings)
@@ -1002,7 +975,7 @@ class FxEngine:
             await open_shadow(self, sid, symbol, sig, settings, shadow_kind, acc, signal.ai_confidence, signal.ai_risk, risk_factor, note=signal.note or signal.ai_reasoning)
 
     async def _scan_slow(self, settings: FxSettings) -> int:
-        """Month-end London fix reversion on 15m candles (long horizon). Only evaluated inside the 20-minute window after the fix."""
+        """Month-end London fix reversion on 15m candles (long horizon). Only evaluated inside the 30-minute window after the fix (two 15m candles)."""
         now = datetime.now(timezone.utc)
         if not fix_window(now):
             return 0

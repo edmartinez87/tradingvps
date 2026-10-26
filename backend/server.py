@@ -56,7 +56,7 @@ def _status() -> dict:
         "last_scan": engine.last_scan,
         "next_scan_in": max(0, int(engine.next_scan_ts - time.time())) if engine.next_scan_ts else None,
         "mode": engine.mode_label, "env": engine.env, "market": "USDT Perpetual", "telegram": notify.is_on(), "ai": ai_current(),
-        "ai_usage": ai_usage.snapshot("crypto"), "exchange_error": engine.exchange_error,
+        "ai_usage": ai_usage.snapshot("crypto"), "exchange_error": engine.exchange_error, "broker_health": engine.broker_health(),
     }
 
 

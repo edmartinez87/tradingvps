@@ -2,11 +2,42 @@ import { Loader2, CalendarClock, RefreshCw, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { http, errMsg, fmtDateTime } from "@/lib/api";
 import { TH, TD } from "../PositionsTable";
 import { VerdictBadge } from "./WalkForward";
 
 const sign = (v, d = 2) => (v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}`);
+
+const RunButton = ({ running, step, onClick }) => (
+  <Button data-testid="wf-auto-run-button" onClick={onClick} disabled={running} variant="outline"
+    className="h-9 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider text-slate-200 hover:bg-[#111827] disabled:opacity-50">
+    {running ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+    {running ? (step || "Revalidando...") : "Revalidar ahora"}
+  </Button>
+);
+
+const ConfirmRun = ({ running, step, onRun, appliedCount }) => (
+  <AlertDialog>
+    <AlertDialogTrigger asChild><RunButton running={running} step={step} /></AlertDialogTrigger>
+    <AlertDialogContent data-testid="wf-auto-confirm-dialog" className="border-[#1E293B] bg-[#0D111A]">
+      <AlertDialogHeader>
+        <AlertDialogTitle className="font-display">¿Revalidar ahora con «Quitar sobreajustados» activo?</AlertDialogTitle>
+        <AlertDialogDescription>
+          Se repetirá el walk-forward en los {appliedCount} par(es) con SL/TP optimizados aplicados. Si alguno sale SOBREAJUSTADO o NO RENTABLE, sus parámetros se quitarán
+          automáticamente al terminar (el par vuelve a los valores por defecto de cada estrategia) y se te avisará por Telegram. Si solo quieres el diagnóstico, cancela y apaga el interruptor.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel data-testid="wf-auto-confirm-cancel">Cancelar</AlertDialogCancel>
+        <AlertDialogAction data-testid="wf-auto-confirm-run" onClick={onRun} className="bg-amber-500 text-[#07090E] hover:bg-amber-400">Revalidar y quitar si procede</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+);
 
 export default function WalkForwardAuto({ check, running, step, onRun, appliedCount, autoRemove, onAutoRemove }) {
   const rows = Object.entries(check?.results || {});
@@ -36,11 +67,9 @@ export default function WalkForwardAuto({ check, running, step, onRun, appliedCo
             <Scissors className="h-3.5 w-3.5 text-amber-300" /> Quitar sobreajustados
             <Switch data-testid="wf-auto-remove-switch" checked={!!autoRemove} onCheckedChange={toggle} />
           </label>
-          <Button data-testid="wf-auto-run-button" onClick={onRun} disabled={running} variant="outline"
-            className="h-9 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider text-slate-200 hover:bg-[#111827] disabled:opacity-50">
-            {running ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-            {running ? (step || "Revalidando...") : "Revalidar ahora"}
-          </Button>
+          {autoRemove && appliedCount > 0
+            ? <ConfirmRun running={running} step={step} onRun={onRun} appliedCount={appliedCount} />
+            : <RunButton running={running} step={step} onClick={onRun} />}
         </div>
       </div>
       {removed.length > 0 && (
