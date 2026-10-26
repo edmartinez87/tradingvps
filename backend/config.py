@@ -71,10 +71,14 @@ class AppConfig(BaseModel):
     funding_reduce_pct: float = 0.05
     funding_reduce: bool = True
     funding_size_factor: float = 0.5
+    chat_summary_every: int = 40
+    chat_keep_last: int = 10
 
 
 class ConfigUpdate(BaseModel):
     wf_auto_remove: Optional[bool] = None
+    chat_summary_every: Optional[int] = Field(default=None, ge=10, le=200)
+    chat_keep_last: Optional[int] = Field(default=None, ge=2, le=50)
     funding_enabled: Optional[bool] = None
     funding_block_pct: Optional[float] = Field(default=None, ge=0.01, le=2.0)
     funding_reduce_pct: Optional[float] = Field(default=None, ge=0.0, le=2.0)

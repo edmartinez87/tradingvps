@@ -39,6 +39,7 @@ class AiUsage:
         out = {g: sum(self.calls.get(k, 0) for k in kinds) for g, kinds in groups.items()}
         out["skipped_news"] = sum(self.skipped.get(k, 0) for k in groups["news"])
         out["total"] = sum(out[g] for g in groups)
+        out["chat"] = self.calls.get("chat", 0) + self.calls.get("chat-summary", 0)
         out["total_all"] = sum(self.calls.values())
         out["date"] = self.day
         return out

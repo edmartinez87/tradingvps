@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Zap, Play, Square, RefreshCw, RotateCcw, Database, Timer, Settings2, LogOut, LayoutGrid, BookOpen, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ChatLauncher } from "@/components/chat/ChatLauncher";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -34,7 +35,7 @@ const StatusPill = ({ status }) => {
   );
 };
 
-export default function Header({ status, onToggle, onScan, onReset, busy, onSettings, onDocs, onDeploy, onLogout, view, onSwitchBot, brand = CRYPTO_BRAND }) {
+export default function Header({ status, onToggle, onScan, onReset, busy, onSettings, onDocs, onDeploy, onLogout, view, onSwitchBot, brand = CRYPTO_BRAND, bot = "crypto", onRefresh }) {
   const [count, setCount] = useState(status.next_scan_in);
   useEffect(() => setCount(status.next_scan_in), [status.next_scan_in]);
   useEffect(() => {
@@ -137,6 +138,7 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
               <Server className="mr-1.5 h-3.5 w-3.5" /> {view === "deploy" ? "Volver al panel" : "Instalar en tu VPS"}
             </Button>
           )}
+          <ChatLauncher bot={bot} onApplied={onRefresh} />
           {onSwitchBot && (
             <Button data-testid="switch-bot-button" variant="outline" size="sm" onClick={onSwitchBot} title="Volver a la selección de bot"
               className="h-8 border-sky-500/40 bg-transparent font-mono text-[11px] uppercase tracking-wider text-sky-300 hover:bg-sky-500/10">

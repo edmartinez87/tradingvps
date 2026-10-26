@@ -188,6 +188,35 @@ async def ping(cfg: dict = None) -> str:
     text = await _ask(_chat("Responde en español con una sola frase breve.", "ping", cfg), "Confirma que estás operativo para analizar señales de trading.")
     return text.strip()[:200]
 
+
+def tool_chat(system: str, prefix: str, history: list, tools: list = None) -> LlmChat:
+    """Multi-turn chat seeded with stored history; tools (OpenAI function schema) are optional."""
+    c = _cfg
+    chat = LlmChat(api_key=c["api_key"], session_id=f"{prefix}-{uuid.uuid4()}", system_message=system,
+                   initial_messages=[{"role": "system", "content": system}, *history]).with_model(c["provider"], c["model"])
+    chat._kind, chat._probe = prefix, False
+    if tools:
+        chat.with_tools(tools, tool_choice="auto")
+    return chat
+
+
+async def ask_tools(chat: LlmChat, text: str | None):
+    """One non-streaming turn; `text=None` continues after add_tool_result(). Returns ChatResponse (content, tool_calls)."""
+    try:
+        resp = await chat.send_message_with_tools(UserMessage(text=text) if text else None)
+    except Exception as e:
+        await _mark_failure(e)
+        raise
+    await _mark_ok()
+    await record_usage(getattr(chat, "_kind", "other"))
+    if resp.finish_reason == "length":
+        logger.warning(f"LLM {getattr(chat, '_kind', '?')}: respuesta cortada por el límite de tokens de salida")
+    return resp
+
+
+async def ask_text(chat: LlmChat, prompt: str) -> str:
+    return await _ask(chat, prompt)
+
 SYSTEM = (
     "Eres un gestor de riesgo cuantitativo senior especializado en futuros perpetuos USDT de criptomonedas. "
     "Evalúas señales generadas por un sistema algorítmico y decides si se ejecutan. Prioriza preservar capital: "

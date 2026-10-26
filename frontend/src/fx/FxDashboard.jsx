@@ -126,7 +126,7 @@ export default function FxDashboard({ onLogout }) {
 
   return (
     <div data-testid="fx-dashboard" className="app-bg grain min-h-screen">
-      <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} brand={FX_BRAND} onSwitchBot={() => nav("/")}
+      <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} brand={FX_BRAND} onSwitchBot={() => nav("/")} bot="fx" onRefresh={refresh}
         onSettings={() => setView((v) => (v === "settings" ? "panel" : "settings"))}
         onDocs={() => setView((v) => (v === "docs" ? "panel" : "docs"))}
         onDeploy={() => setView((v) => (v === "deploy" ? "panel" : "deploy"))}

@@ -9,7 +9,7 @@ import {
 import { http, errMsg, fmtDateTime, fmtUsd, fmtSignedUsd, pnlClass } from "@/lib/api";
 import { LABELS, fmtVal } from "./AiAdvice";
 
-const ICON = { auto_review: Sparkles, optimize_all: Sparkles, optimizer: Sparkles, plan: Sparkles, walk_forward: FlaskConical, profile: ShieldCheck, manual: User, system: Cog, revert: Undo2 };
+const ICON = { auto_review: Sparkles, optimize_all: Sparkles, optimizer: Sparkles, plan: Sparkles, chat: Sparkles, walk_forward: FlaskConical, profile: ShieldCheck, manual: User, system: Cog, revert: Undo2 };
 const VERDICT = {
   MEJOR: { label: "Mejoró", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   PEOR: { label: "Empeoró", cls: "border-rose-500/40 bg-rose-500/10 text-rose-300" },

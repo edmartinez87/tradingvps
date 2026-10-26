@@ -119,11 +119,24 @@
   50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0), 0 0 22px rgba(52, 211, 153, 0.5); }
 }
 
+.chat-gold-glow {
+  background-image: linear-gradient(135deg, #07090E 0%, #141008 55%, #07090E 100%);
+  box-shadow: 0 0 0 0 rgba(247, 166, 0, 0.5), 0 0 14px rgba(247, 166, 0, 0.3), inset 0 0 12px rgba(247, 166, 0, 0.08);
+  animation: chat-gold-glow 3s ease-in-out infinite;
+}
+@keyframes chat-gold-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(247, 166, 0, 0.4), 0 0 12px rgba(247, 166, 0, 0.25), inset 0 0 12px rgba(247, 166, 0, 0.08); }
+  50% { box-shadow: 0 0 0 4px rgba(247, 166, 0, 0), 0 0 24px rgba(251, 191, 36, 0.55), inset 0 0 18px rgba(247, 166, 0, 0.16); }
+}
+.chat-gold-bar {
+  background: radial-gradient(120% 140% at 0% 0%, rgba(247, 166, 0, 0.14) 0%, rgba(7, 9, 14, 0) 55%), #07090E;
+}
+
 ::selection {
   background: rgba(247, 166, 0, 0.35);
   color: #fff;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rise, .flash-up, .flash-down, .pulse-dot::after, .docs-glow, .vps-glow { animation: none; opacity: 1; transform: none; }
+  .rise, .flash-up, .flash-down, .pulse-dot::after, .docs-glow, .vps-glow, .chat-gold-glow { animation: none; opacity: 1; transform: none; }
 }
