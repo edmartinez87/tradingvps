@@ -105,7 +105,7 @@ def test_market_context(s):
 # Core routes
 def test_meta(s):
     d = s.get(f"{FX}/meta", timeout=30).json()
-    assert len(d["strategy_keys"]) == 6 and "long_horizon_keys" in d
+    assert len(d["strategy_keys"]) == 7 and "long_horizon_keys" in d
 
 
 def test_dashboard(s):

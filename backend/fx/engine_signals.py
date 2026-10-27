@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from models import Signal, now_iso
 from indicators import trend_label, htf_trend, snapshot
-from strategies import evaluate
+from strategies import evaluate, exit_signal, EXIT_ON_CROSS, EXIT_REASON
 from fx.models import FxSettings
 from fx.market import HTF, market_open, market_status, in_sessions, session_names
 from fx.symbols import SPECS, pips
@@ -62,6 +62,8 @@ class SignalsMixin:
                     htf = None
                     if settings.htf_filter:
                         htf = htf_trend(self._df(await self.market.fetch_klines(symbol, htf_tf, 200, cache_sec=300)))
+                    if self.running:
+                        await self._exit_on_cross(symbol, df, i)
                     sig = evaluate(df, i, settings.strategy, htf, params, settings.signal_mode, settings.disabled_strategies)
                     vol_pct = filters.vol_percentile(df["atr"].values, i)
                     self.analysis[symbol] = {
@@ -83,6 +85,14 @@ class SignalsMixin:
                 await self.log("SCAN", f"Escaneo {settings.timeframe} completado · {len(settings.symbols)} pares · {found} señales")
         finally:
             self.scanning = False
+
+    async def _exit_on_cross(self, symbol: str, df, i: int):
+        """Strategy exits decided at candle close (ema_cross: the EMAs crossed back against the position)."""
+        row = df.iloc[i]
+        async for d in self.db.positions.find({"symbol": symbol, "strategy": {"$in": list(EXIT_ON_CROSS)}}, {"_id": 1, "side": 1, "strategy": 1}):
+            if exit_signal(d["strategy"], d["side"], float(row["ema10"]), float(row["ema20"])):
+                await self.log("INFO", f"{symbol}: la EMA10 volvió a cruzar la EMA20 en contra de la posición {d['side'].upper()} · cierre por regla de la estrategia")
+                await self.close_position(str(d["_id"]), None, EXIT_REASON)
 
     async def _blocks(self, symbol: str, settings: FxSettings, acc: dict, side: str = None, horizon: str = "short"):
         open_docs = await self.db.positions.find({}, {"symbol": 1, "side": 1, "horizon": 1}).to_list(100)

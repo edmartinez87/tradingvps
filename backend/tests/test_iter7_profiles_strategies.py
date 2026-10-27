@@ -34,7 +34,7 @@ def dash():
 class TestMeta:
     def test_meta(self):
         d = S.get(f"{BASE_URL}/api/meta", timeout=30).json()
-        assert len(d["strategies"]) == 8 and "all" in d["strategies"]
+        assert len(d["strategies"]) == 9 and "all" in d["strategies"]
         assert {"supertrend_momentum", "ema_pullback", "multi_horizon", "double_divergence"} <= set(d["strategies"])
         assert d["signal_modes"] == ["strict", "relaxed", "minimal"]
         assert set(d["mode_info"]) == {"strict", "relaxed", "minimal"}
@@ -52,7 +52,7 @@ class TestProfiles:
         d = r.json(); s = d["settings"]
         assert len(s["symbols"]) == 10 and s["timeframe"] == "1h" and s["signal_mode"] == "relaxed"
         assert s["risk_per_trade"] == 1.5 and s["max_positions"] == 5 and s["leverage"] == 5 and s["daily_loss_limit"] == 8
-        assert s["disabled_strategies"] == [] and s["risk_profile"] == 2 and d["profile_active"] == 2
+        assert s["disabled_strategies"] == ["ema_cross"] and s["risk_profile"] == 2 and d["profile_active"] == 2
         assert dash()["profile_active"] == 2
 
     def test_level3(self):
@@ -74,7 +74,7 @@ class TestProfiles:
         d = profile(0).json(); s = d["settings"]
         assert set(s["symbols"]) == BASE6 and s["signal_mode"] == "strict"
         assert s["risk_per_trade"] == 1.0 and s["max_positions"] == 3 and s["leverage"] == 3 and s["daily_loss_limit"] == 5
-        assert set(s["disabled_strategies"]) == {"supertrend_momentum", "ema_pullback"}
+        assert set(s["disabled_strategies"]) == {"supertrend_momentum", "ema_pullback", "ema_cross"}
         assert d["profile_active"] == 0 and dash()["profile_active"] == 0
 
 
@@ -87,7 +87,7 @@ class TestSettingsStrategies:
         assert dash()["profile_active"] is None
 
     def test_disable_all_422(self):
-        r = S.put(f"{BASE_URL}/api/settings", json={"disabled_strategies": ["trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback", "multi_horizon", "double_divergence"]}, timeout=30)
+        r = S.put(f"{BASE_URL}/api/settings", json={"disabled_strategies": ["trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback", "ema_cross", "multi_horizon", "double_divergence"]}, timeout=30)
         assert r.status_code == 422
 
     def test_invalid_mode_422(self):

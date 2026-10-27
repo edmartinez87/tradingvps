@@ -7,7 +7,7 @@ export function buildFeatures(bot) {
   const cur = fx ? "USD" : "USDT";
   const hero = {
     title: `${name}: un operador algorítmico que trabaja 24/7 y piensa antes de entrar`,
-    text: `Analiza ${market} en tiempo real, detecta configuraciones con ${fx ? "seis" : "siete"} estrategias clásicas, pide una segunda opinión a la IA con todo el contexto del mercado y, si pasa todos los filtros de riesgo, ejecuta la orden con stop, objetivo y trailing. Empieza en paper trading con dinero ficticio y datos reales; cuando las métricas lo avalen, pásalo a modo REAL sobre ${broker} con un clic y una confirmación.`,
+    text: `Analiza ${market} en tiempo real, detecta configuraciones con ${fx ? "siete" : "ocho"} estrategias clásicas, pide una segunda opinión a la IA con todo el contexto del mercado y, si pasa todos los filtros de riesgo, ejecuta la orden con stop, objetivo y trailing. Empieza en paper trading con dinero ficticio y datos reales; cuando las métricas lo avalen, pásalo a modo REAL sobre ${broker} con un clic y una confirmación.`,
     stats: [
       [fx ? "6" : "7", "estrategias combinables"],
       ["12", "pares disponibles"],
@@ -22,9 +22,9 @@ export function buildFeatures(bot) {
       icon: "Activity", title: "Motor de análisis en tiempo real",
       text: "Cada pocos segundos el bot vuelve a mirar el mercado y cada minuto (configurable) escanea todos los pares en busca de una entrada.",
       bullets: [
-        "Indicadores calculados sobre velas reales: EMA 9/21/50/200, RSI 14, MACD, ATR, Bandas de Bollinger, ADX, Donchian 20 y Supertrend 10/3.",
-        fx ? "Seis estrategias que puedes encender o apagar: cinco de corto plazo (Tendencia EMA, Reversión a la media, Ruptura Turtle, Supertrend + momentum, Pullback a la EMA21) y una de largo plazo (LP): Reversión fin de mes del fix de Londres (último día hábil del mes, opera contra el movimiento 15:00→16:00 Londres y cierra al mediodía siguiente). En modo Multi-estrategia compiten entre sí y gana la señal con mejor puntuación."
-           : "Siete estrategias que puedes encender o apagar: cinco de corto plazo (Tendencia EMA, Reversión a la media, Ruptura Turtle, Supertrend + momentum, Pullback a la EMA21) y dos de largo plazo (LP): Tendencia Multi-Horizonte (diaria: cuatro canales Donchian 20/55/100/200 votan y la SMA200 diaria confirma) y Divergencia doble RSI+MACD en 4h. En modo Multi-estrategia compiten entre sí y gana la señal con mejor puntuación.",
+        "Indicadores calculados sobre velas reales: EMA 9/10/20/21/50/200, RSI 14, MACD, ATR, Bandas de Bollinger, ADX, Donchian 20 y Supertrend 10/3.",
+        fx ? "Siete estrategias que puedes encender o apagar: seis de corto plazo (Tendencia EMA, Reversión a la media, Ruptura Turtle, Supertrend + momentum, Pullback a la EMA21 y Cruce EMA 10/20, esta última apagada por defecto: entra al cruce al cierre con filtro EMA200 + ADX y sale cuando las EMAs se cruzan al revés) y una de largo plazo (LP): Reversión fin de mes del fix de Londres (último día hábil del mes, opera contra el movimiento 15:00→16:00 Londres y cierra al mediodía siguiente). En modo Multi-estrategia compiten entre sí y gana la señal con mejor puntuación."
+           : "Ocho estrategias que puedes encender o apagar: seis de corto plazo (Tendencia EMA, Reversión a la media, Ruptura Turtle, Supertrend + momentum, Pullback a la EMA21 y Cruce EMA 10/20, esta última apagada por defecto: entra al cruce al cierre con filtro EMA200 + ADX y sale cuando las EMAs se cruzan al revés) y dos de largo plazo (LP): Tendencia Multi-Horizonte (diaria: cuatro canales Donchian 20/55/100/200 votan y la SMA200 diaria confirma) y Divergencia doble RSI+MACD en 4h. En modo Multi-estrategia compiten entre sí y gana la señal con mejor puntuación.",
         "Las operaciones de largo plazo tienen su propio tope («Máx. posiciones largo plazo») y no consumen el límite de posiciones de corto plazo; se señalan con la etiqueta LP.",
         "Tres niveles de criterios de entrada (Estrictos / Relajados / Mínimos) que endurecen o relajan RSI, ADX, volumen y confirmaciones MACD/EMA200.",
         "Filtro de temporalidad superior: solo se opera a favor de la tendencia del marco mayor (4h si operas en 1h, 1h si operas en 15m).",

@@ -28,7 +28,7 @@ class FxSettings(BaseModel):
     htf_filter: bool = True
     symbol_params: Dict[str, Dict[str, float]] = {}
     signal_mode: str = "relaxed"
-    disabled_strategies: List[str] = ["supertrend_momentum"]
+    disabled_strategies: List[str] = ["supertrend_momentum", "ema_cross"]
     close_before_weekend: bool = True
     min_lot_max_risk: float = 4.0
     sessions_allowed: List[str] = []

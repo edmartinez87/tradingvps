@@ -9,7 +9,7 @@ const BOTS = [
     key: "crypto", path: "/bybit", icon: Zap, accent: "amber",
     title: <>Bybit <span className="text-amber-400">AI</span> Trader</>,
     subtitle: "Criptomonedas · Futuros perpetuos USDT",
-    desc: "Bot cripto 24/7 con 5 estrategias, validación con IA, filtros de noticias y funding, optimizador walk-forward y modo REAL en Bybit.",
+    desc: "Bot cripto 24/7 con 8 estrategias, validación con IA, filtros de noticias y funding, optimizador walk-forward y modo REAL en Bybit.",
     tags: ["BTC · ETH · SOL · XRP…", "Paper / REAL Bybit", "Bitget espejo"],
   },
   {

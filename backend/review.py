@@ -36,7 +36,7 @@ LABELS = {"symbols": "Pares", "strategy": "Estrategia", "disabled_strategies": "
           "seasonality_block_pairs": "Pares con bloqueo estacional", "seasonality_size_factor": "Tamaño contra el sesgo estacional", "usd_regime_filter": "Filtro régimen USD",
           "usd_regime_sma": "SMA del régimen USD", "fomc_rule": "Regla FOMC"}
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
-                  "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21", "multi_horizon": "Multi-Horizonte", "double_divergence": "Divergencia doble"}
+                  "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21", "ema_cross": "Cruce EMA 10/20", "multi_horizon": "Multi-Horizonte", "double_divergence": "Divergencia doble"}
 VALUE_LABELS = {"market": "a mercado", "maker": "límite maker"}
 _plan_cache: dict = {}
 job: dict = {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None, "step": ""}

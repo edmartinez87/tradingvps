@@ -6,7 +6,7 @@ from bson import ObjectId
 from models import Settings, Position, Trade, Signal, LogEntry, now_iso
 from market import MarketData, HTF
 from indicators import build_df, trend_label, htf_trend
-from strategies import evaluate, STRATEGY_INFO as FAST_INFO
+from strategies import evaluate, exit_signal, EXIT_ON_CROSS, EXIT_REASON, STRATEGY_INFO as FAST_INFO
 from strategies_slow import SLOW_INFO, SLOW_KEYS, evaluate_slow
 from risk import FEE_RATE, MAKER_FEE, SLIPPAGE, position_size, pnl, check_exit, update_trailing, trade_rules, move_in_r, tp_in_r, partial_qty
 from ai_advisor import evaluate_signal, label as ai_label
@@ -596,6 +596,8 @@ class TradingEngine:
                     htf = None
                     if settings.htf_filter:
                         htf = htf_trend(build_df(await self.market.fetch_klines(symbol, htf_tf, 200, cache_sec=120)))
+                    if self.running:
+                        await self._exit_on_cross(symbol, df, i)
                     sig = evaluate(df, i, settings.strategy, htf, params, settings.signal_mode, settings.disabled_strategies)
                     self.analysis[symbol] = {
                         "trend": trend_label(row), "rsi": round(float(row["rsi"]), 1),
@@ -615,6 +617,14 @@ class TradingEngine:
                 await self.log("SCAN", f"Escaneo {settings.timeframe} completado · {len(settings.symbols)} pares · {found} señales")
         finally:
             self.scanning = False
+
+    async def _exit_on_cross(self, symbol: str, df, i: int):
+        """Strategy exits decided at candle close (ema_cross: the EMAs crossed back against the position)."""
+        row = df.iloc[i]
+        async for d in self.db.positions.find({"symbol": symbol, "strategy": {"$in": list(EXIT_ON_CROSS)}}, {"_id": 1, "side": 1, "strategy": 1}):
+            if exit_signal(d["strategy"], d["side"], float(row["ema10"]), float(row["ema20"])):
+                await self.log("INFO", f"{symbol}: la EMA10 volvió a cruzar la EMA20 en contra de la posición {d['side'].upper()} · cierre por regla de la estrategia")
+                await self.close_position(str(d["_id"]), None, EXIT_REASON)
 
     def slow_active(self, settings: Settings) -> list:
         if settings.strategy != "all":

@@ -10,7 +10,7 @@ AVAILABLE_SYMBOLS = [
     "AVAXUSDT", "LINKUSDT", "ADAUSDT", "NEARUSDT", "SUIUSDT", "LTCUSDT",
 ]
 TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h"]
-STRATEGY_KEYS = ["all", "trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback"]
+STRATEGY_KEYS = ["all", "trend_ema", "mean_reversion", "breakout_turtle", "supertrend_momentum", "ema_pullback", "ema_cross"]
 SLOW_STRATEGY_KEYS = ["multi_horizon", "double_divergence"]  # crypto only, long-horizon, own timeframe (1d / 4h)
 CRYPTO_STRATEGY_KEYS = STRATEGY_KEYS + SLOW_STRATEGY_KEYS
 SIGNAL_MODES = ["strict", "relaxed", "minimal"]
@@ -53,7 +53,7 @@ class Settings(BaseModel):
     htf_filter: bool = True
     symbol_params: Dict[str, Dict[str, float]] = {}
     signal_mode: str = "strict"
-    disabled_strategies: List[str] = ["supertrend_momentum", "ema_pullback"]
+    disabled_strategies: List[str] = ["supertrend_momentum", "ema_pullback", "ema_cross"]
     risk_profile: int = 0
     plan_scenario: str = "base"
     plan_target_monthly: float = 1000.0

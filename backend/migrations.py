@@ -17,7 +17,13 @@ async def _hfm_alert_180(engine, db):
     await db.fx_config.update_one({"_id": "main", "hfm_alert_after_sec": 60}, {"$set": {"hfm_alert_after_sec": 180}})
 
 
-MIGRATIONS = {"2026-10-20-activo": _activo, "2026-10-22-hfm-alert-180": _hfm_alert_180}
+async def _ema_cross_off(engine, db):
+    """New opt-in strategy ema_cross: keep it switched off in every existing bot (stored lists predate the key)."""
+    for coll in ("settings", "fx_settings", "pep_settings"):
+        await db[coll].update_one({"_id": "main"}, {"$addToSet": {"disabled_strategies": "ema_cross"}})
+
+
+MIGRATIONS = {"2026-10-20-activo": _activo, "2026-10-22-hfm-alert-180": _hfm_alert_180, "2026-10-27-ema-cross-off": _ema_cross_off}
 
 
 async def run(engine, db):

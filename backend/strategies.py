@@ -27,15 +27,20 @@ STRATEGY_INFO = {
         "rules": "Tendencia definida (EMA50 sobre/bajo EMA200 y precio a favor), retroceso que toca la EMA21 y vela de continuación que cierra de nuevo a favor con RSI sin sobreextensión. SL 1.5×ATR, TP 3×ATR.",
         "basis": "Compra de retrocesos en tendencia (Raschke, Minervini): entrar a favor de la tendencia con un stop más ajustado que en la ruptura.",
     },
+    "ema_cross": {
+        "name": "Cruce EMA 10/20",
+        "rules": "La EMA10 cruza la EMA20 al cierre de la vela (al alza → largo, a la baja → corto) con el precio a favor de la EMA200 (tendencia mayor) y ADX>20 (sin laterales); en criterios estrictos las EMAs deben ir ordenadas 10/20/50. SL de protección 2×ATR, objetivo lejano 6×ATR (3R) y salida clásica: se cierra en cuanto las EMAs vuelven a cruzarse al revés, dejando correr la tendencia con el trailing del bot. Apagada por defecto.",
+        "basis": "Cruce de medias rápido de los swing traders (9/21 ≈ 10/20). En backtests publicados ronda el 40-47 % de acierto con profit factor 1,6-3 en activos con tendencia; su punto débil son los rangos, por eso se exige la media de 200 y ADX.",
+    },
 }
 
 MODES = {
     "strict": dict(trend_rsi=(50, 70), trend_macd=True, trend_ema200=True, trend_min_score=5, adx_conf=20, vol_conf=1.0,
-                   mr_adx=25, mr_rsi=35, turtle_vol=1.5, turtle_adx=20, st_adx=20, pb_adx=20, pb_rsi=(40, 65)),
+                   mr_adx=25, mr_rsi=35, turtle_vol=1.5, turtle_adx=20, st_adx=20, pb_adx=20, pb_rsi=(40, 65), xc_adx=20, xc_ema200=True, xc_stack=True),
     "relaxed": dict(trend_rsi=(45, 75), trend_macd=True, trend_ema200=True, trend_min_score=4, adx_conf=15, vol_conf=0.8,
-                    mr_adx=30, mr_rsi=40, turtle_vol=1.2, turtle_adx=15, st_adx=15, pb_adx=15, pb_rsi=(35, 70)),
+                    mr_adx=30, mr_rsi=40, turtle_vol=1.2, turtle_adx=15, st_adx=15, pb_adx=15, pb_rsi=(35, 70), xc_adx=15, xc_ema200=True, xc_stack=False),
     "minimal": dict(trend_rsi=(40, 80), trend_macd=False, trend_ema200=False, trend_min_score=4, adx_conf=10, vol_conf=0.6,
-                    mr_adx=35, mr_rsi=45, turtle_vol=1.0, turtle_adx=10, st_adx=10, pb_adx=10, pb_rsi=(30, 75)),
+                    mr_adx=35, mr_rsi=45, turtle_vol=1.0, turtle_adx=10, st_adx=10, pb_adx=10, pb_rsi=(30, 75), xc_adx=0, xc_ema200=False, xc_stack=False),
 }
 MODE_INFO = {
     "strict": {"name": "Estrictos", "desc": "Umbrales originales: todas las confirmaciones deben coincidir"},
@@ -225,8 +230,61 @@ def ema_pullback(df, i, htf=None, params=None, m=None) -> Optional[dict]:
     return _signal(side, r, sl, tp, "ema_pullback", reasons, score, r["ts"])
 
 
+def ema_cross(df, i, htf=None, params=None, m=None) -> Optional[dict]:
+    r = df.iloc[i]
+    cross = None
+    for j in (i, i - 1):  # the cross on this closed candle or the previous one (the bot may scan a little late)
+        a, b = df.iloc[j], df.iloc[j - 1]
+        if a["ema10"] > a["ema20"] and b["ema10"] <= b["ema20"]:
+            cross = ("long", int(a["ts"]))
+            break
+        if a["ema10"] < a["ema20"] and b["ema10"] >= b["ema20"]:
+            cross = ("short", int(a["ts"]))
+            break
+    if not cross:
+        return None
+    side, key_ts = cross
+    long = side == "long"
+    aligned = r["ema10"] > r["ema20"] if long else r["ema10"] < r["ema20"]
+    ref_n = 200 if m["xc_ema200"] else 50
+    trend_ok = r["close"] > r[f"ema{ref_n}"] if long else r["close"] < r[f"ema{ref_n}"]
+    stack_ok = (r["ema20"] > r["ema50"] if long else r["ema20"] < r["ema50"]) if m["xc_stack"] else True
+    if not (aligned and trend_ok and stack_ok and r["adx"] > m["xc_adx"]) or _against_htf(htf, long):
+        return None
+    reasons = [
+        f"EMA10 cruza {'al alza' if long else 'a la baja'} la EMA20 al cierre de la vela",
+        f"Precio {'sobre' if long else 'bajo'} EMA{ref_n} (tendencia mayor a favor)",
+    ]
+    if m["xc_adx"]:
+        reasons.append(f"ADX {r['adx']:.1f} > {m['xc_adx']}: mercado con tendencia, no lateral")
+    if m["xc_stack"]:
+        reasons.append("EMAs ordenadas 10/20/50")
+    score = 4
+    if (r["rsi"] > 50) == long:
+        score += 1
+        reasons.append(f"RSI {r['rsi']:.1f} a favor del momentum")
+    if r["vol_ratio"] >= m["vol_conf"]:
+        score += 1
+        reasons.append(f"Volumen {r['vol_ratio']:.2f}× el promedio")
+    if _with_htf(htf, long):
+        score += 1
+        reasons.append("Temporalidad superior a favor")
+    reasons.append("Salida: cierre al cruce contrario de las EMAs (SL 2×ATR de protección)")
+    sl, tp = _atr_levels(r, long, params, 2.0, 6.0)
+    return _signal(side, r, sl, tp, "ema_cross", reasons, score, key_ts)
+
+
 STRATEGIES = {"trend_ema": trend_ema, "mean_reversion": mean_reversion, "breakout_turtle": breakout_turtle,
-              "supertrend_momentum": supertrend_momentum, "ema_pullback": ema_pullback}
+              "supertrend_momentum": supertrend_momentum, "ema_pullback": ema_pullback, "ema_cross": ema_cross}
+EXIT_ON_CROSS = {"ema_cross"}
+EXIT_REASON = "CRUCE"
+
+
+def exit_signal(strategy: str, side: str, ema10: float, ema20: float) -> bool:
+    """Strategy-specific exit at candle close: ema_cross leaves as soon as the fast EMA is back on the wrong side of the slow one."""
+    if strategy not in EXIT_ON_CROSS:
+        return False
+    return ema10 < ema20 if side == "long" else ema10 > ema20
 
 
 def active_strategies(strategy: str, disabled=()) -> list:

@@ -41,7 +41,7 @@ export function buildHowTo(bot) {
       id: "posiciones", icon: "ListOrdered", title: "4 · Posiciones, cierres e historial",
       steps: [
         "Posiciones: par, lado, tamaño, entrada, precio actual, SL/TP vigentes (el stop se mueve solo con breakeven y trailing), PnL y botón «Cerrar» por posición. «Cerrar todas» pide confirmación.",
-        "Motivos de cierre: TP (objetivo), SL (stop), TRAILING (stop dinámico), MANUAL, TIEMPO (72 h)" + (fx ? " y FIN_SEMANA (cierre antes del hueco del fin de semana)." : "."),
+        "Motivos de cierre: TP (objetivo), SL (stop), TRAILING (stop dinámico), MANUAL, TIEMPO (72 h), CRUCE (la estrategia Cruce EMA 10/20 cierra cuando las EMAs se cruzan al revés)" + (fx ? " y FIN_SEMANA (cierre antes del hueco del fin de semana)." : "."),
         "Historial: todas las operaciones cerradas con PnL neto de comisiones, estrategia, motivo, duración y confianza de la IA. Rendimiento las agrega por estrategia, par, lado y motivo.",
         "En modo REAL, si cierras una posición desde la app del bróker el bot lo detecta en segundos, registra el resultado real y lo refleja aquí.",
       ],

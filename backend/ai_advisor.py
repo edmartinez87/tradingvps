@@ -290,7 +290,7 @@ async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> 
 
 
 DEFAULT_POLICY = {"caps": {"risk_per_trade": 1.5, "leverage": 5, "max_positions": 5}, "min_trades": 30, "min_item_trades": 20, "level": 0, "name": "Conservador"}
-STRATEGY_KEYS_TXT = "trend_ema, mean_reversion, breakout_turtle, supertrend_momentum, ema_pullback"
+STRATEGY_KEYS_TXT = "trend_ema, mean_reversion, breakout_turtle, supertrend_momentum, ema_pullback, ema_cross (Cruce EMA 10/20, apagada por defecto: salida al cruce contrario)"
 CRYPTO_MARKET = {
     "desc": "un bot cuantitativo de futuros perpetuos USDT en modo paper trading", "lev": lambda v: f"{v}x",
     "strategy_keys": STRATEGY_KEYS_TXT + ", multi_horizon (Tendencia Multi-Horizonte, diaria, largo plazo), double_divergence (Divergencia doble RSI+MACD, 4h, largo plazo)",

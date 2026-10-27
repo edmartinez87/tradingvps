@@ -13,7 +13,7 @@ def _rma(s: pd.Series, n: int) -> pd.Series:
 
 def add_indicators(df: pd.DataFrame, atr_period: int = 14) -> pd.DataFrame:
     c, h, low, v = df["close"], df["high"], df["low"], df["volume"]
-    for n in (9, 21, 50, 200):
+    for n in (9, 10, 20, 21, 50, 200):
         df[f"ema{n}"] = c.ewm(span=n, adjust=False).mean()
 
     delta = c.diff()
@@ -75,7 +75,7 @@ def _supertrend(df: pd.DataFrame, atr: pd.Series, mult: float):
 
 
 def snapshot(row) -> dict:
-    keys = ["close", "ema9", "ema21", "ema50", "ema200", "rsi", "macd_hist", "adx", "atr", "vol_ratio", "bb_up", "bb_mid", "bb_low"]
+    keys = ["close", "ema9", "ema10", "ema20", "ema21", "ema50", "ema200", "rsi", "macd_hist", "adx", "atr", "vol_ratio", "bb_up", "bb_mid", "bb_low"]
     return {k: round(float(row[k]), 6) for k in keys if pd.notna(row[k])}
 
 

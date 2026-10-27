@@ -9,7 +9,7 @@ import notify
 
 logger = logging.getLogger("weekly")
 STRATEGY_NAMES = {"trend_ema": "Tendencia EMA", "mean_reversion": "Reversión media", "breakout_turtle": "Turtle",
-                  "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21", "multi_horizon": "Multi-Horizonte", "double_divergence": "Divergencia doble"}
+                  "supertrend_momentum": "Supertrend", "ema_pullback": "Pullback EMA21", "ema_cross": "Cruce EMA 10/20", "multi_horizon": "Multi-Horizonte", "double_divergence": "Divergencia doble"}
 KIND_NAMES = {"BLOQUEADA": "riesgo", "NOTICIAS": "noticias", "FUNDING": "funding", "REGIMEN": "régimen BTC", "ROTACION": "rotación", "SESION": "sesiones",
               "ERROR": "error IA", "NO_EJECUTADA": "no ejecutadas"}
 
