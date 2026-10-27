@@ -31,12 +31,12 @@ def session_ok(ts_ms: int, allowed) -> bool:
 
 def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing, initial: float, symbol: str,
              sl_atr: float = None, tp_atr: float = None, start: int = 210, end: int = None, *,
-             tickers: dict = None, min_lot_max_risk: float = 4.0, weekend_flat: bool = True, sessions_allowed=()) -> dict:
+             tickers: dict = None, min_lot_max_risk: float = 4.0, weekend_flat: bool = True, sessions_allowed=(), costs=None) -> dict:
     """`trailing` = bool (classic rules) or a rules dict from fx.risk.trade_rules (breakeven/trailing levels + partial take-profit)."""
     rules = risk.trade_rules(trailing)
     use_trailing, use_partial = rules["trailing_enabled"], rules["partial_tp_enabled"]
     tickers = tickers or {}
-    spread = SPECS[symbol]["spread"]
+    spread = costs.spread(symbol) if costs else SPECS[symbol]["spread"]
     highs, lows, closes, ts = df["high"].values, df["low"].values, df["close"].values, df["ts"].values
     n = len(df)
     end = end or n
@@ -51,7 +51,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing, initia
         nonlocal balance, pos
         if reason == "SL" and pos["be"]:
             reason = "TRAILING"
-        fee = risk.spread_cost(symbol, pos["lots"], tickers)
+        fee = risk.spread_cost(symbol, pos["lots"], tickers, costs)
         gross = risk.pnl(symbol, pos["side"], pos["entry"], price, pos["lots"], tickers)
         net = gross + pos["partial_gross"] - pos["fee"] - fee
         balance += gross - fee
@@ -83,7 +83,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing, initia
                     part = risk.partial_lots(pos["lots"], rules["partial_tp_pct"])
                     if part > 0:
                         level = pos["entry"] + rules["partial_tp_r"] * r_dist * (1 if pos["side"] == "long" else -1)
-                        pfee = risk.spread_cost(symbol, part, tickers)
+                        pfee = risk.spread_cost(symbol, part, tickers, costs)
                         pgross = risk.pnl(symbol, pos["side"], pos["entry"], level, part, tickers)
                         balance += pgross - pfee
                         pos.update(lots=round(pos["lots"] - part, 8), fee=pos["fee"] + pfee, partial_gross=pos["partial_gross"] + pgross, partial=True)
@@ -102,7 +102,7 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing, initia
             elif sl is not None:
                 lots, _, _ = risk.position_size(balance, balance, risk_pct, sig["price"], sl, leverage, symbol, tickers, min_lot_max_risk)
                 if lots > 0:
-                    fee = risk.spread_cost(symbol, lots, tickers)
+                    fee = risk.spread_cost(symbol, lots, tickers, costs)
                     balance -= fee
                     pos = {"side": sig["side"], "strategy": sig["strategy"], "entry": sig["price"], "sl": sl, "init_sl": sl, "tp": tp,
                            "atr": sig["atr"], "lots": lots, "lots0": lots, "fee": fee, "risk_amt": abs(sig["price"] - sl) * risk.usd_per_unit(symbol, lots, tickers),
@@ -172,12 +172,12 @@ def simulate(df, signals: dict, risk_pct: float, leverage: int, trailing, initia
 
 
 def run_backtest(klines: list, strategy: str, risk_pct: float, leverage: int, trailing, initial: float, symbol: str,
-                 mode: str, disabled, tickers: dict, min_lot_max_risk: float, weekend_flat: bool, sessions_allowed=()) -> dict:
+                 mode: str, disabled, tickers: dict, min_lot_max_risk: float, weekend_flat: bool, sessions_allowed=(), costs=None) -> dict:
     df = build_fx_df(klines)
     if strategy == "fix_reversion":
         from fx.strategies_slow import scan_fix
         sigs = scan_fix(klines, df["atr"].values)
         return simulate(df, sigs, risk_pct, leverage, trailing, initial, symbol, start=min(210, max(0, len(df) - 2)),
-                        tickers=tickers, min_lot_max_risk=min_lot_max_risk, weekend_flat=False, sessions_allowed=())
+                        tickers=tickers, min_lot_max_risk=min_lot_max_risk, weekend_flat=False, sessions_allowed=(), costs=costs)
     return simulate(df, scan_signals(df, strategy, None, mode, disabled), risk_pct, leverage, trailing, initial, symbol,
-                    tickers=tickers, min_lot_max_risk=min_lot_max_risk, weekend_flat=weekend_flat, sessions_allowed=sessions_allowed)
+                    tickers=tickers, min_lot_max_risk=min_lot_max_risk, weekend_flat=weekend_flat, sessions_allowed=sessions_allowed, costs=costs)

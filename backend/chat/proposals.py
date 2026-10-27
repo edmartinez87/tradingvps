@@ -11,17 +11,19 @@ from fx.config import FxConfigUpdate
 from profiles import PROFILES, profile_patch, ai_policy
 from fx.profiles import PROFILES as FX_PROFILES, profile_patch as fx_profile_patch, ai_policy as fx_ai_policy
 from review import LABELS
-from deps import db, engine, fx_engine, store, fx_store, news, fx_news
+from deps import db, engine, store, news, FX_BOTS
 
 logger = logging.getLogger("chat.proposals")
-BOTS = ("crypto", "fx")
+FXB = {e.profile.panel: (e, s, n) for e, s, n in FX_BOTS}  # "fx" → HotForex, "pepper" → Pepperstone
+BOTS = ("crypto", *FXB)
+BOT_ERR = "bot debe ser 'crypto' (Bybit), 'fx' (HotForex) o 'pepper' (Pepperstone)"
 ACTIONS = {"start_bot": "Iniciar el bot", "stop_bot": "Detener el bot", "scan": "Escanear el mercado ahora", "close_position": "Cerrar una posición",
            "close_all_positions": "Cerrar todas las posiciones", "refresh_news": "Actualizar el agente de noticias", "set_profile": "Aplicar un perfil de riesgo"}
 GLOBAL_CONFIG_KEYS = {"wf_auto_remove", "funding_enabled", "funding_block_pct", "funding_reduce_pct", "funding_reduce", "funding_size_factor", "news_enabled", "news_interval_min",
                       "news_block_events", "news_event_before_min", "news_event_after_min", "news_block_critical", "news_reduce_on_high_risk", "news_size_factor",
                       "telegram_enabled", "telegram_alerts", "auto_review_enabled", "auto_review_frequency", "auto_review_day", "auto_review_apply", "bybit_alert_after_sec",
                       "chat_summary_every", "chat_keep_last"}
-FX_CONFIG_KEYS = {"hfm_alert_after_sec", "news_enabled", "news_interval_min", "news_countries", "news_block_events", "news_event_before_min", "news_event_after_min",
+FX_CONFIG_KEYS = {"hfm_alert_after_sec", "account_type", "news_enabled", "news_interval_min", "news_countries", "news_block_events", "news_event_before_min", "news_event_after_min",
                   "news_block_critical", "news_reduce_on_high_risk", "news_size_factor", "news_trading_enabled", "news_trade_min_confidence", "news_trade_confirm_price",
                   "news_trade_window_min", "news_trade_max_hours", "news_trade_risk_factor", "news_trade_sl_atr", "news_trade_tp_atr", "news_trade_max_per_event",
                   "wf_auto_remove", "auto_review_enabled", "auto_review_frequency", "auto_review_day", "auto_review_apply"}
@@ -30,12 +32,20 @@ CAP_KEYS = {"risk_per_trade": "riesgo por operación", "leverage": "apalancamien
 
 def _eng(bot: str):
     if bot not in BOTS:
-        raise ValueError("bot debe ser 'crypto' o 'fx'")
-    return (fx_engine if bot == "fx" else engine)
+        raise ValueError(BOT_ERR)
+    return FXB[bot][0] if bot in FXB else engine
+
+
+def _fx_store(bot: str):
+    return FXB[bot][1]
+
+
+def _news(bot: str):
+    return FXB[bot][2] if bot in FXB else news
 
 
 def _bot_label(bot: str) -> str:
-    return "HotForex" if bot == "fx" else "Bybit"
+    return FXB[bot][0].profile.broker_long if bot in FXB else "Bybit"
 
 
 def _pyd_error(e: ValidationError) -> str:
@@ -59,7 +69,7 @@ def view(doc: dict) -> dict:
 # ---------- settings ----------
 async def propose_settings(bot: str, changes: dict, reason: str, session_id: str) -> dict:
     eng = _eng(bot)
-    model = FxSettingsUpdate if bot == "fx" else SettingsUpdate
+    model = FxSettingsUpdate if bot in FXB else SettingsUpdate
     if not isinstance(changes, dict) or not changes:
         raise ValueError("Indica los ajustes a cambiar como objeto {clave: valor}")
     unknown = [k for k in changes if k not in model.model_fields]
@@ -81,7 +91,7 @@ async def propose_settings(bot: str, changes: dict, reason: str, session_id: str
     if not diff:
         raise ValueError("Los valores propuestos son iguales a los actuales: no hay nada que cambiar")
     warnings = []
-    caps = (fx_ai_policy if bot == "fx" else ai_policy)(settings.risk_profile)["caps"]
+    caps = (fx_ai_policy if bot in FXB else ai_policy)(settings.risk_profile)["caps"]
     for k, cap in caps.items():
         if k in diff and isinstance(diff[k]["despues"], (int, float)) and diff[k]["despues"] > cap:
             warnings.append(f"El {CAP_KEYS.get(k, k)} propuesto ({diff[k]['despues']}) supera el tope prudente que usa la revisión IA automática para este perfil ({cap}).")
@@ -100,15 +110,16 @@ async def _apply_settings(p: dict) -> str:
 # ---------- config ----------
 async def propose_config(bot: str, changes: dict, reason: str, session_id: str) -> dict:
     if bot not in BOTS:
-        raise ValueError("bot debe ser 'crypto' o 'fx'")
+        raise ValueError(BOT_ERR)
     if not isinstance(changes, dict) or not changes:
         raise ValueError("Indica los ajustes generales a cambiar como objeto {clave: valor}")
-    allowed = FX_CONFIG_KEYS | GLOBAL_CONFIG_KEYS if bot == "fx" else GLOBAL_CONFIG_KEYS
+    allowed = FX_CONFIG_KEYS | GLOBAL_CONFIG_KEYS if bot in FXB else GLOBAL_CONFIG_KEYS
     bad = [k for k in changes if k not in allowed]
     if bad:
         raise ValueError(f"Claves no permitidas desde el chat: {', '.join(bad)} (credenciales, claves de IA, modo REAL y cuentas solo se cambian a mano en Ajustes). Permitidas: {', '.join(sorted(allowed))}")
-    f = {k: v for k, v in changes.items() if bot == "fx" and k in FX_CONFIG_KEYS}
+    f = {k: v for k, v in changes.items() if bot in FXB and k in FX_CONFIG_KEYS}
     g = {k: v for k, v in changes.items() if k not in f}
+    fx_store = _fx_store(bot) if bot in FXB else None
     try:
         fp = fx_store.patch_from(FxConfigUpdate(**f)) if f else {}
         gp = store.patch_from(ConfigUpdate(**g)) if g else {}
@@ -133,7 +144,7 @@ async def propose_config(bot: str, changes: dict, reason: str, session_id: str) 
 async def _apply_config(p: dict) -> str:
     fp, gp = p["changes"].get("fx") or {}, p["changes"].get("global") or {}
     if fp:
-        await fx_store.update(fp)
+        await _fx_store(p["bot"]).update(fp)
     if gp:
         await store.update(gp)
     eng = _eng(p["bot"])
@@ -171,7 +182,7 @@ async def propose_action(bot: str, action: str, args: dict, reason: str, session
             raise ValueError("Indica level (0 Conservador · 1 Moderado · 2 Activo · 3 Agresivo · 4 Máximo)")
         if not 0 <= level <= 4:
             raise ValueError("level debe estar entre 0 y 4")
-        profiles, patch_fn = (FX_PROFILES, fx_profile_patch) if bot == "fx" else (PROFILES, profile_patch)
+        profiles, patch_fn = (FX_PROFILES, fx_profile_patch) if bot in FXB else (PROFILES, profile_patch)
         before = (await eng.get_settings()).model_dump()
         patch = patch_fn(level)
         diff = {k: {"antes": before.get(k), "despues": v} for k, v in patch.items() if before.get(k) != v}
@@ -187,12 +198,12 @@ async def _apply_action(p: dict) -> str:
     if action == "start_bot":
         if bot == "crypto" and eng.live and (not eng.broker or not store.cfg.bybit_verified_at):
             raise ValueError("Modo REAL sin credenciales de Bybit verificadas: pruébalas en Ajustes o vuelve a modo paper")
-        if bot == "fx" and eng.live:
-            c = fx_store.cfg
+        if bot in FXB and eng.live:
+            c = _fx_store(bot).cfg
             if not (c.metaapi_token and c.metaapi_account_id and c.hfm_verified_at):
-                raise ValueError("Modo REAL: vincula y verifica la cuenta HFM (Ajustes → HotForex) antes de iniciar el bot")
+                raise ValueError(f"Modo REAL: vincula y verifica la cuenta {eng.bk} (Ajustes → {eng.bl}) antes de iniciar el bot")
             if c.hfm_trade_allowed is False:
-                raise ValueError("Modo REAL: la cuenta HFM no permite operar (trading deshabilitado o contraseña investor)")
+                raise ValueError(f"Modo REAL: la cuenta {eng.bk} no permite operar (trading deshabilitado o contraseña investor)")
         await eng.start()
         return f"Bot {_bot_label(bot)} iniciado"
     if action == "stop_bot":
@@ -212,11 +223,10 @@ async def _apply_action(p: dict) -> str:
         await eng.log("RISK", f"Cierre de emergencia desde el chat IA · {len(closed)} posiciones cerradas")
         return f"{len(closed)} de {len(ids)} posiciones cerradas"
     if action == "refresh_news":
-        agent = fx_news if bot == "fx" else news
-        await agent.refresh(force=True)
+        await _news(bot).refresh(force=True)
         return "Agente de noticias actualizado"
     if action == "set_profile":
-        patch_fn, profiles = (fx_profile_patch, FX_PROFILES) if bot == "fx" else (profile_patch, PROFILES)
+        patch_fn, profiles = (fx_profile_patch, FX_PROFILES) if bot in FXB else (profile_patch, PROFILES)
         level = int(args["level"])
         await eng.update_settings(patch_fn(level), "profile", f"Perfil de riesgo aplicado desde el chat IA: {profiles[level]['name']}")
         await eng.log("INFO", f"Perfil de riesgo {profiles[level]['name']} aplicado desde el chat IA")

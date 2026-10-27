@@ -197,7 +197,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<BotSelector onLogout={logout} />} />
           <Route path="/bybit" element={<Dashboard onLogout={logout} />} />
-          <Route path="/hotforex" element={<FxDashboard onLogout={logout} />} />
+          <Route path="/hotforex" element={<FxDashboard onLogout={logout} bot="fx" />} />
+          <Route path="/pepperstone" element={<FxDashboard onLogout={logout} bot="pepper" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       ) : <Login onLogin={() => setAuthed(true)} />}

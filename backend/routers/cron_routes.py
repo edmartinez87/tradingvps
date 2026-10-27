@@ -13,8 +13,7 @@ import wfcheck
 import weekly
 import backup
 from review import run_auto_review
-from deps import engine, db, store, fx_engine, fx_store
-from fx.wfcheck import KIT as FX_WF_KIT
+from deps import engine, db, store, FX_BOTS
 from fx import review as fx_review
 from fx import weekly as fx_weekly
 
@@ -22,7 +21,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cron")
 RUN_ID_TTL_DAYS = 30
 CRYPTO = {"engine": engine, "db": db, "store": store, "review": run_auto_review, "weekly": weekly.send_weekly, "label": "", "prefix": ""}
-FX = {"engine": fx_engine, "db": fx_engine.db, "store": fx_store, "review": fx_review.run_auto_review, "weekly": fx_weekly.send, "label": " HotForex", "prefix": fx_weekly.PREFIX}
+FX_LIST = [{"engine": e, "db": e.db, "store": s, "review": fx_review.run_auto_review, "weekly": fx_weekly.send, "label": f" {e.profile.broker_long}", "prefix": fx_weekly.prefix(e)} for e, s, _ in FX_BOTS]
+BOTS = [CRYPTO, *FX_LIST]
 
 
 async def init():
@@ -95,12 +95,11 @@ async def cron_ai_review(request: Request):
     """Daily 08:00 UTC trigger for both bots; each one decides if a review is due (frequency/day, > 20 h since the last)."""
     if await _accept(request):
         return {"accepted": True, "duplicate": True}
-    due, due_fx = _review_due(store.cfg), _review_due(fx_store.cfg)
-    if due:
-        asyncio.create_task(_safe_auto_review(CRYPTO))
-    if due_fx:
-        asyncio.create_task(_safe_auto_review(FX))
-    return {"accepted": True, "scheduled": due, "scheduled_fx": due_fx}
+    due = [_review_due(b["store"].cfg) for b in BOTS]
+    for b, d in zip(BOTS, due):
+        if d:
+            asyncio.create_task(_safe_auto_review(b))
+    return {"accepted": True, "scheduled": due[0], "scheduled_fx": due[1], "scheduled_pepper": due[2]}
 
 
 @router.post("/walk-forward")
@@ -109,8 +108,8 @@ async def cron_walk_forward(request: Request):
     if await _accept(request):
         return {"accepted": True, "duplicate": True}
     started = await wfcheck.start_check(engine, db, store, "auto")
-    started_fx = await wfcheck.start_check(fx_engine, fx_engine.db, fx_store, "auto", FX_WF_KIT)
-    return {"accepted": True, "scheduled": started, "scheduled_fx": started_fx}
+    started_fx = [await wfcheck.start_check(e, e.db, s, "auto", e.wf_kit) for e, s, _ in FX_BOTS]
+    return {"accepted": True, "scheduled": started, "scheduled_fx": started_fx[0], "scheduled_pepper": started_fx[1]}
 
 
 @router.post("/weekly-summary")
@@ -118,9 +117,9 @@ async def cron_weekly_summary(request: Request):
     """Sunday 20:00 UTC: weekly Telegram summary of both bots."""
     if await _accept(request):
         return {"accepted": True, "duplicate": True}
-    asyncio.create_task(_safe_weekly(CRYPTO))
-    asyncio.create_task(_safe_weekly(FX))
-    return {"accepted": True, "scheduled": True, "scheduled_fx": True}
+    for b in BOTS:
+        asyncio.create_task(_safe_weekly(b))
+    return {"accepted": True, "scheduled": True, "scheduled_fx": True, "scheduled_pepper": True}
 
 
 
@@ -143,7 +142,7 @@ async def _send_backup(rec: dict) -> dict:
             data = await asyncio.to_thread((backup.DIR / name).read_bytes)
             await notify.send_document(data, name, caption)
             upd.update(sent=True, sent_at=datetime.now(timezone.utc).isoformat())
-            for bot in (CRYPTO, FX):
+            for bot in BOTS:
                 await bot["engine"].log("INFO", f"Copia de seguridad {name} ({size_mb} MB) enviada por Telegram")
         except Exception as e:
             upd["error"] = str(e)[:200]
@@ -165,10 +164,10 @@ async def cron_backup(request: Request):
         rec = await backup.create(db, "auto")
     except Exception as e:
         logger.exception("cron backup")
-        for bot in (CRYPTO, FX):
+        for bot in BOTS:
             await bot["engine"].log("ERROR", f"Copia de seguridad nocturna falló: {str(e)[:160]}")
         raise HTTPException(500, f"No se pudo crear la copia: {str(e)[:160]}")
-    for bot in (CRYPTO, FX):
+    for bot in BOTS:
         await bot["engine"].log("INFO", f"Copia de seguridad nocturna creada · {rec['filename']} · {rec['size_mb']} MB"
                                         + (f" · borradas {len(rec['removed'])} antiguas" if rec["removed"] else ""))
     out = {"filename": rec["filename"], "size_mb": rec["size_mb"], "removed": rec["removed"], "sent": False, "reason": None}

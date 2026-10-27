@@ -169,10 +169,10 @@ class MetaApi:
                 return a
         return None
 
-    async def provision(self, login: str, password: str, server: str, platform: str, name: str = "hotforex-ai-trading", plan: str = "g2-high") -> dict:
+    async def provision(self, login: str, password: str, server: str, platform: str, name: str = "hotforex-ai-trading", plan: str = "g2-high", keywords=("HFM", "HotForex")) -> dict:
         p = PLANS.get(plan) or PLANS["g2-high"]
         payload = {"login": str(login), "password": password, "name": name, "server": server, "platform": platform, "magic": MAGIC,
-                   "type": p["type"], "reliability": p["reliability"], "region": self.region, "manualTrades": False, "keywords": ["HFM", "HotForex"]}
+                   "type": p["type"], "reliability": p["reliability"], "region": self.region, "manualTrades": False, "keywords": list(keywords)}
         tx = uuid.uuid4().hex[:32]
         for _ in range(6):
             res = await self._call("POST", f"{self._prov()}/users/current/accounts", json=payload, tx=tx)

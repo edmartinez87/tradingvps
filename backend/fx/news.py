@@ -141,7 +141,7 @@ class FxNewsAgent:
         prompt = (f"PARES ACTIVOS: {', '.join(symbols)}\n\nTITULARES (más recientes primero):\n" + "\n".join(lines) +
                   "\n\nCALENDARIO ECONÓMICO (UTC):\n" + "\n".join(ev) +
                   "\n\nDevuelve solo el JSON. Dentro de los textos no uses comillas dobles (usa comillas simples) ni saltos de línea.")
-        chat = _chat(SYSTEM, "fx-news")
+        chat = _chat(SYSTEM, f"{self.engine.profile.ai_kind}-news")
         text = await _ask(chat, prompt)
         data = _parse_json(text)
         if data is None:
@@ -320,7 +320,7 @@ class FxNewsAgent:
     async def process_event(self, e: dict, headlines: list, candidates: list) -> dict:
         ctx = {c: v["bias"] for c, v in (self.latest or {}).get("currencies", {}).items()} if self.latest else None
         try:
-            res = await fx_ai.assess_news_event(e, headlines, candidates, ctx)
+            res = await fx_ai.assess_news_event(e, headlines, candidates, ctx, self.engine.profile.ai_kind)
         except Exception as ex:
             logger.exception("news trade assess")
             res = {"actual": None, "forecast": e.get("forecast", ""), "previous": e.get("previous", ""), "surprise": "DESCONOCIDA",

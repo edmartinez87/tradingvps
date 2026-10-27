@@ -1,10 +1,10 @@
-"""HotForex bot configuration (MetaApi/HFM credentials, forex news agent, news trading) stored in db.fx_config."""
+"""FX bot configuration (MetaApi/MT credentials, broker account type, forex news agent, news trading); one document per broker (db.fx_config / db.pep_config)."""
 from typing import Optional, List, Dict
 from pydantic import BaseModel, ConfigDict, Field
 from config import _enc, _dec, mask, _fernet
 from fx.symbols import CURRENCIES
 from fx.metaapi import PLANS, PLAN_COMMON, plan_key
-from fx.live import HFM_SUFFIXES
+from fx.broker import HFM, BrokerProfile
 
 SECRET_FIELDS = ("metaapi_token", "mt_password")
 REGIONS = ["new-york", "london"]
@@ -22,6 +22,7 @@ class FxConfig(BaseModel):
     mt_platform: str = "mt5"
     mt_symbol_suffix: str = ""
     mt_symbol_map: Dict[str, str] = {}
+    account_type: str = ""
     metaapi_region: str = "new-york"
     metaapi_base_url: str = ""
     metaapi_account_id: str = ""
@@ -76,6 +77,7 @@ class FxConfigUpdate(BaseModel):
     mt_server: Optional[str] = Field(default=None, max_length=80)
     mt_platform: Optional[str] = None
     mt_symbol_suffix: Optional[str] = Field(default=None, max_length=12)
+    account_type: Optional[str] = Field(default=None, max_length=20)
     metaapi_region: Optional[str] = None
     metaapi_base_url: Optional[str] = Field(default=None, max_length=200)
     metaapi_plan: Optional[str] = None
@@ -107,16 +109,18 @@ class FxConfigUpdate(BaseModel):
 
 
 class FxConfigStore:
-    def __init__(self, db):
+    def __init__(self, db, profile: BrokerProfile = HFM):
         self.db = db
+        self.profile = profile
+        self.col = db[f"{profile.prefix}config"]
         self.cfg = FxConfig()
         self.listeners = []
 
     async def load(self):
-        doc = await self.db.fx_config.find_one({"_id": "main"})
+        doc = await self.col.find_one({"_id": "main"})
         if not doc:
             doc = {"_id": "main", **FxConfig().model_dump()}
-            await self.db.fx_config.insert_one(doc)
+            await self.col.insert_one(doc)
         self.cfg = FxConfig.model_validate({k: (_dec(v) if k in SECRET_FIELDS else v) for k, v in doc.items()})
         await self._apply()
 
@@ -125,7 +129,7 @@ class FxConfigStore:
         data.update(patch)
         self.cfg = FxConfig.model_validate(data)
         stored = {k: (_enc(v) if k in SECRET_FIELDS else v) for k, v in patch.items()}
-        await self.db.fx_config.update_one({"_id": "main"}, {"$set": stored}, upsert=True)
+        await self.col.update_one({"_id": "main"}, {"$set": stored}, upsert=True)
         await self._apply()
 
     async def _apply(self):
@@ -141,7 +145,8 @@ class FxConfigStore:
         d["mt_platforms"] = PLATFORMS
         d["metaapi_plans"] = [{"key": k, **p, "month_usd": round(p["hour_usd"] * 24 * 30, 2)} for k, p in PLANS.items()]
         d["metaapi_plan_common"] = PLAN_COMMON
-        d["hfm_suffixes"] = [{"suffix": k, "label": v} for k, v in HFM_SUFFIXES.items()]
+        d["hfm_suffixes"] = [{"suffix": k, "label": v} for k, v in self.profile.suffixes.items()]
+        d["broker"] = self.profile.public(self.cfg.account_type)
         d["hfm_current_plan"] = plan_key(self.cfg.hfm_account_type, self.cfg.hfm_reliability) if self.cfg.metaapi_account_id and self.cfg.hfm_account_type else ""
         d["hfm_plan_mismatch"] = bool(d["hfm_current_plan"] and d["hfm_current_plan"] != self.cfg.metaapi_plan)
         d["news_currencies"] = CURRENCIES
@@ -159,6 +164,8 @@ class FxConfigStore:
                          hfm_state="", hfm_connection="", hfm_broker="", hfm_account_type="", hfm_reliability="",
                          hfm_trade_allowed=None, hfm_verified_at=None, hfm_verified_equity=None, hfm_currency="", hfm_leverage=None,
                          hfm_suffix_kind="", hfm_symbols_bad=None, hfm_symbols_checked=None, hfm_symbols_checked_at=None)
+        if "account_type" in patch and patch["account_type"] not in self.profile.account_types:
+            raise ValueError("Tipo de cuenta del bróker inválido")
         if "mt_platform" in patch and patch["mt_platform"] not in PLATFORMS:
             raise ValueError("Plataforma inválida (mt4 o mt5)")
         if "metaapi_plan" in patch and patch["metaapi_plan"] not in PLANS:

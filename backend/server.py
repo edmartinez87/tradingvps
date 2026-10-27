@@ -30,7 +30,7 @@ from review import job_state  # noqa: E402
 from profiles import PROFILES, detect_profile, profile_patch  # noqa: E402
 import migrations  # noqa: E402
 import funding  # noqa: E402
-from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news, ai_usage  # noqa: E402
+from deps import client, db, engine, store, news, protected_router, fx_engine, fx_store, fx_news, pep_engine, pep_store, pep_news, FX_BOTS, ai_usage  # noqa: E402
 from routers import cron_routes, weekly_routes, walk_forward_routes, bybit_routes, ai_routes, analysis_routes, backup_routes, deploy_routes, market_routes, chat_routes  # noqa: E402
 from routers.shared_routes import add_shared_routes  # noqa: E402
 from fx import routes as fx_routes  # noqa: E402
@@ -308,7 +308,8 @@ app.include_router(backup_routes.router)
 app.include_router(deploy_routes.router)
 app.include_router(market_routes.router)
 app.include_router(chat_routes.router)
-app.include_router(fx_routes.router)
+for _eng, _st, _nw in FX_BOTS:
+    app.include_router(fx_routes.build_router(_eng, _st, _nw))
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -330,17 +331,19 @@ async def startup():
     await migrations.run(engine, db)
     await cron_routes.init()
     await backup_routes.init()
-    fx_store.listeners.append(fx_engine.apply_config)
-    fx_store.listeners.append(fx_news.configure)
-    await fx_store.load()
-    await fx_engine.init()
-    await fx_news.init()
+    for eng, st, nw in FX_BOTS:
+        st.listeners.append(eng.apply_config)
+        st.listeners.append(nw.configure)
+        await st.load()
+        await eng.init()
+        await nw.init()
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    await fx_news.aclose()
-    await fx_engine.shutdown()
+    for eng, st, nw in reversed(FX_BOTS):
+        await nw.aclose()
+        await eng.shutdown()
     await news.aclose()
     await engine.shutdown()
     client.close()

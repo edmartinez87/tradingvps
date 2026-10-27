@@ -25,20 +25,23 @@ FX_GATE_KEYS = {"currency_exposure_limit", "rollover_guard", "vol_filter_enabled
                 "seasonality_size_factor", "usd_regime_filter", "usd_regime_sma", "fomc_rule", "max_long_positions",
                 "be_start_r", "trail_start_r", "trail_atr_mult", "partial_tp_enabled", "partial_tp_r", "partial_tp_pct"}
 ALLOWED_AI_KEYS = review.ALLOWED_AI_KEYS | {"sessions_allowed", "ai_news_weight"} | FX_GATE_KEYS
-job: dict = {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None, "step": ""}
+
+def new_job() -> dict:
+    return {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None, "step": ""}
 
 
 async def build_context(engine, settings, acc: dict, with_backtest: bool = False) -> dict:
     pol = ai_policy(settings.risk_profile)
-    ctx = {"mercado": "forex y metales (HFM, paper trading)" if not engine.live else "forex y metales (HFM, cuenta REAL vía MetaApi)",
+    bk = engine.profile.broker
+    ctx = {"mercado": f"forex y metales ({bk}, paper trading)" if not engine.live else f"forex y metales ({bk}, cuenta REAL vía MetaApi)",
            "settings_actuales": settings.model_dump(exclude={"bot_running"}), "cuenta": acc,
            "perfil_riesgo": {"nivel": pol["level"], "nombre": pol["name"], "topes_ia": pol["caps"]},
            "rendimiento_real": await performance(engine.db, fx_shadow_stats), "chequeo_plan": await engine.checkin(settings, acc),
            "sesiones": {"ahora": market_status()["sessions"], "permitidas": settings.sessions_allowed or "todas", "ids": SESSION_NAMES},
            "motivos_rechazo_recientes_ia": await recent_rejections(engine.db)}
     ctx["rendimiento_real"]["shadow"]["_explicacion"] = (
-        "Operaciones sombra: qué habría pasado si se hubieran ejecutado las señales no operadas, simuladas con lotes, spread HFM, trailing y cierre de fin de semana. "
-        "Motivos: RECHAZADA / BAJA_CONFIANZA (filtro IA), BLOQUEADA (tope de posiciones, par abierto, límite diario, HFM desconectado), NOTICIAS, "
+        f"Operaciones sombra: qué habría pasado si se hubieran ejecutado las señales no operadas, simuladas con lotes, spread {bk}, trailing y cierre de fin de semana. "
+        f"Motivos: RECHAZADA / BAJA_CONFIANZA (filtro IA), BLOQUEADA (tope de posiciones, par abierto, límite diario, {bk} desconectado), NOTICIAS, "
         "SESION (fuera de las sesiones permitidas), ERROR (fallo de IA), NO_EJECUTADA (orden no abierta: lote mínimo, bróker). "
         "filter_value > 0 = el filtro evitó pérdidas netas; < 0 = dejó escapar ganancias. by_confidence calibra ai_min_confidence; "
         "by_session indica si conviene ampliar o recortar sessions_allowed; undersized = sombras simuladas con lote mínimo forzado (capital insuficiente). "
@@ -60,7 +63,7 @@ async def build_context(engine, settings, acc: dict, with_backtest: bool = False
     if with_backtest:
         bt = await plan_stats(engine, settings, acc["initial_balance"])
         ctx["backtest"] = {k: bt[k] for k in ("per_symbol", "by_strategy", "monte_carlo", "trades_per_month", "days", "total_pips", "rejected_lot")}
-        ctx["backtest"]["_explicacion"] = "Backtest por par en lotes con spread HFM; total_pips = pips netos de spread; rejected_lot = señales sin operar por lote mínimo."
+        ctx["backtest"]["_explicacion"] = f"Backtest por par en lotes con spread {bk}{' y comisión' if engine.costs.commission_lot_usd else ''}; total_pips = pips netos de spread; rejected_lot = señales sin operar por lote mínimo."
     return ctx
 
 
@@ -100,7 +103,7 @@ async def advise_scope(engine, scope: str, optimizer_results: list = None) -> di
     if scope == "optimizer":
         ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe")} for r in (optimizer_results or [])]
     await engine.log("AI_EVAL", f"{ai_label()} analizando {'optimizador' if scope == 'optimizer' else 'plan'} y rendimiento real...")
-    res = await advise(scope, ctx, ai_policy(settings.risk_profile), FX_MARKET)
+    res = await advise(scope, ctx, ai_policy(settings.risk_profile), FX_MARKET, kind=f"{engine.profile.ai_kind}-advisor")
     applied, previous = await _apply(engine, res, before, settings, scope)
     await engine.log("AI_EVAL", f"IA: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     return {**res, "applied": applied, "previous": previous}
@@ -112,7 +115,7 @@ async def run_auto_review(engine, db, store) -> dict:
     before = settings.model_dump(exclude={"bot_running"})
     await engine.log("AI_EVAL", "Revisión IA automática iniciada...")
     ctx = await build_context(engine, settings, acc, True)
-    res = await advise("revision_automatica_programada", ctx, ai_policy(settings.risk_profile), FX_MARKET)
+    res = await advise("revision_automatica_programada", ctx, ai_policy(settings.risk_profile), FX_MARKET, kind=f"{engine.profile.ai_kind}-advisor")
     applied, previous = ({}, {})
     if store.cfg.auto_review_apply:
         applied, previous = await _apply(engine, res, before, settings, "auto_review")
@@ -129,7 +132,7 @@ async def run_auto_review(engine, db, store) -> dict:
 async def _safe_walk_forward(engine, settings, initial: float, sym: str):
     try:
         klines = await engine.market.fetch_klines(sym, settings.timeframe, WF_CANDLES, cache_sec=600)
-        wf = await asyncio.to_thread(walk_forward, klines, settings, initial, sym, dict(engine.market.tickers))
+        wf = await asyncio.to_thread(walk_forward, klines, settings, initial, sym, dict(engine.market.tickers), engine.costs)
         out = {k: wf[k] for k in ("verdict", "verdict_text", "wfe", "oos", "baseline_oos", "is_expectancy_r", "beats_baseline", "params_stable", "params_unique")} | {"folds": len(wf["folds"])}
         if wf["applied"]:
             out["symbol_params_aplicados"] = {k: wf["applied"][k] for k in ("params", "verdict", "verdict_text", "wfe", "oos")}
@@ -146,13 +149,13 @@ async def run_global_optimization(engine, db) -> dict:
     initial = acc["initial_balance"]
     tickers = dict(engine.market.tickers)
     await engine.log("AI_EVAL", f"Optimización global IA iniciada · {len(settings.symbols)} pares · perfil {PROFILES[settings.risk_profile]['name']}")
-    results = []
+    results, job = [], engine.review_job
     for sym in settings.symbols:
         job["step"] = f"Optimizando {sym}"
         klines = await engine.market.fetch_klines(sym, settings.timeframe, 1000, cache_sec=300)
-        res = await asyncio.to_thread(optimize, klines, settings, initial, sym, tickers)
+        res = await asyncio.to_thread(optimize, klines, settings, initial, sym, tickers, engine.costs)
         bt = await asyncio.to_thread(run_backtest, klines, settings.strategy, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial,
-                                     sym, settings.signal_mode, settings.disabled_strategies, tickers, settings.min_lot_max_risk, settings.close_before_weekend)
+                                     sym, settings.signal_mode, settings.disabled_strategies, tickers, settings.min_lot_max_risk, settings.close_before_weekend, costs=engine.costs)
         job["step"] = f"Validando {sym} (walk-forward)"
         wf = await _safe_walk_forward(engine, settings, initial, sym)
         results.append({**res, "timeframe": settings.timeframe, "applied": settings.symbol_params.get(sym), "walk_forward": wf,
@@ -162,7 +165,7 @@ async def run_global_optimization(engine, db) -> dict:
     ctx["optimizador"] = [{k: r.get(k) for k in ("symbol", "best", "baseline", "timeframe", "applied", "walk_forward", "session_stats", "rejected_lot")} for r in results]
     ctx["optimizador_explicacion"] = ("session_stats = operaciones del backtest (sin filtro de sesión) agrupadas por la sesión abierta al entrar; "
                                       "rejected_lot = señales sin operar porque el lote mínimo 0.01 arriesgaba más que min_lot_max_risk.")
-    res = await advise("optimizacion_global_boton_usuario", ctx, ai_policy(settings.risk_profile), FX_MARKET)
+    res = await advise("optimizacion_global_boton_usuario", ctx, ai_policy(settings.risk_profile), FX_MARKET, kind=f"{engine.profile.ai_kind}-advisor")
     applied, previous = await _apply(engine, res, before, settings)
     await engine.log("AI_EVAL", f"Optimización global: {res['summary'][:160]}" + (f" · cambios: {', '.join(applied)}" if applied else " · sin cambios"))
     await engine.tg(f"🎯 <b>Optimización global con IA</b> (perfil {PROFILES[settings.risk_profile]['name']})\n{res['summary']}\n\n"
@@ -173,8 +176,8 @@ async def run_global_optimization(engine, db) -> dict:
 
 
 async def start(engine, db) -> bool:
-    return await review.start_global_optimization(engine, db, runner=run_global_optimization, state=job)
+    return await review.start_global_optimization(engine, db, runner=run_global_optimization, state=engine.review_job)
 
 
-def job_state() -> dict:
-    return review.job_state(job)
+def job_state(engine) -> dict:
+    return review.job_state(engine.review_job)

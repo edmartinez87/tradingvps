@@ -6,7 +6,7 @@ import { useChart, render, applyIndicators } from "./chart/useChart";
 import { useHistory } from "./chart/useHistory";
 
 const TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
-const SOURCE = { bybit: "Velas Bybit", bitget: "Velas Bitget", hfm: "Velas HFM · MetaTrader", yahoo: "Velas Yahoo Finance" };
+const SOURCE = { bybit: "Velas Bybit", bitget: "Velas Bitget", hfm: "Velas del bróker · MetaTrader", yahoo: "Velas Yahoo Finance" };
 const IND = [["ema9", "EMA 9", "text-amber-400"], ["ema21", "EMA 21", "text-sky-400"], ["ema200", "EMA 200", "text-slate-300"], ["rsi", "RSI 14", "text-pink-400"], ["vol", "Volumen", "text-slate-400"]];
 const DEFAULT_IND = { ema9: true, ema21: true, ema200: true, rsi: true, vol: true };
 const loadInd = () => {

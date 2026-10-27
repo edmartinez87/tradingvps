@@ -12,11 +12,13 @@ from performance import performance
 from fx.shadow import shadow_stats as fx_shadow_stats
 import evolution
 import wfcheck
-from deps import db, engine, fx_engine, news, fx_news
+from deps import db, engine, news, FX_BOTS
+
+FXB = {e.profile.panel: (e, s, n) for e, s, n in FX_BOTS}
 from chat import code_reader, proposals
 
 logger = logging.getLogger("chat.tools")
-BOT_PARAM = {"type": "string", "enum": ["crypto", "fx"], "description": "Bot: 'crypto' (Bybit) o 'fx' (HotForex)"}
+BOT_PARAM = {"type": "string", "enum": ["crypto", "fx", "pepper"], "description": "Bot: 'crypto' (Bybit), 'fx' (HotForex/HFM) o 'pepper' (Pepperstone)"}
 
 
 def _t(name, desc, props=None, required=None):
@@ -66,13 +68,13 @@ def _compact(obj, depth: int = 0):
 
 
 def _eng(bot):
-    if bot not in ("crypto", "fx"):
-        raise ValueError("bot debe ser 'crypto' o 'fx'")
-    return fx_engine if bot == "fx" else engine
+    if bot not in ("crypto", *FXB):
+        raise ValueError("bot debe ser 'crypto', 'fx' o 'pepper'")
+    return FXB[bot][0] if bot in FXB else engine
 
 
 async def _options(bot: str) -> dict:
-    model = FxSettingsUpdate if bot == "fx" else SettingsUpdate
+    model = FxSettingsUpdate if bot in FXB else SettingsUpdate
     ranges = {}
     for k, f in model.model_fields.items():
         meta = {"tipo": getattr(f.annotation, "__name__", str(f.annotation)).replace("Optional[", "").replace("]", "")}
@@ -81,7 +83,7 @@ async def _options(bot: str) -> dict:
                 if getattr(m, attr, None) is not None:
                     meta[attr] = getattr(m, attr)
         ranges[k] = meta
-    if bot == "fx":
+    if bot in FXB:
         return {"settings_keys": ranges, "symbols": FX_AVAILABLE, "timeframes": FX_TIMEFRAMES, "strategies": FX_STRATEGY_KEYS, "signal_modes": SIGNAL_MODES,
                 "sessions": [s[0] for s in SESSIONS], "usd_regime_sma": REGIME_SMAS, "ai_news_weight": ["normal", "bajo"],
                 "profiles": [{"level": p["level"], "name": p["name"], "settings": p["settings"]} for p in FX_PROFILES],
@@ -95,7 +97,7 @@ async def _options(bot: str) -> dict:
 async def _backtest(bot: str, symbol: str, timeframe: str, strategy: str) -> dict:
     eng = _eng(bot)
     s = await eng.get_settings()
-    if bot == "fx":
+    if bot in FXB:
         from fx.routes_analysis import backtest
         req = FxBacktestRequest(symbol=symbol, timeframe=timeframe or s.timeframe, strategy=strategy or s.strategy, risk_per_trade=s.risk_per_trade, leverage=s.leverage)
     else:
@@ -105,7 +107,7 @@ async def _backtest(bot: str, symbol: str, timeframe: str, strategy: str) -> dic
 
 
 async def _optimize(bot: str, symbol: str) -> dict:
-    if bot == "fx":
+    if bot in FXB:
         from fx.routes_analysis import optimize_symbol
     else:
         from routers.analysis_routes import optimize_symbol
@@ -113,7 +115,7 @@ async def _optimize(bot: str, symbol: str) -> dict:
 
 
 async def _walk_forward(bot: str, symbol: str) -> dict:
-    if bot == "fx":
+    if bot in FXB:
         from fx.routes_analysis import optimize_walk_forward
     else:
         from routers.walk_forward_routes import optimize_walk_forward
@@ -123,7 +125,7 @@ async def _walk_forward(bot: str, symbol: str) -> dict:
 
 
 async def _market_context(bot: str) -> dict:
-    if bot == "fx":
+    if bot in FXB:
         from fx.routes_analysis import market_context
     else:
         from routers.market_routes import market_context
@@ -136,7 +138,7 @@ async def run_tool(name: str, args: dict, session_id: str) -> dict:
         bot = args.get("bot")
         if name == "get_performance":
             eng = _eng(bot)
-            return _compact(await (performance(eng.db, fx_shadow_stats) if bot == "fx" else performance(eng.db)))
+            return _compact(await (performance(eng.db, fx_shadow_stats) if bot in FXB else performance(eng.db)))
         if name == "get_trades":
             eng = _eng(bot)
             n = max(1, min(int(args.get("limit") or 20), 50))
@@ -155,7 +157,7 @@ async def run_tool(name: str, args: dict, session_id: str) -> dict:
         if name == "get_market_context":
             return _compact(await _market_context(bot))
         if name == "get_news":
-            agent = fx_news if bot == "fx" else news
+            agent = FXB[bot][2] if bot in FXB else news
             latest = agent.latest or {}
             return _compact({"summary": agent.summary(), "market": latest.get("market"), "pairs": latest.get("pairs"), "alerts": (latest.get("alerts") or [])[:8],
                              "events": [e for e in (latest.get("events") or []) if e.get("impact") == "ALTO"][:12], "headlines": [h.get("title") for h in (latest.get("headlines") or [])[:10]]})

@@ -27,12 +27,26 @@ ai_advisor.set_usage_hook(ai_usage.record)
 from fx.engine import FxEngine  # noqa: E402
 from fx.config import FxConfigStore  # noqa: E402
 from fx.news import FxNewsAgent  # noqa: E402
+from fx.market import FxMarket  # noqa: E402
+from fx.broker import HFM, PEPPERSTONE  # noqa: E402
 
-fx_engine = FxEngine(db)
-fx_store = FxConfigStore(db)
-fx_engine.store = fx_store
-fx_news = FxNewsAgent(fx_engine.db, fx_engine)
-fx_engine.news = fx_news
+fx_market = FxMarket()  # one Yahoo Finance client shared by every MetaApi/MetaTrader bot (same symbols, half the requests)
+
+
+def _fx_bot(profile):
+    eng = FxEngine(db, profile, fx_market)
+    st = FxConfigStore(db, profile)
+    eng.store = st
+    nw = FxNewsAgent(eng.db, eng)
+    eng.news = nw
+    return eng, st, nw
+
+
+fx_engine, fx_store, fx_news = _fx_bot(HFM)
+pep_engine, pep_store, pep_news = _fx_bot(PEPPERSTONE)
+fx_market._shared_owner = fx_engine
+FX_BOTS = ((fx_engine, fx_store, fx_news), (pep_engine, pep_store, pep_news))
+ALL_ENGINES = (engine, fx_engine, pep_engine)
 
 
 async def _ai_health_event(event: str, h: dict):
@@ -49,7 +63,7 @@ async def _ai_health_event(event: str, h: dict):
         dur = fmt_duration((datetime.now(timezone.utc) - datetime.fromisoformat(h["down_since"])).total_seconds()) if h.get("down_since") else "?"
         text = f"IA operativa de nuevo · {model} · estuvo sin servicio {dur}"
         tg = f"✅ <b>IA operativa de nuevo</b> · {model} · estuvo sin servicio {dur}. El bot vuelve a evaluar señales con normalidad."
-    for eng in (engine, fx_engine):
+    for eng in ALL_ENGINES:
         await eng.log("ERROR" if event == "down" else "INFO", text)
     await notify.notify(tg, "system")
 

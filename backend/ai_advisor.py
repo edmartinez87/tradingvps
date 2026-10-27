@@ -376,9 +376,9 @@ def _clip(text: str, limit: int) -> str:
     return cut.rstrip(" ,;:.") + "…"
 
 
-async def advise(scope: str, context: dict, policy: dict = None, market: dict = CRYPTO_MARKET) -> dict:
+async def advise(scope: str, context: dict, policy: dict = None, market: dict = CRYPTO_MARKET, kind: str = None) -> dict:
     prompt = f"ÁMBITO: {scope}\nCONTEXTO (JSON):\n{json.dumps(context, ensure_ascii=False, default=str)}\n\nDecide los cambios de configuración."
-    text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY, market), "fx-advisor" if market is FX_MARKET else "advisor"), prompt)
+    text = await _ask(_chat(advisor_system(policy or DEFAULT_POLICY, market), kind or ("fx-advisor" if market is FX_MARKET else "advisor")), prompt)
     data = parse_json(text, "revisión IA")
     changes = data.get("changes") or {}
     revert = data.get("revert") or []

@@ -137,7 +137,7 @@ def test_cron_ai_review_reports_both_bots():
     d = r.json()
     assert d["accepted"] is True and "scheduled" in d and "scheduled_fx" in d
     r = requests.post(f"{BASE_URL}/api/cron/weekly-summary", json={"run_id": f"qa19w-{int(time.time())}"}, headers={"Authorization": f"Bearer {SECRET}"}, timeout=20)
-    assert r.json() == {"accepted": True, "scheduled": True, "scheduled_fx": True}
+    assert r.json() == {"accepted": True, "scheduled": True, "scheduled_fx": True, "scheduled_pepper": True}
 
 
 def test_fx_weekly_preview_and_send_without_telegram(s):

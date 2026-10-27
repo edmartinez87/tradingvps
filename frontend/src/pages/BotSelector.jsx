@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Zap, Landmark, ArrowRight, LogOut, Loader2 } from "lucide-react";
+import { Zap, Landmark, Flame, ArrowRight, LogOut, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { http, setApiBase, fmtUsd, fmtPct, pnlClass } from "@/lib/api";
+import { api, setApiBase, fmtUsd, fmtPct, pnlClass } from "@/lib/api";
 
 const BOTS = [
   {
@@ -19,10 +19,18 @@ const BOTS = [
     desc: "Mismo motor adaptado a divisas: horario forex, lotes y pips, agenda macro de 8 economías, trading por noticias con IA y cuenta real HFM vía MetaApi.",
     tags: ["XAUUSD · XAGUSD · EURUSD…", "Paper trading · 1:100", "Yahoo Finance · HFM"],
   },
+  {
+    key: "pepper", path: "/pepperstone", icon: Flame, accent: "teal", overview: "/pepper/overview",
+    title: <>Pepperstone <span className="text-teal-300">AI</span> trading</>,
+    subtitle: "Forex y metales · Pepperstone vía MetaApi (MT4 / MT5)",
+    desc: "Instancia independiente del motor forex para Pepperstone: cuenta Razor (spread crudo + comisión) o Standard, símbolos sin sufijo, sus propios ajustes, plan, revisión IA y Telegram.",
+    tags: ["XAUUSD · XAGUSD · EURUSD…", "Razor / Standard", "Yahoo Finance · Pepperstone"],
+  },
 ];
 const ACCENT = {
   amber: { ring: "hover:border-amber-500/60 hover:shadow-[0_0_0_1px_rgba(247,166,0,0.35),0_30px_80px_-30px_rgba(247,166,0,0.35)]", mark: "bg-amber-500 text-[#07090E]", btn: "bg-amber-500 text-[#07090E] hover:bg-amber-400", tag: "border-amber-500/30 text-amber-300" },
   sky: { ring: "hover:border-sky-500/60 hover:shadow-[0_0_0_1px_rgba(56,189,248,0.35),0_30px_80px_-30px_rgba(56,189,248,0.35)]", mark: "bg-sky-500 text-[#07090E]", btn: "bg-sky-500 text-[#07090E] hover:bg-sky-400", tag: "border-sky-500/30 text-sky-300" },
+  teal: { ring: "hover:border-teal-400/60 hover:shadow-[0_0_0_1px_rgba(45,212,191,0.35),0_30px_80px_-30px_rgba(45,212,191,0.35)]", mark: "bg-teal-400 text-[#07090E]", btn: "bg-teal-400 text-[#07090E] hover:bg-teal-300", tag: "border-teal-400/30 text-teal-300" },
 };
 
 function Status({ s }) {
@@ -50,8 +58,9 @@ export default function BotSelector({ onLogout }) {
     setApiBase("");
     document.title = "AI Trading · Selecciona un bot";
     const load = async () => {
-      const [c, f] = await Promise.allSettled([http.get("/overview"), http.get("/fx/overview", { baseURL: `${process.env.REACT_APP_BACKEND_URL}/api` })]);
-      setStatus({ crypto: c.status === "fulfilled" ? c.value.data : { error: true }, fx: f.status === "fulfilled" ? f.value.data : { error: true } });
+      const [c, f, p] = await Promise.allSettled([api.get("/overview"), api.get("/fx/overview"), api.get("/pepper/overview")]);
+      const v = (r) => (r.status === "fulfilled" ? r.value.data : { error: true });
+      setStatus({ crypto: v(c), fx: v(f), pepper: v(p) });
     };
     load();
   }, []);
@@ -63,13 +72,13 @@ export default function BotSelector({ onLogout }) {
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">Panel de control · acceso verificado</p>
             <h1 className="font-display mt-2 text-3xl font-extrabold uppercase leading-none tracking-tight text-slate-50 md:text-4xl">¿Qué bot quieres operar?</h1>
-            <p className="mt-3 max-w-xl text-sm text-slate-400">Dos motores independientes con la misma filosofía: estrategias técnicas, puertas de riesgo y validación con IA. Cada uno tiene su cuenta paper, su historial y sus ajustes.</p>
+            <p className="mt-3 max-w-xl text-sm text-slate-400">Tres bots independientes con la misma filosofía: estrategias técnicas, puertas de riesgo y validación con IA. Cada uno tiene su cuenta paper, su historial y sus ajustes.</p>
           </div>
           <Button data-testid="selector-logout-button" variant="ghost" onClick={onLogout} className="h-9 font-mono text-[11px] uppercase tracking-wider text-slate-400 hover:bg-[#111827] hover:text-rose-300">
             <LogOut className="mr-1.5 h-3.5 w-3.5" /> Cerrar sesión
           </Button>
         </div>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {BOTS.map((b, i) => {
             const a = ACCENT[b.accent];
             const Icon = b.icon;

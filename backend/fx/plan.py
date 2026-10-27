@@ -15,8 +15,8 @@ SCENARIOS = {
 _cache: dict = {}
 
 
-def _bt(klines: list, settings, initial: float, symbol: str, params: dict, tickers: dict) -> dict:
-    k = kit(settings, tickers)
+def _bt(klines: list, settings, initial: float, symbol: str, params: dict, tickers: dict, costs=None) -> dict:
+    k = kit(settings, tickers, costs)
     df = k.build_df(klines, int(params.get("atr_period", 14)))
     sigs = k.scan_signals(df, settings.strategy, None, settings.signal_mode, settings.disabled_strategies)
     return k.simulate(df, sigs, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial, symbol, params.get("sl_atr"), params.get("tp_atr"))
@@ -28,7 +28,7 @@ async def backtest_stats(engine, settings, initial: float) -> dict:
     for sym in settings.symbols:
         params = settings.symbol_params.get(sym) or {}
         klines = await engine.market.fetch_klines(sym, settings.timeframe, 1000, cache_sec=300)
-        results.append((sym, await asyncio.to_thread(_bt, klines, settings, initial, sym, params, tickers)))
+        results.append((sym, await asyncio.to_thread(_bt, klines, settings, initial, sym, params, tickers, getattr(engine, 'costs', None))))
     out = core.summarize(results, settings, ("total_pips", "avg_pips", "weekend_closed", "skipped_session"))
     out["total_pips"] = round(sum(p["total_pips"] for p in out["per_symbol"]), 1)
     out["rejected_lot"] = sum(p["rejected_lot"] for p in out["per_symbol"])
@@ -36,7 +36,7 @@ async def backtest_stats(engine, settings, initial: float) -> dict:
 
 
 async def plan_stats(engine, settings, initial: float) -> dict:
-    key = (tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade, settings.leverage, str(trade_rules(settings)),
+    key = (getattr(getattr(engine, 'profile', None), 'key', 'fx'), str(getattr(engine, 'costs', None)), tuple(settings.symbols), settings.timeframe, settings.strategy, settings.risk_per_trade, settings.leverage, str(trade_rules(settings)),
            settings.max_positions, initial, str(settings.symbol_params), settings.signal_mode, tuple(settings.disabled_strategies),
            settings.min_lot_max_risk, settings.close_before_weekend, tuple(settings.sessions_allowed))
     hit = _cache.get(key)

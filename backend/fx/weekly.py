@@ -1,15 +1,19 @@
-"""Weekly Telegram summary for HotForex: the shared weekly builder plus net pips of the week (spread included)."""
+"""Weekly Telegram summary for the FX bots: the shared weekly builder plus net pips of the week (spread included)."""
 import weekly
-from fx.symbols import SPECS, pips
+from fx.symbols import pips
 from fx.review import gates_context
 
 PREFIX = "🏦 <b>HotForex AI</b>\n"
 
 
+def prefix(engine) -> str:
+    return f"{engine.profile.tg_icon} <b>{engine.profile.tg_name}</b>\n"
+
+
 async def build(engine, db) -> dict:
     w = await weekly.build_weekly(engine, db)
     rows = await db.trades.find({"closed_at": {"$gte": w["from"]}}, {"_id": 0, "symbol": 1, "side": 1, "entry_price": 1, "exit_price": 1}).to_list(5000)
-    w["pips"] = round(sum(pips(r["symbol"], (r["exit_price"] - r["entry_price"]) * (1 if r["side"] == "long" else -1) - SPECS[r["symbol"]]["spread"]) for r in rows), 1)
+    w["pips"] = round(sum(pips(r["symbol"], (r["exit_price"] - r["entry_price"]) * (1 if r["side"] == "long" else -1) - engine.costs.spread(r["symbol"])) for r in rows), 1)
     try:
         w["fx_gates"] = await gates_context(engine, await engine.get_settings())
     except Exception:
@@ -32,4 +36,4 @@ def fmt(w: dict) -> str:
 
 
 async def send(engine, db, force: bool = False) -> dict:
-    return await weekly.send_weekly(engine, db, force, build=build, fmt=fmt, prefix=PREFIX)
+    return await weekly.send_weekly(engine, db, force, build=build, fmt=fmt, prefix=prefix(engine))

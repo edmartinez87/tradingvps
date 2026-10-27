@@ -58,8 +58,8 @@ export function HfmRecreateNotice({ currentLabel, wantedLabel, busy, onRecreate 
             <AlertDialogTitle className="font-display text-amber-200">Recrear la cuenta en MetaApi como {wantedLabel}</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2 text-slate-400">
               <span className="block">1. Se borra la cuenta actual ({currentLabel}) de MetaApi: deja de facturarse por hora.</span>
-              <span className="block">2. Se crea de nuevo con el mismo login/servidor de HFM como {wantedLabel} y se despliega (1–3 minutos en conectar).</span>
-              <span className="block">3. Después pulsa «Probar conexión» y «Comprobar símbolos» para verificarla otra vez. Las operaciones abiertas en HFM no se tocan.</span>
+              <span className="block">2. Se crea de nuevo con el mismo login/servidor del bróker como {wantedLabel} y se despliega (1–3 minutos en conectar).</span>
+              <span className="block">3. Después pulsa «Probar conexión» y «Comprobar símbolos» para verificarla otra vez. Las operaciones abiertas en el bróker no se tocan.</span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

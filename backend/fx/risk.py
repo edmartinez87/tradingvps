@@ -33,9 +33,10 @@ def usd_per_unit(symbol: str, lots: float, tickers: dict) -> float:
     return lots * SPECS[symbol]["contract"] * quote_usd(symbol, tickers)
 
 
-def spread_cost(symbol: str, lots: float, tickers: dict) -> float:
-    """Half-spread cost in USD (paid once at entry and once at exit)."""
-    return SPECS[symbol]["spread"] / 2 * usd_per_unit(symbol, lots, tickers)
+def spread_cost(symbol: str, lots: float, tickers: dict, costs=None) -> float:
+    """Cost of one side (entry or exit) in USD: half spread (+ half commission) of the broker account type."""
+    from fx.broker import DEFAULT_COSTS
+    return (costs or DEFAULT_COSTS).side_cost(symbol, lots, tickers)
 
 
 def round_lots(lots: float, lot: dict = None) -> float:

@@ -30,7 +30,7 @@ class AccountMixin:
         strategy knowledge are kept. Previous trades get tagged with the old account period and the equity curve is shifted so it stays continuous."""
         info = await self._broker_info(0)
         if not info:
-            raise ValueError("No se pudo leer la equidad de la cuenta HFM: pulsa «Probar conexión» y vuelve a intentarlo")
+            raise ValueError(f"No se pudo leer la equidad de la cuenta {self.bk}: pulsa «Probar conexión» y vuelve a intentarlo")
         equity = float(info["equity"])
         acc = await self.db.account.find_one({"_id": "main"})
         old_ref = acc.get("account_ref") or "cuenta anterior"
@@ -54,9 +54,9 @@ class AccountMixin:
         self._last_equity = equity
         self._cash_checked = time.time()
         cur = info.get("currency", "USD")
-        await self.log("INFO", f"Cuenta HFM cambiada a {self.account_ref} · capital inicial re-basado a {equity:,.2f} {cur} · "
+        await self.log("INFO", f"Cuenta {self.bk} cambiada a {self.account_ref} · capital inicial re-basado a {equity:,.2f} {cur} · "
                                f"{tagged.modified_count} operaciones anteriores etiquetadas «{label}» · historial y contadores conservados")
-        await self.tg(f"🔁 <b>Cuenta HFM cambiada</b> · {self.account_ref}\nCapital inicial re-basado a {equity:,.2f} {cur}. "
+        await self.tg(f"🔁 <b>Cuenta {self.bk} cambiada</b> · {self.account_ref}\nCapital inicial re-basado a {equity:,.2f} {cur}. "
                       f"Historial conservado: {tagged.modified_count} operaciones del periodo anterior ({old_ref}).", "orders")
         return {"equity": equity, "currency": cur, "tagged": tagged.modified_count, "account_ref": self.account_ref, "previous_account_ref": old_ref}
 

@@ -71,7 +71,7 @@ export default function BackupSection() {
   };
 
   const info = data || EMPTY;
-  const running = info.bots_running.crypto || info.bots_running.fx;
+  const running = info.bots_running.crypto || info.bots_running.fx || info.bots_running.pepper;
   const last = info.backups[0];
   const loading = !data && !loadError;
   return (
@@ -121,7 +121,7 @@ export default function BackupSection() {
           </div>
         </div>
       )}
-      {running && <p data-testid="backup-running-note" className="text-[11px] text-amber-300/90">Para restaurar, detén antes ambos bots ({[info.bots_running.crypto && "Bybit", info.bots_running.fx && "HotForex"].filter(Boolean).join(" y ")} en marcha).</p>}
+      {running && <p data-testid="backup-running-note" className="text-[11px] text-amber-300/90">Para restaurar, detén antes todos los bots ({[info.bots_running.crypto && "Bybit", info.bots_running.fx && "HotForex", info.bots_running.pepper && "Pepperstone"].filter(Boolean).join(", ")} en marcha).</p>}
       {info.backups.length > 0 && (
         <div data-testid="backup-list" className="thin-scroll max-h-56 overflow-auto rounded-sm border border-[#1E293B]">
           <table className="w-full text-[11px]">

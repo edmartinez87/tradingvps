@@ -106,9 +106,9 @@ class SignalsMixin:
             if exp:
                 return exp, "EXPOSICION", open_syms
         if self.live and self.hfm["down_since"]:
-            return "cuenta HFM sin conexión con MetaApi", "BLOQUEADA", open_syms
+            return f"cuenta {self.bk} sin conexión con MetaApi", "BLOQUEADA", open_syms
         if self.live and self.cfg and symbol in (self.cfg.hfm_symbols_bad or []):
-            return "par no operable en HFM con el sufijo de símbolos configurado (Ajustes → HotForex → Comprobar símbolos)", "BLOQUEADA", open_syms
+            return f"par no operable en {self.bk} con el sufijo de símbolos configurado (Ajustes → {self.bl} → Comprobar símbolos)", "BLOQUEADA", open_syms
         return None, None, open_syms
 
     async def _market_gates(self, symbol: str, side: str, settings: FxSettings, horizon: str) -> tuple:
@@ -190,7 +190,7 @@ class SignalsMixin:
                 "horizon": horizon, "vol_regime": g_ctx.get("vol_regime"), "season_bias": g_ctx.get("season_bias"), "usd_regime": g_ctx.get("usd_regime"),
             }
             try:
-                res = await evaluate_signal(symbol, settings.timeframe, sig, ctx)
+                res = await evaluate_signal(symbol, settings.timeframe, sig, ctx, self.profile.ai_kind)
                 signal.ai_decision, signal.ai_confidence, signal.ai_risk, signal.ai_reasoning = res["decision"], res["confidence"], res["risk"], res["reasoning"]
                 approve = res["decision"] == "APROBADA" and res["confidence"] >= settings.ai_min_confidence
                 if res["decision"] == "APROBADA" and not approve:

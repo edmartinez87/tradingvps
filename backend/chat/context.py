@@ -1,4 +1,4 @@
-"""Compact live snapshot of both bots for the AI expert chat (refreshed on every message)."""
+"""Compact live snapshot of the three bots (Bybit, HotForex, Pepperstone) for the AI expert chat (refreshed on every message)."""
 import logging
 from datetime import datetime, timezone
 from models import Position
@@ -6,7 +6,9 @@ from ai_advisor import current as ai_current
 from profiles import PROFILES, detect_profile
 from fx.profiles import PROFILES as FX_PROFILES, detect_profile as fx_detect_profile
 from fx.market import market_status
-from deps import engine, fx_engine, store, fx_store, news, fx_news, ai_usage
+from deps import engine, store, news, FX_BOTS, ai_usage
+
+PANEL_LABEL = {"crypto": "Bybit (cripto)", "fx": "HotForex (forex/metales)", "pepper": "Pepperstone (forex/metales)"}
 
 logger = logging.getLogger("chat.context")
 SKIP_SETTINGS = {"bot_running", "symbol_params"}
@@ -53,23 +55,28 @@ async def snapshot(panel: str) -> dict:
     c_cfg = ("telegram_enabled", "telegram_alerts", "auto_review_enabled", "auto_review_frequency", "auto_review_day", "auto_review_apply", "auto_review_last_at",
              "news_enabled", "news_interval_min", "news_block_events", "news_block_critical", "news_reduce_on_high_risk", "wf_auto_remove",
              "funding_enabled", "funding_block_pct", "funding_reduce_pct", "funding_size_factor", "trading_mode", "bybit_env", "bybit_verified_at", "bybit_alert_after_sec")
-    f_cfg = ("trading_mode", "mt_server", "mt_platform", "hfm_state", "hfm_connection", "hfm_verified_at", "hfm_trade_allowed", "hfm_alert_after_sec", "mt_symbol_suffix",
+    f_cfg = ("trading_mode", "account_type", "mt_server", "mt_platform", "hfm_state", "hfm_connection", "hfm_verified_at", "hfm_trade_allowed", "hfm_alert_after_sec", "mt_symbol_suffix",
              "hfm_symbols_bad", "news_enabled", "news_interval_min", "news_trading_enabled", "news_trade_min_confidence", "news_trade_risk_factor",
              "auto_review_enabled", "auto_review_frequency", "auto_review_apply", "auto_review_last_at", "wf_auto_remove")
-    out = {"ahora_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "panel_abierto_por_el_usuario": "HotForex (forex/metales)" if panel == "fx" else "Bybit (cripto)",
+    out = {"ahora_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "panel_abierto_por_el_usuario": PANEL_LABEL.get(panel, PANEL_LABEL["crypto"]),
            "ia_activa": {k: v for k, v in ai_current().items() if k != "health"}, "ia_salud": ai_current()["health"].get("ok"),
-           "llamadas_ia_hoy": ai_usage.snapshot("fx" if panel == "fx" else "crypto")}
+           "llamadas_ia_hoy": ai_usage.snapshot(panel if panel in PANEL_LABEL else "crypto"),
+           "bots": {"crypto": "Bybit AI Trader (clave de bot: crypto)", **{e.profile.panel: f"{e.profile.bot_name} · bróker {e.profile.broker} vía MetaApi (clave de bot: {e.profile.panel})" for e, _, _ in FX_BOTS}}}
     try:
         out["cripto"] = await _bot(engine, PROFILES, detect_profile, c_cfg, store.cfg, news, {"fuente_datos": engine.market.provider, "exchange_error": engine.exchange_error})
     except Exception as e:
         logger.warning(f"snapshot cripto: {e}")
         out["cripto"] = {"error": str(e)[:160]}
-    try:
-        ms = market_status()
-        out["forex"] = await _bot(fx_engine, FX_PROFILES, fx_detect_profile, f_cfg, fx_store.cfg, fx_news,
-                                  {"mercado_forex": {"abierto": ms["open"], "proximo_cambio": ms["next_change"], "sesiones_abiertas": [x["id"] for x in ms["sessions"] if x["open"]]},
+    ms = market_status()
+    out["mercado_forex"] = {"abierto": ms["open"], "proximo_cambio": ms["next_change"], "sesiones_abiertas": [x["id"] for x in ms["sessions"] if x["open"]]}
+    for fx_engine, fx_store, fx_news in FX_BOTS:
+        key = "forex_hotforex" if fx_engine.profile.panel == "fx" else f"forex_{fx_engine.profile.key}"
+        try:
+            out[key] = await _bot(fx_engine, FX_PROFILES, fx_detect_profile, f_cfg, fx_store.cfg, fx_news,
+                                  {"clave_de_bot": fx_engine.profile.panel, "broker": fx_engine.profile.broker,
+                                   "costes": {"tipo_cuenta": fx_engine.costs.label, "factor_spread": fx_engine.costs.spread_factor, "comision_usd_por_lote_ida_y_vuelta": fx_engine.costs.commission_lot_usd},
                                    "analisis_filtros_por_par": {k: {x: v.get(x) for x in ("vol_regime", "season_bias", "trend", "signal")} for k, v in fx_engine.analysis.items()}})
-    except Exception as e:
-        logger.warning(f"snapshot forex: {e}")
-        out["forex"] = {"error": str(e)[:160]}
+        except Exception as e:
+            logger.warning(f"snapshot {key}: {e}")
+            out[key] = {"error": str(e)[:160]}
     return out

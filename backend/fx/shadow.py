@@ -13,6 +13,11 @@ KINDS = ("RECHAZADA", "BAJA_CONFIANZA", "BLOQUEADA", "NOTICIAS", "SESION", "EXPO
 AI_KINDS = ("RECHAZADA", "BAJA_CONFIANZA")
 
 
+def _costs(engine):
+    from fx.broker import DEFAULT_COSTS
+    return getattr(engine, "costs", None) or DEFAULT_COSTS
+
+
 async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, kind: str, acc: dict,
                       ai_confidence: int = 0, ai_risk: str = "-", risk_factor: float = 1.0, note: str = ""):
     tickers = engine.market.tickers
@@ -30,7 +35,7 @@ async def open_shadow(engine, signal_id: str, symbol: str, sig: dict, settings, 
     doc = {"signal_id": signal_id, "symbol": symbol, "side": sig["side"], "strategy": sig["strategy"], "timeframe": settings.timeframe, "horizon": "long" if sig["strategy"] == "fix_reversion" else "short",
            "kind": kind, "note": note[:200], "ai_confidence": ai_confidence, "ai_risk": ai_risk, "entry_price": entry, "qty": lots,
            "leverage": settings.leverage, "margin": margin, "risk_pct": real_risk, "undersized": undersized, "sl": sl, "tp": tp, "initial_sl": sl,
-           "atr": sig["atr"], "fees": risk.spread_cost(symbol, lots, tickers), "breakeven": False, "risk_factor": risk_factor,
+           "atr": sig["atr"], "fees": risk.spread_cost(symbol, lots, tickers, _costs(engine)), "breakeven": False, "risk_factor": risk_factor,
            "session": "+".join(x["id"] for x in market_status()["sessions"] if x["open"]) or "ninguna", "news_risk": news_risk, "live": engine.live,
            "mark_price": entry, "unrealized_pnl": 0.0, "opened_at": now_iso()}
     await engine.db.shadow_positions.insert_one(doc)
@@ -53,19 +58,19 @@ async def monitor_shadows(engine, tickers: dict, settings, now: datetime):
         if hit is not None:
             if reason == "SL" and d["breakeven"]:
                 reason = "TRAILING"
-            exit_fee = risk.spread_cost(d["symbol"], d["qty"], tickers)
+            exit_fee = risk.spread_cost(d["symbol"], d["qty"], tickers, _costs(engine))
             net = risk.pnl(d["symbol"], d["side"], d["entry_price"], hit, d["qty"], tickers) - d["fees"] - exit_fee
             move = (hit - d["entry_price"]) * (1 if d["side"] == "long" else -1)
             trade = {k: v for k, v in d.items() if k not in ("_id", "mark_price", "unrealized_pnl", "sl", "tp", "initial_sl", "breakeven")}
             trade.update(exit_price=hit, pnl=round(net, 4), pnl_pct=round(net / d["margin"] * 100, 2) if d["margin"] else 0,
-                         pips=round(pips(d["symbol"], move - SPECS[d["symbol"]]["spread"]), 1), fees=round(d["fees"] + exit_fee, 4),
+                         pips=round(pips(d["symbol"], move - _costs(engine).spread(d["symbol"])), 1), fees=round(d["fees"] + exit_fee, 4),
                          reason=reason, closed_at=now_iso())
             await engine.db.shadow_trades.insert_one(trade)
             await engine.db.shadow_positions.delete_one({"_id": d["_id"]})
             continue
         upd = {"mark_price": price, "unrealized_pnl": round(risk.pnl(d["symbol"], d["side"], d["entry_price"], price, d["qty"], tickers), 4)}
         if rules["trailing_enabled"]:
-            new_sl, be = risk.update_trailing(d["side"], d["entry_price"], d["sl"], d["initial_sl"], d["atr"], price, SPECS[d["symbol"]]["spread"],
+            new_sl, be = risk.update_trailing(d["side"], d["entry_price"], d["sl"], d["initial_sl"], d["atr"], price, _costs(engine).spread(d["symbol"]),
                                               rules["be_start_r"], rules["trail_start_r"], rules["trail_atr_mult"])
             if new_sl != d["sl"]:
                 upd.update(sl=new_sl, breakeven=be)

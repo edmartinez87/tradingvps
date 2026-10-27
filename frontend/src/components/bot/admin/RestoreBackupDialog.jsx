@@ -19,9 +19,9 @@ export default function RestoreBackupDialog({ target, word = "RESTAURAR", busy, 
           <AlertDialogTitle className="font-display">¿Restaurar {target?.kind === "file" ? "el archivo" : "la copia"} {target?.label}?</AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-2 text-[12px] leading-relaxed text-slate-400">
-              <p>Se reemplazan <b className="text-slate-200">todos los datos de ambos bots</b> (ajustes, cuentas, historial, señales, evolución, configuración de IA, Telegram y brókers) por los de la copia. La clave de acceso actual se conserva.</p>
-              <p>Tras restaurar, ambos bots quedan <b className="text-slate-200">detenidos</b> para que revises posiciones y ajustes antes de iniciarlos. Las posiciones abiertas en la cuenta real no se tocan en el bróker, pero el bot dejará de seguir las que no estén en la copia.</p>
-              {botsRunning && <p data-testid="backup-restore-running-warning" className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-amber-200">Detén ambos bots (Bybit y HotForex) desde su panel antes de restaurar.</p>}
+              <p>Se reemplazan <b className="text-slate-200">todos los datos de los tres bots</b> (ajustes, cuentas, historial, señales, evolución, configuración de IA, Telegram y brókers) por los de la copia. La clave de acceso actual se conserva.</p>
+              <p>Tras restaurar, los bots quedan <b className="text-slate-200">detenidos</b> para que revises posiciones y ajustes antes de iniciarlos. Las posiciones abiertas en la cuenta real no se tocan en el bróker, pero el bot dejará de seguir las que no estén en la copia.</p>
+              {botsRunning && <p data-testid="backup-restore-running-warning" className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-amber-200">Detén todos los bots (Bybit, HotForex y Pepperstone) desde su panel antes de restaurar.</p>}
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>

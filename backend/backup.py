@@ -135,7 +135,7 @@ async def restore(db, data: bytes) -> dict:
         restored[name] = len(rows)
     if auth:
         await db.config.update_one({"_id": "main"}, {"$set": auth}, upsert=True)
-    for col in ("settings", "fx_settings"):
+    for col in ("settings", "fx_settings", "pep_settings"):
         await db[col].update_one({"_id": "main"}, {"$set": {"bot_running": False}})
     return {"created_at": header.get("created_at"), "collections": restored, "documents": sum(restored.values())}
 

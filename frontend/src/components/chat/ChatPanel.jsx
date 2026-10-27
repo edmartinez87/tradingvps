@@ -6,11 +6,14 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useChat } from "./useChat";
+import { BOT_NAMES } from "@/fx/brand";
+
+const CHIP = { fx: "border-sky-500/40 text-sky-300", pepper: "border-teal-500/40 text-teal-300", crypto: "border-amber-500/40 text-amber-300" };
 import { ChatMessage } from "./ChatMessage";
 import { MemoryDialog } from "./MemoryDialog";
 
 const SUGGESTIONS = (bot) => [
-  { Icon: Activity, text: `Revisa el estado y el rendimiento del bot ${bot === "fx" ? "HotForex" : "Bybit"} y dime qué mejorarías` },
+  { Icon: Activity, text: `Revisa el estado y el rendimiento del bot ${BOT_NAMES[bot] || "Bybit"} y dime qué mejorarías` },
   { Icon: ShieldCheck, text: "¿Qué riesgo estoy asumiendo ahora mismo con las posiciones abiertas y los ajustes actuales?" },
   { Icon: Lightbulb, text: "Propón una configuración más prudente para las próximas semanas" },
   { Icon: Code2, text: "Explícame cómo decide el bot el tamaño de cada operación leyendo el código" },
@@ -66,7 +69,7 @@ export function ChatPanel({ open, onOpenChange, bot, onApplied }) {
               <SheetTitle className="font-display text-base font-extrabold uppercase tracking-tight text-amber-100">IA <span className="text-amber-400">expert</span></SheetTitle>
               <SheetDescription data-testid="chat-subtitle" className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
                 <span>Trader y gestor de riesgo · {state?.ai?.label || "IA"}</span>
-                <span data-testid="chat-panel-chip" className={`rounded-sm border px-1.5 py-0.5 text-[9.5px] tracking-wider ${bot === "fx" ? "border-sky-500/40 text-sky-300" : "border-amber-500/40 text-amber-300"}`}>panel {bot === "fx" ? "HotForex" : "Bybit"}</span>
+                <span data-testid="chat-panel-chip" className={`rounded-sm border px-1.5 py-0.5 text-[9.5px] tracking-wider ${CHIP[bot] || CHIP.crypto}`}>panel {BOT_NAMES[bot] || "Bybit"}</span>
               </SheetDescription>
             </div>
           </div>

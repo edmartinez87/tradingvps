@@ -10,17 +10,17 @@ from fx.models import FxSettings
 WF_CANDLES = core.WF_CANDLES
 
 
-def kit(settings: FxSettings, tickers: dict):
+def kit(settings: FxSettings, tickers: dict, costs=None):
     sim = partial(simulate, tickers=tickers, min_lot_max_risk=settings.min_lot_max_risk, weekend_flat=settings.close_before_weekend,
-                  sessions_allowed=tuple(settings.sessions_allowed))
+                  sessions_allowed=tuple(settings.sessions_allowed), costs=costs)
     return SimpleNamespace(build_df=build_fx_df, scan_signals=scan_signals, simulate=sim)
 
 
-def optimize(klines: list, settings: FxSettings, initial: float, symbol: str, tickers: dict) -> dict:
+def optimize(klines: list, settings: FxSettings, initial: float, symbol: str, tickers: dict, costs=None) -> dict:
     return core.optimize(klines, settings.strategy, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial, symbol,
-                         settings.signal_mode, settings.disabled_strategies, kit=kit(settings, tickers))
+                         settings.signal_mode, settings.disabled_strategies, kit=kit(settings, tickers, costs))
 
 
-def walk_forward(klines: list, settings: FxSettings, initial: float, symbol: str, tickers: dict) -> dict:
+def walk_forward(klines: list, settings: FxSettings, initial: float, symbol: str, tickers: dict, costs=None) -> dict:
     return core.walk_forward(klines, settings.strategy, settings.risk_per_trade, settings.leverage, trade_rules(settings), initial, symbol,
-                             settings.signal_mode, settings.disabled_strategies, settings.symbol_params.get(symbol), kit=kit(settings, tickers))
+                             settings.signal_mode, settings.disabled_strategies, settings.symbol_params.get(symbol), kit=kit(settings, tickers, costs))

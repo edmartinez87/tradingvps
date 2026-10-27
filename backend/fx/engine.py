@@ -25,12 +25,20 @@ from fx.engine_core import (logger, INITIAL_BALANCE, LIVE_GRACE_SEC, HFM_HEALTH_
 from fx.engine_account import AccountMixin
 from fx.engine_positions import PositionsMixin
 from fx.engine_signals import SignalsMixin
+from fx.broker import HFM, BrokerProfile
+from fx import review as fx_review
+from fx import wfcheck as fx_wfcheck
 
 
 class FxEngine(AccountMixin, PositionsMixin, SignalsMixin):
-    def __init__(self, db):
-        self.db = PrefixedDB(db)
-        self.market = FxMarket()
+    def __init__(self, db, profile: BrokerProfile = HFM, market: FxMarket = None):
+        self.profile = profile
+        self.db = PrefixedDB(db, profile.prefix)
+        self.market = market or FxMarket()
+        self.costs = profile.costs()
+        self.review_job = fx_review.new_job()
+        self.wf_job = fx_wfcheck.new_job()
+        self.wf_kit = fx_wfcheck.make_kit(self)
         self.lock = asyncio.Lock()
         self.running = False
         self.scanning = False
@@ -59,11 +67,12 @@ class FxEngine(AccountMixin, PositionsMixin, SignalsMixin):
     async def apply_config(self, cfg):
         self.cfg = cfg
         self.live = cfg.trading_mode == "live"
+        self.costs = self.profile.costs(cfg.account_type)
         key = (cfg.metaapi_token, cfg.metaapi_account_id, cfg.metaapi_region, cfg.metaapi_base_url, cfg.mt_symbol_suffix)
         if key != self._broker_key:
             if self.broker:
                 await self.broker.aclose()
-            self.broker = FxLiveBroker(*key, symbol_map=cfg.mt_symbol_map) if cfg.metaapi_token and cfg.metaapi_account_id else None
+            self.broker = FxLiveBroker(*key, symbol_map=cfg.mt_symbol_map, suffixes=self.profile.suffixes) if cfg.metaapi_token and cfg.metaapi_account_id else None
             self._broker_key = key
             self.broker_error = None
             self.hfm = _fresh_health()
@@ -83,10 +92,24 @@ class FxEngine(AccountMixin, PositionsMixin, SignalsMixin):
 
     @property
     def env(self) -> str:
-        return (self.cfg.mt_server if self.cfg and self.cfg.mt_server else "HFM")
+        return (self.cfg.mt_server if self.cfg and self.cfg.mt_server else self.bk)
+
+    @property
+    def bk(self) -> str:
+        """Broker short name for user-facing messages (HFM / Pepperstone)."""
+        return getattr(self, "profile", HFM).broker
+
+    @property
+    def bl(self) -> str:
+        """Settings section label (Ajustes → HotForex / Pepperstone)."""
+        return getattr(self, "profile", HFM).broker_long
+
+    def new_broker(self) -> FxLiveBroker:
+        c = self.cfg
+        return FxLiveBroker(c.metaapi_token, c.metaapi_account_id, c.metaapi_region, c.metaapi_base_url, c.mt_symbol_suffix, c.mt_symbol_map, self.profile.suffixes)
 
     async def tg(self, text: str, kind: str):
-        await notify.notify(f"🏦 <b>HotForex AI</b>\n{text}", kind)
+        await notify.notify(f"{self.profile.tg_icon} <b>{self.profile.tg_name}</b>\n{text}", kind)
 
     async def init(self):
         await self.market.detect()
@@ -98,13 +121,14 @@ class FxEngine(AccountMixin, PositionsMixin, SignalsMixin):
         async for s in self.db.signals.find({}, {"key": 1}).sort("_id", -1).limit(500):
             if s.get("key"):
                 self.signal_keys.add(s["key"])
-        await self.log("INFO", f"Motor HotForex iniciado · datos Yahoo Finance · mercado {'ABIERTO' if market_open() else 'CERRADO'} · bot {'ACTIVO' if self.running else 'DETENIDO'}")
+        await self.log("INFO", f"Motor {self.bl} iniciado · datos Yahoo Finance · mercado {'ABIERTO' if market_open() else 'CERRADO'} · bot {'ACTIVO' if self.running else 'DETENIDO'}")
         self.tasks = [asyncio.create_task(self._monitor_loop()), asyncio.create_task(self._scan_loop())]
 
     async def shutdown(self):
         for t in self.tasks:
             t.cancel()
-        await self.market.aclose()
+        if getattr(self.market, "_shared_owner", self) is self:
+            await self.market.aclose()
         if self.broker:
             await self.broker.aclose()
 
@@ -131,7 +155,7 @@ class FxEngine(AccountMixin, PositionsMixin, SignalsMixin):
         await self.db.settings.update_one({"_id": "main"}, {"$set": {"bot_running": True}})
         if self.live and self.account_ref:
             await self.db.account.update_one({"_id": "main", "$or": [{"account_ref": {"$exists": False}}, {"account_ref": ""}]}, {"$set": {"account_ref": self.account_ref}})
-        mode = f"REAL en HFM ({self.env})" if self.live else "paper trading"
+        mode = f"REAL en {self.bk} ({self.env})" if self.live else "paper trading"
         await self.log("INFO", f"Bot ACTIVADO · forex y metales en {mode}" + ("" if market_open() else " · el mercado está cerrado, operará al abrir"))
         await self.tg(f"▶️ <b>Bot ACTIVADO</b> · {mode} forex/metales", "orders")
         self.scan_event.set()
@@ -195,7 +219,7 @@ class FxEngine(AccountMixin, PositionsMixin, SignalsMixin):
                     await self._adopt_live(pid, xp, settings, tickers)
                 elif pid not in self._external_warned:
                     self._external_warned.add(pid)
-                    await self.log("RISK", f"{self.broker.our_symbol(xp['symbol'])}: posición externa detectada en HFM (no gestionada por el bot) · {xp['volume']:.2f} lotes")
+                    await self.log("RISK", f"{self.broker.our_symbol(xp['symbol'])}: posición externa detectada en {self.bk} (no gestionada por el bot) · {xp['volume']:.2f} lotes")
         if ex is not None:
             await self._expire_pending(now)
         await monitor_shadows(self, tickers, settings, now)
@@ -220,12 +244,12 @@ class FxEngine(AccountMixin, PositionsMixin, SignalsMixin):
         error = (self.broker_error if not synced else None) or h["api_error"] or f"MetaApi: cuenta {h['state'] or '?'} · conexión {h['connection'] or '?'}"
         event, dur = broker_health.transition(h, ok, error, self.cfg.hfm_alert_after_sec, now)
         if event == "up":
-            await self.log("INFO", f"Conexión con HFM restablecida · estuvo sin conexión {fmt_duration(dur)}")
-            await self.tg(f"✅ <b>Conexión con HFM restablecida</b> · estuvo sin conexión {fmt_duration(dur)}. El bot vuelve a operar con normalidad.", "system")
+            await self.log("INFO", f"Conexión con {self.bk} restablecida · estuvo sin conexión {fmt_duration(dur)}")
+            await self.tg(f"✅ <b>Conexión con {self.bk} restablecida</b> · estuvo sin conexión {fmt_duration(dur)}. El bot vuelve a operar con normalidad.", "system")
         elif event:
             remind = event == "remind"
             n = await self.db.positions.count_documents({"live": True})
-            await self.log("ERROR", f"Cuenta HFM sin conexión con MetaApi desde hace {fmt_duration(dur)} · {h['error']}")
-            hint = "\nSi persiste, revisa la cuenta en Ajustes → HotForex (Probar conexión / Redesplegar)." if (h["state"] not in HFM_OK_STATES or "DISCONNECTED" in h["connection"]) else ""
-            await self.tg(f"🔌 <b>Cuenta HFM {'sigue ' if remind else ''}sin conexión con MetaApi</b> · {fmt_duration(dur)}\n{h['error']}\n"
+            await self.log("ERROR", f"Cuenta {self.bk} sin conexión con MetaApi desde hace {fmt_duration(dur)} · {h['error']}")
+            hint = f"\nSi persiste, revisa la cuenta en Ajustes → {self.bl} (Probar conexión / Redesplegar)." if (h["state"] not in HFM_OK_STATES or "DISCONNECTED" in h["connection"]) else ""
+            await self.tg(f"🔌 <b>Cuenta {self.bk} {'sigue ' if remind else ''}sin conexión con MetaApi</b> · {fmt_duration(dur)}\n{h['error']}\n"
                           f"{n} posición(es) real(es) abiertas: siguen protegidas por su SL/TP en el bróker. El bot no abrirá nuevas operaciones hasta reconectar.{hint}", "system")

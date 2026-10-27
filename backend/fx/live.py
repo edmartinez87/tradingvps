@@ -66,9 +66,10 @@ def q_floor(v: float, step: float) -> float:
 
 
 class FxLiveBroker:
-    def __init__(self, token: str, account_id: str, region: str, base_url: str = "", suffix: str = "", symbol_map: dict = None):
+    def __init__(self, token: str, account_id: str, region: str, base_url: str = "", suffix: str = "", symbol_map: dict = None, suffixes: dict = None):
         self.api = MetaApi(token, region, base_url)
         self.account_id, self.region, self.suffix = account_id, region, suffix or ""
+        self.suffixes = dict(suffixes) if suffixes is not None else dict(HFM_SUFFIXES)  # suffix → account type label (broker profile)
         self.symbol_map = dict(symbol_map or {})  # our symbol → broker name when it is not simply symbol+suffix (HFM metals, dotted suffixes…)
         self._info = {"ts": 0.0, "data": None}
         self._positions = {"ts": 0.0, "data": []}
@@ -196,7 +197,7 @@ class FxLiveBroker:
         except MetaApiError:
             cands = []
         if not cands:
-            cands = list(HFM_SUFFIXES)
+            cands = list(self.suffixes)
         rows = []
         for suf in cands[:8]:
             try:
@@ -208,7 +209,7 @@ class FxLiveBroker:
                     raise
         tradable = [r for r in rows if r["tradable"]]
         chosen = tradable[0]["suffix"] if tradable else None
-        return {"suffix": chosen, "account_type": HFM_SUFFIXES.get(chosen) if chosen is not None else None, "probe": probe, "candidates": rows,
+        return {"suffix": chosen, "account_type": self.suffixes.get(chosen) if chosen is not None else None, "probe": probe, "candidates": rows,
                 "current": self.suffix, "matches": chosen == self.suffix if chosen is not None else None}
 
     async def _wait_position(self, position_id: str, tries: int = 6) -> dict | None:

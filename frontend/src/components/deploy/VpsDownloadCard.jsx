@@ -41,7 +41,7 @@ export function VpsDownloadCard() {
           <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-emerald-400">Paso 0 · descarga</p>
           <h2 className="font-display mt-2 text-xl font-bold leading-snug text-slate-50 md:text-2xl">Descarga la última versión completa de la app</h2>
           <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-slate-300">
-            Un único archivo .zip con los dos bots (Bybit y HotForex), el panel web y los scripts de instalación. Sigue los pasos de abajo y en unos
+            Un único archivo .zip con los tres bots (Bybit, HotForex y Pepperstone), el panel web y los scripts de instalación. Sigue los pasos de abajo y en unos
             15 minutos tendrás tu propia copia funcionando 24/7 en tu servidor, independiente de este panel.
           </p>
           <div className="mt-5 flex flex-wrap items-center gap-3">

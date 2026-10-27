@@ -16,7 +16,7 @@ const ALERTS = [
   ["plan", "Avisos del plan de crecimiento"],
   ["review", "Revisión IA automática y revalidación walk-forward"],
   ["news", "Alertas de noticias graves y eventos macro"],
-  ["system", "Conexión con el bróker (HFM/MetaApi) caída o restablecida"],
+  ["system", "Conexión con el bróker (HFM, Pepperstone / MetaApi) caída o restablecida"],
 ];
 
 export default function TelegramSection({ config, onSave, showWeekly = true, weeklyDesc }) {

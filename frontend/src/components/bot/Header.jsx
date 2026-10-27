@@ -58,7 +58,7 @@ export default function Header({ status, onToggle, onScan, onReset, busy, onSett
         </div>
 
         {status.mode === "REAL" && status.account_kind === "demo" ? (
-          <span data-testid="live-demo-badge" title="Servidor demo de HFM: dinero ficticio. El bot opera, aprende y evalúa las fases exactamente igual que con dinero real."
+          <span data-testid="live-demo-badge" title="Servidor demo del bróker: dinero ficticio. El bot opera, aprende y evalúa las fases exactamente igual que con dinero real."
             className="inline-flex items-center gap-1.5 rounded-sm border border-sky-500/50 bg-sky-500/15 px-2.5 py-1 font-mono text-[11px] font-bold uppercase tracking-wider text-sky-300">
             <span className="pulse-dot bg-sky-400" /> {brand.liveLabel(status)} · <span className="rounded-[2px] bg-sky-400 px-1 text-[9.5px] text-[#07090E]">Cuenta demo</span>
           </span>

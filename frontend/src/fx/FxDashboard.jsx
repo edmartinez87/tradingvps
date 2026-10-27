@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Layers, Loader2, Landmark } from "lucide-react";
+import { Layers, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { http, errMsg, setApiBase, SESSION_NAMES, fmtTime } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
@@ -28,20 +28,11 @@ import FxAdminSettings from "./FxAdminSettings";
 import FxFiltersPanel from "./FxFiltersPanel";
 import Documentation from "@/components/docs/Documentation";
 import VpsInstall from "@/components/deploy/VpsInstall";
+import { BRANDS, BrandContext } from "./brand";
 
 const TAB_CLS = "rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider data-[state=active]:bg-amber-500 data-[state=active]:text-[#07090E]";
 const FX_TFS = ["5m", "15m", "1h", "4h", "1d"];
-export const FX_BRAND = {
-  title: <>HotForex <span className="text-sky-400">AI</span> Trading</>,
-  subtitle: (status) => `Forex · Metales · ${status.ai?.label || "IA"}`,
-  icon: Landmark,
-  liveLabel: (status) => `Modo REAL · HFM${/demo/i.test(status.env || "") ? "" : " Live"}`,
-  dataLabel: (status) => (status.mode === "REAL" ? "Señales: Yahoo · Ejecución: HFM" : "Datos: Yahoo Finance"),
-  dataTooltip: (status) => (status.mode === "REAL"
-    ? "Las señales se calculan con velas de Yahoo Finance; las órdenes, el PnL y la equidad vienen de tu cuenta HFM vía MetaApi."
-    : "Precios y velas de Yahoo Finance (sin API key): pares spot y futuros de oro (GC=F) y plata (SI=F) que replican el spot. En modo REAL las órdenes y el PnL vienen de tu cuenta HFM vía MetaApi."),
-  resetHint: "Se borrarán posiciones, historial, señales, operaciones de noticias y curva de equidad. En paper el balance vuelve al capital inicial configurado (por defecto $500); en REAL las estadísticas parten de la equidad actual de HFM.",
-};
+export const FX_BRAND = BRANDS.fx.header;
 export const NEWS_WEIGHT_LABELS = { normal: "Normal · las alertas generales pueden rechazar", bajo: "Bajo · solo restan confianza" };
 const EXTRA_SELECTS = [{ k: "ai_news_weight", label: "Peso de las noticias en la IA", options: ["normal", "bajo"], render: (o) => NEWS_WEIGHT_LABELS[o] || o,
   hint: "Cuánto pesan las alertas generales de mercado (no específicas del par) en el veredicto de la IA por señal. La optimización con IA lo calibra sola con las operaciones sombra «Rechazos de la IA por riesgo de noticias»." }];
@@ -69,16 +60,17 @@ const EXTRA_NUMS = [
 const SEASON_CHIPS = (meta) => [{ k: "seasonality_block_pairs", label: "Pares con bloqueo estacional", emptyLabel: "ninguno · solo reduce tamaño",
   options: (meta?.symbols || []).map((s) => ({ id: s, name: s })),
   hint: "En estos pares la señal contra el sesgo horario se bloquea (evidencia neta solo en EURUSD); en el resto se opera con el tamaño reducido configurado." }];
-const BT_INTRO = (s) => `Evalúa la estrategia sobre las últimas 1.000 velas de Yahoo Finance (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes de 0.01 y el mismo plan de riesgo: ${s.risk_per_trade}% por operación, 1:${s.leverage}, spread HFM como único coste, trailing stop${s.close_before_weekend ? " y cierre antes del fin de semana" : ""}. Cada operación se atribuye a la sesión (Sídney, Tokio, Londres, Nueva York) en la que se abrió${s.sessions_allowed?.length ? `; solo se abren entradas en ${s.sessions_allowed.map((x) => SESSION_NAMES[x]).join(" y ")}, como en el bot` : ""}.`;
+const BT_INTRO = (brand) => (s) => `Evalúa la estrategia sobre las últimas 1.000 velas de Yahoo Finance (sin filtro IA ni TF superior) con el capital inicial de tu cuenta, lotes de 0.01 y el mismo plan de riesgo: ${s.risk_per_trade}% por operación, 1:${s.leverage}, ${brand.costsNote}, trailing stop${s.close_before_weekend ? " y cierre antes del fin de semana" : ""}. Cada operación se atribuye a la sesión (Sídney, Tokio, Londres, Nueva York) en la que se abrió${s.sessions_allowed?.length ? `; solo se abren entradas en ${s.sessions_allowed.map((x) => SESSION_NAMES[x]).join(" y ")}, como en el bot` : ""}.`;
 const OPT_INTRO = "Optimización por par con lotes, spread y cierre de fin de semana como en el bot: ";
 const AI_ALL_INTRO = (n) => `Corre el optimizador y el walk-forward en los ${n} pares activos y la IA cruza esos resultados con las operaciones reales del bot, las estadísticas por sesión del backtest, las noticias y la revalidación semanal. Aplica los SL/TP que se sostienen fuera de muestra, restringe las sesiones si hay evidencia y poda lo que pierde, siempre dentro de los topes de tu perfil de riesgo forex. Los cambios se aplican directamente y te avisa por Telegram.`;
 const SESSION_CHIPS = (meta) => [{ k: "sessions_allowed", label: "Sesiones para abrir posiciones", emptyLabel: "todas", options: meta?.sessions || [],
   hint: "El bot solo abre nuevas entradas cuando alguna de las sesiones marcadas está abierta (Londres y Nueva York concentran la liquidez). Sin selección opera en todo el horario forex. Las posiciones abiertas se gestionan igual en cualquier sesión. El backtest aplica el mismo filtro." }];
 const fmtLev = (v) => `1:${v}`;
-const PLAN_INTRO = "Plan de crecimiento compuesto para la cuenta forex: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios Prudente / Realista / Ambicioso son rentabilidades mensuales supuestas para la proyección (no tienen relación con el perfil de riesgo del bot); el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias en lotes y pips (spread HFM, lote mínimo, sesiones y cierre de fin de semana como en el bot, sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración del bot forex.";
+const PLAN_INTRO = (brand) => `Plan de crecimiento compuesto para la cuenta forex: cuándo reinvertir, cuándo subir el riesgo y cuándo empezar a retirar. Los escenarios Prudente / Realista / Ambicioso son rentabilidades mensuales supuestas para la proyección (no tienen relación con el perfil de riesgo del bot); el escenario «Según backtest» usa Monte Carlo sobre tus propias estrategias en lotes y pips (${brand.costsNote}, lote mínimo, sesiones y cierre de fin de semana como en el bot, sin filtro IA). Tu meta, aporte y escenario quedan guardados en la configuración de este bot.`;
 
-export default function FxDashboard({ onLogout }) {
-  setApiBase("fx");
+export default function FxDashboard({ onLogout, bot = "fx" }) {
+  setApiBase(bot);
+  const brand = BRANDS[bot] || BRANDS.fx;
   const nav = useNavigate();
   const [meta, setMeta] = useState(null);
   const [symbol, setSymbol] = useState("XAUUSD");
@@ -87,9 +79,9 @@ export default function FxDashboard({ onLogout }) {
   const { data, refresh } = usePolling(() => http.get("/dashboard").then((r) => r.data), 4000);
 
   useEffect(() => {
-    document.title = "HotForex AI Trading · Panel de control";
+    document.title = `${brand.name} · Panel de control`;
     http.get("/meta").then((r) => setMeta(r.data)).catch(() => toast.error("No se pudo cargar la configuración"));
-  }, []);
+  }, [brand.name, bot]);
 
   const symbols = data?.settings.symbols;
   useEffect(() => {
@@ -111,7 +103,7 @@ export default function FxDashboard({ onLogout }) {
   if (!data) {
     return (
       <div data-testid="fx-dashboard-loading" className="flex min-h-screen items-center justify-center gap-3 font-mono text-sm text-slate-400">
-        <Loader2 className="h-4 w-4 animate-spin text-sky-400" /> Conectando con el motor HotForex...
+        <Loader2 className={`h-4 w-4 animate-spin ${brand.spinner}`} /> Conectando con el motor {brand.short}...
       </div>
     );
   }
@@ -119,14 +111,15 @@ export default function FxDashboard({ onLogout }) {
   const toggleBot = async () => {
     setBusy(true);
     const running = data.status.running;
-    await act(() => http.post(running ? "/bot/stop" : "/bot/start"), running ? "Bot detenido" : data.status.mode === "REAL" ? "Bot iniciado · MODO REAL en HFM" : "Bot iniciado · operando en horario forex");
+    await act(() => http.post(running ? "/bot/stop" : "/bot/start"), running ? "Bot detenido" : data.status.mode === "REAL" ? `Bot iniciado · MODO REAL en ${brand.broker}` : "Bot iniciado · operando en horario forex");
     setBusy(false);
   };
   const newsAlert = data.news?.risk === "ALTO" || data.news?.blocked || data.news?.critical?.length > 0;
 
   return (
-    <div data-testid="fx-dashboard" className="app-bg grain min-h-screen">
-      <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} brand={FX_BRAND} onSwitchBot={() => nav("/")} bot="fx" onRefresh={refresh}
+    <BrandContext.Provider value={brand}>
+    <div data-testid="fx-dashboard" data-bot={bot} className="app-bg grain min-h-screen">
+      <Header status={data.status} busy={busy} onToggle={toggleBot} view={view} onLogout={onLogout} brand={brand.header} onSwitchBot={() => nav("/")} bot={bot} onRefresh={refresh}
         onSettings={() => setView((v) => (v === "settings" ? "panel" : "settings"))}
         onDocs={() => setView((v) => (v === "docs" ? "panel" : "docs"))}
         onDeploy={() => setView((v) => (v === "deploy" ? "panel" : "deploy"))}
@@ -135,7 +128,7 @@ export default function FxDashboard({ onLogout }) {
       {view === "deploy" ? (
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><VpsInstall onBack={() => setView("panel")} /></main>
       ) : view === "docs" ? (
-        <main className="mx-auto max-w-[1920px] p-4 md:p-6"><Documentation bot="fx" onBack={() => setView("panel")} /></main>
+        <main className="mx-auto max-w-[1920px] p-4 md:p-6"><Documentation bot={bot} onBack={() => setView("panel")} /></main>
       ) : view === "settings" ? (
         <main className="mx-auto max-w-[1920px] p-4 md:p-6"><FxAdminSettings account={data.account} refresh={refresh} /></main>
       ) : (
@@ -149,8 +142,8 @@ export default function FxDashboard({ onLogout }) {
         {(data.status.broker_error || data.status.broker_health?.ok === false) && (
           <div data-testid="fx-broker-error-banner" className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-2 font-mono text-[11px] text-rose-200">
             {data.status.broker_health?.down_since
-              ? <>Cuenta HFM sin conexión con MetaApi desde las {fmtTime(data.status.broker_health.down_since)} ({data.status.broker_health.down_sec < 60 ? `${data.status.broker_health.down_sec} s` : `${Math.round(data.status.broker_health.down_sec / 60)} min`}) · {data.status.broker_health.error} · el bot no abrirá nuevas operaciones hasta reconectar{data.status.broker_health.alerted ? " · aviso enviado por Telegram" : ""}</>
-              : <>HFM / MetaApi sin respuesta: {data.status.broker_error} · equidad y posiciones reales pendientes de sincronizar</>}
+              ? <>Cuenta {brand.broker} sin conexión con MetaApi desde las {fmtTime(data.status.broker_health.down_since)} ({data.status.broker_health.down_sec < 60 ? `${data.status.broker_health.down_sec} s` : `${Math.round(data.status.broker_health.down_sec / 60)} min`}) · {data.status.broker_health.error} · el bot no abrirá nuevas operaciones hasta reconectar{data.status.broker_health.alerted ? " · aviso enviado por Telegram" : ""}</>
+              : <>{brand.broker} / MetaApi sin respuesta: {data.status.broker_error} · equidad y posiciones reales pendientes de sincronizar</>}
           </div>
         )}
         <SessionsStrip hours={data.status.market_hours} allowed={data.settings.sessions_allowed} />
@@ -194,7 +187,7 @@ export default function FxDashboard({ onLogout }) {
                   onCloseAll={() => act(() => http.post("/positions/close-all"), "Cierre de emergencia ejecutado")} />
               </TabsContent>
               <TabsContent value="history" className="mt-0"><TradeHistory trades={data.trades} /></TabsContent>
-              <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} intro={BT_INTRO} /></TabsContent>
+              <TabsContent value="backtest" className="mt-0"><Backtest meta={meta} settings={data.settings} intro={BT_INTRO(brand)} /></TabsContent>
               <TabsContent value="performance" className="mt-0">
                 <Performance tradeCount={data.account.total_trades} settings={data.settings} strategyKeys={meta?.strategy_keys} onSave={(body) => act(() => http.put("/settings", body), "Configuración actualizada")} />
               </TabsContent>
@@ -204,7 +197,7 @@ export default function FxDashboard({ onLogout }) {
               </TabsContent>
               <TabsContent value="news" className="mt-0"><FxNewsPanel summary={data.news} symbols={data.settings.symbols} currencyNames={meta?.currency_names} /></TabsContent>
               <TabsContent value="plan" className="mt-0">
-                <GrowthPlan account={data.account} settings={data.settings} checkin={data.checkin} refresh={refresh} currency="USD" intro={PLAN_INTRO}
+                <GrowthPlan account={data.account} settings={data.settings} checkin={data.checkin} refresh={refresh} currency="USD" intro={PLAN_INTRO(brand)}
                   onSave={(body) => act(() => http.put("/settings", body), "Plan actualizado")} />
               </TabsContent>
             </Tabs>
@@ -219,10 +212,11 @@ export default function FxDashboard({ onLogout }) {
           <Terminal logs={data.logs} onClear={() => act(() => http.delete("/logs"))} />
         </div>
         <p className="pb-4 pt-2 font-mono text-[10px] uppercase tracking-wider text-slate-600">
-          Simulación con precios reales de Yahoo Finance · Lotes y pips según especificaciones HFM · No es asesoría financiera · El apalancamiento implica alto riesgo
+          Simulación con precios reales de Yahoo Finance · Lotes y pips según especificaciones de {brand.broker}{data.status.costs?.commission_lot_usd ? ` · comisión ${data.status.costs.commission_lot_usd} USD/lote` : ""} · No es asesoría financiera · El apalancamiento implica alto riesgo
         </p>
       </main>
       )}
     </div>
+    </BrandContext.Provider>
   );
 }

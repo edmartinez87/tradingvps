@@ -12,7 +12,7 @@ from pydantic import BaseModel
 import backup
 import notify
 import migrations
-from deps import engine, db, store, fx_engine, fx_store, news, fx_news, ai_usage, protected_router
+from deps import engine, db, store, fx_engine, pep_engine, news, FX_BOTS, ALL_ENGINES, ai_usage, protected_router
 from routers import cron_routes
 
 logger = logging.getLogger(__name__)
@@ -32,18 +32,19 @@ async def init():
 
 
 async def _log_both(level: str, text: str):
-    for eng in (engine, fx_engine):
+    for eng in ALL_ENGINES:
         await eng.log(level, text)
 
 
 async def reload_state():
     """Re-reads everything the processes keep in memory after the collections were replaced."""
     await store.load()
-    await fx_store.load()
+    for _e, st, _n in FX_BOTS:
+        await st.load()
     await ai_usage.load()
     await cron_routes.init()
     await init()
-    for eng in (engine, fx_engine):
+    for eng in ALL_ENGINES:
         eng.running = False
         eng.signal_keys = set()
         async for s in eng.db.signals.find({}, {"key": 1}).sort("_id", -1).limit(500):
@@ -51,13 +52,14 @@ async def reload_state():
                 eng.signal_keys.add(s["key"])
         eng._external_warned = set()
     await news.reload()
-    await fx_news.reload()
+    for _e, _s, nw in FX_BOTS:
+        await nw.reload()
     await migrations.run(engine, db)
 
 
 async def perform_restore(data: bytes, origin: str) -> dict:
     """Stops both bots, replaces the database and reloads the in-memory state. Used by the panel and by deploy/restore.sh."""
-    for eng in (engine, fx_engine):
+    for eng in ALL_ENGINES:
         eng.running = False
     out = await backup.restore(db, data)
     await reload_state()
@@ -78,7 +80,7 @@ async def backup_status():
         logger.exception("backup list")
         backups, error = [], f"No se pudo leer la carpeta de copias ({backup.DIR}): {str(e)[:120]}"
     return {"backups": backups, "last": meta, "keep_days": backup.KEEP_DAYS, "max_upload_mb": backup.MAX_UPLOAD_MB, "error": error,
-            "bots_running": {"crypto": engine.running, "fx": fx_engine.running}, "telegram": notify.is_on("system"), "confirm_word": CONFIRM}
+            "bots_running": {"crypto": engine.running, "fx": fx_engine.running, "pepper": pep_engine.running}, "telegram": notify.is_on("system"), "confirm_word": CONFIRM}
 
 
 @router.post("/backup/create")
@@ -144,7 +146,7 @@ async def _uploaded_bytes(upload_id: str) -> bytes:
 async def backup_restore(req: RestoreRequest):
     if req.confirm.strip().upper() != CONFIRM:
         raise HTTPException(400, f"Escribe {CONFIRM} para confirmar")
-    if engine.running or fx_engine.running:
+    if any(e.running for e in ALL_ENGINES):
         raise HTTPException(409, "Detén ambos bots (Bybit y HotForex) antes de restaurar una copia")
     if req.upload_id:
         try:

@@ -12,9 +12,26 @@ import { buildFaq } from "./faqContent";
 const TAB = "rounded-sm px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-slate-400 data-[state=active]:bg-amber-500 data-[state=active]:text-[#07090E]";
 const Icon = ({ name, className }) => { const C = Icons[name] || Icons.Circle; return <C className={className} />; };
 const BRAND = {
+  pepper: { name: "Pepperstone AI trading", accent: "text-teal-300", chip: "border-teal-500/40 bg-teal-500/10 text-teal-300", sub: "Forex y metales · Razor / Standard · horario de mercado" },
   crypto: { name: "Bybit AI Trader", accent: "text-amber-400", chip: "border-amber-500/40 bg-amber-500/10 text-amber-300", sub: "Futuros perpetuos USDT · cripto 24/7" },
   fx: { name: "HotForex AI Trading", accent: "text-sky-400", chip: "border-sky-500/40 bg-sky-500/10 text-sky-300", sub: "Forex y metales · horario de mercado" },
 };
+// Pepperstone shares the FX docs; broker names, suffix talk and the settings tab name are swapped in the generated text.
+const PEP_SWAPS = [
+  ["HotForex AI Trading", "Pepperstone AI trading"], ["Ajustes → HotForex", "Ajustes → Pepperstone"], ["HFM (HotForex)", "Pepperstone"], ["HotForex", "Pepperstone"],
+  ["tipo de cuenta HFM (Premium sin sufijo, Zero «b», Pro «r», Cent «c», InfinityX «x»)", "tipo de cuenta (en Pepperstone los símbolos no llevan sufijo)"],
+  ["Premium sin sufijo (EURUSD), Zero «b» (EURUSDb), Pro «r» (EURUSDr), Cent «c» (EURUSDc), InfinityX «x»", "en Pepperstone todos los tipos de cuenta usan el símbolo sin sufijo (EURUSD, XAUUSD)"],
+  ["HFMarketsGlobal-Live2", "Pepperstone-MT5-Live01"], ["spread medio de HFM", "spread y comisión de tu tipo de cuenta Pepperstone (Razor o Standard)"], ["Spread medio de HFM", "Spread y comisión de tu tipo de cuenta Pepperstone (Razor o Standard)"],
+  ["HFM", "Pepperstone"],
+];
+const rebrand = (node, bot) => {
+  if (bot !== "pepper") return node;
+  if (typeof node === "string") return PEP_SWAPS.reduce((s, [a, b]) => s.split(a).join(b), node);
+  if (Array.isArray(node)) return node.map((n) => rebrand(n, bot));
+  if (node && typeof node === "object") return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, rebrand(v, bot)]));
+  return node;
+};
+
 
 function Features({ data, brand }) {
   return (
@@ -117,9 +134,10 @@ function Faq({ data, brand }) {
 
 export default function Documentation({ bot = "crypto", onBack }) {
   const brand = BRAND[bot];
-  const features = useMemo(() => buildFeatures(bot), [bot]);
-  const howto = useMemo(() => buildHowTo(bot), [bot]);
-  const faq = useMemo(() => buildFaq(bot), [bot]);
+  const src = bot === "pepper" ? "fx" : bot;
+  const features = useMemo(() => rebrand(buildFeatures(src), bot), [src, bot]);
+  const howto = useMemo(() => rebrand(buildHowTo(src), bot), [src, bot]);
+  const faq = useMemo(() => rebrand(buildFaq(src), bot), [src, bot]);
   return (
     <div data-testid="documentation-view" className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">

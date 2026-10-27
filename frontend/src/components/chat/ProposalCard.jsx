@@ -1,6 +1,7 @@
 import { Check, X, Loader2, AlertTriangle, Settings2, SlidersHorizontal, Zap, CheckCircle2, XCircle, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fmtVal } from "@/components/bot/AiAdvice";
+import { BOT_NAMES } from "@/fx/brand";
 
 const KIND = {
   settings: { label: "Cambio de ajustes", Icon: SlidersHorizontal },
@@ -24,7 +25,7 @@ export function ProposalCard({ p, onResolve, busy }) {
       <div className="flex items-center gap-2 border-b border-[#1E293B] bg-gradient-to-r from-amber-500/15 to-transparent px-3 py-2">
         <kind.Icon className="h-3.5 w-3.5 text-amber-300" />
         <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-200">{kind.label}</span>
-        <span className="rounded-sm border border-[#1E293B] px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wider text-slate-400">{p.bot === "fx" ? "HotForex" : "Bybit"}</span>
+        <span className="rounded-sm border border-[#1E293B] px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wider text-slate-400">{BOT_NAMES[p.bot] || p.bot}</span>
         {st && (
           <span data-testid={`proposal-status-${p.id}`} className={`ml-auto inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-wider ${st.cls}`}>
             <st.Icon className="h-3 w-3" /> {st.label}

@@ -68,8 +68,8 @@ def _build_prompt(symbol: str, timeframe: str, sig: dict, ctx: dict) -> str:
     )
 
 
-async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict) -> dict:
-    data = _parse(await _ask(_chat(SYSTEM, "fx-signal"), _build_prompt(symbol, timeframe, sig, ctx)))
+async def evaluate_signal(symbol: str, timeframe: str, sig: dict, ctx: dict, kind: str = "fx") -> dict:
+    data = _parse(await _ask(_chat(SYSTEM, f"{kind}-signal"), _build_prompt(symbol, timeframe, sig, ctx)))
     decision = str(data.get("decision", "RECHAZAR")).upper()
     return {
         "decision": "APROBADA" if decision.startswith("APROB") else "RECHAZADA",
@@ -93,8 +93,8 @@ def _news_trade_prompt(event: dict, headlines: list, candidates: list, context: 
     )
 
 
-async def assess_news_event(event: dict, headlines: list, candidates: list, context: dict | None = None) -> dict:
-    chat = _chat(NEWS_SYSTEM, "fx-news-trade")
+async def assess_news_event(event: dict, headlines: list, candidates: list, context: dict | None = None, kind: str = "fx") -> dict:
+    chat = _chat(NEWS_SYSTEM, f"{kind}-news-trade")
     text = await _ask(chat, _news_trade_prompt(event, headlines, candidates, context))
     try:
         data = _parse(text)
