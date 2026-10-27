@@ -65,7 +65,7 @@ export default function BackupSection() {
         body.upload_id = id;
       } else body.filename = target.filename;
       const { data: out } = await api.post(`/backup/restore`, body, { timeout: 300000 });
-      toast.success(`Copia restaurada · ${out.documents} documentos · ambos bots quedan detenidos. Recargando…`);
+      toast.success(`Copia restaurada · ${out.documents} documentos · todos los bots quedan detenidos. Recargando…`);
       setTimeout(() => window.location.reload(), 1800);
     } catch (e) { toast.error(errMsg(e)); setBusy(""); load(); }
   };
@@ -77,7 +77,7 @@ export default function BackupSection() {
   return (
     <Panel testId="backup-section" title="Copias de seguridad" icon={DatabaseBackup} bodyClass="p-4 space-y-3">
       <p className="text-[11px] leading-relaxed text-slate-500">
-        Copia completa de la base de datos de <b className="text-slate-300">ambos bots</b> (ajustes, cuentas, historial, señales, evolución, IA, Telegram y brókers). Se crea sola cada noche a las 03:00 UTC
+        Copia completa de la base de datos de <b className="text-slate-300">los tres bots</b> (ajustes, cuentas, historial, señales, evolución, IA, Telegram y brókers). Se crea sola cada noche a las 03:00 UTC
         (se conservan {info.keep_days} días) y los domingos se envía por Telegram{info.telegram ? "" : " (ahora apagado: activa el aviso «Conexión/sistema»)"}. La clave de acceso actual se conserva al restaurar.
       </p>
       <div data-testid="backup-last" className="rounded-sm border border-[#1E293B] bg-[#07090E] px-3 py-2.5">

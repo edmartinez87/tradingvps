@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the new Pepperstone AI trading bot (third bot) end to end. Backend: 32 of 33 tests passed on the first run (test_iter53 + new test_iter54, run with -n 0). The one failure was a real bug: chat messages sent from the Pepperstone panel were tagged as the Bybit panel. I fixed it in one line and re-ran the test, which then passed. The real LLM reply was in Spanish and correctly described the Pepperstone bot, Razor account and 7 USD/lote commission. Frontend: selector cards, /pepperstone branding, Razor/Standard switch, cTrader note, docs, chat chip, backup restore dialog and the /hotforex and /bybit regressions all pass. The only remaining problems are leftover texts.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/chat/message", "issue": "FIXED BY TESTER: chat_routes.py mapped panel='pepper' to 'crypto' (\"fx\" if panel=='fx' else \"crypto\"). Messages were stored as panel crypto and context.snapshot reported 'panel_abierto_por_el_usuario: Bybit'. Now it accepts crypto/fx/pepper. Confirmed in Mongo chat_messages (panel='pepper')."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Texts that still assume two bots", "issues": [
+        "ChatPanel.jsx:119 greeting 'Veo en vivo los dos bots' and :151 footer 'Conversación compartida por ambos bots' should say three bots",
+        "BackupSection.jsx:80 'Copia completa de la base de datos de ambos bots' and :68 restore toast 'ambos bots quedan detenidos' (RestoreBackupDialog already says 'los tres bots')",
+        "AiSection.jsx:68 'Activa ahora en ambos bots'; VpsInstall.jsx:70 'Lleva los dos bots a tu propio servidor'",
+        "faqContent.js:13/73/120 and howToContent.js:116 'ambos bots'/'los dos bots'; vpsContent.js:98 'revisión IA de ambos bots'"
+      ]},
+      {"screen": "/pepperstone Ajustes > MetaApi plan cards (HfmSection)", "issues": ["Cloud G1 fiabilidad regular card says 'Solo tiene sentido si tu servidor de HFM no conecta en G2'. This is a leftover HFM mention on the Pepperstone page and should use the broker name. Comparisons such as '≈ 20 % del de HFM' are deliberate and fine."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter53_pepperstone.py", "/app/backend/tests/test_iter54_pepperstone_extra.py", "/app/test_reports/pytest/iter54.xml"],
+  "action_items": [
+    "Update the texts that still say 'ambos bots' / 'los dos bots' (ChatPanel, BackupSection, AiSection, VpsInstall, FAQ/how-to, vpsContent)",
+    "Use the broker name (engine brand) instead of the hard-coded 'HFM' in the MetaApi plan card description in HfmSection",
+    "Review the chat_routes.py fix made by the tester (panel whitelist crypto/fx/pepper)"
+  ],
+  "critical_code_review_comments": [
+    "routers/chat_routes.py MessageIn.panel is a free string. Use Literal['crypto','fx','pepper'] (or derive it from FX_BOTS) so a fourth bot is not silently mapped to crypto again.",
+    "PUT /api/pepper/config from the HFM section saves mt_login/mt_server/etc. along with account_type in one call. That works, but the log line is under the logger 'fx.engine' for both bots; add the broker key to backend log lines for clarity."
+  ],
+  "updated_files": ["/app/backend/routers/chat_routes.py", "/app/backend/tests/test_iter54_pepperstone_extra.py"],
+  "success_rate": {"backend": "97% (32/33 on first run, 100% after the one-line fix; 1 skipped: GET /logs not exposed)", "frontend": "100% functional; only text/copy issues"},
+  "seed_data_creation": "None. The Pepperstone paper account was reset to 500 (it was already 500). Two chat messages were added to the shared conversation. The cron ai-review was triggered once with run_id TEST_pep_*.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Final state checked: fx and pepper are both stopped, PAPER, equity 500, risk 1.0; HFM account_type premium, Pepperstone razor. Run the pepper tests with -n 0. The Settings page title is uppercase via CSS, so check case-insensitively. Docs FAQ answers are collapsed accordions; use text_content to read them.",
+  "rca of the issue": "Chat panel bug: chat_routes.chat_message was written when only two panels existed and was not updated for the third bot. The frontend useChat.js correctly sends panel: 'pepper'. Fix: whitelist the three keys."
+}

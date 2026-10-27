@@ -67,7 +67,7 @@ export default function VpsInstall({ onBack }) {
           <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-300"><Server className="h-5 w-5" /></span>
           <div>
             <h1 className="font-display text-xl font-bold text-slate-50 md:text-2xl">Instalar en tu VPS</h1>
-            <p className="text-[12px] text-slate-500">Lleva los dos bots a tu propio servidor: descarga el paquete completo y sigue la guía detallada. Los comandos se copian con un clic.</p>
+            <p className="text-[12px] text-slate-500">Lleva los tres bots a tu propio servidor: descarga el paquete completo y sigue la guía detallada. Los comandos se copian con un clic.</p>
           </div>
         </div>
         {onBack && <Button data-testid="vps-back-button" variant="outline" size="sm" onClick={onBack} className="h-8 border-[#1E293B] bg-transparent font-mono text-[11px] uppercase tracking-wider hover:bg-[#111827]"><ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Volver al panel</Button>}

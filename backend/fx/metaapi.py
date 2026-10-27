@@ -13,7 +13,7 @@ PLANS = {
     "g2-high": {"type": "cloud-g2", "reliability": "high", "label": "Cloud G2 · fiabilidad alta", "short": "G2 alta", "hour_usd": 0.012, "deploy_usd": 0.072,
                 "recommended": True, "note": "La más barata y la más rápida (ticks < 2,5 s). Es la que MetaApi recomienda para producción: sirve igual para demo y para dinero real."},
     "g1-regular": {"type": "cloud-g1", "reliability": "regular", "label": "Cloud G1 · fiabilidad regular", "short": "G1 regular", "hour_usd": 0.019688, "deploy_usd": 0.118125,
-                   "recommended": False, "note": "Infraestructura antigua sin redundancia. Solo tiene sentido si tu servidor de HFM no conecta en G2."},
+                   "recommended": False, "note": "Infraestructura antigua sin redundancia. Solo tiene sentido si el servidor de tu bróker no conecta en G2."},
     "g1-high": {"type": "cloud-g1", "reliability": "high", "label": "Cloud G1 · fiabilidad alta", "short": "G1 alta", "hour_usd": 0.039376, "deploy_usd": 0.23625,
                 "recommended": False, "note": "La más cara: G1 con servidores redundantes. Útil solo si necesitas G1 y máxima estabilidad con dinero real."},
 }

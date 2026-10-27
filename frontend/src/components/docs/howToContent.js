@@ -105,7 +105,7 @@ export function buildHowTo(bot) {
       id: "ajustes", icon: "Settings2", title: "11 · Ajustes (botón «Ajustes» de la cabecera)",
       steps: [
         "Seguridad: cambia la clave del panel (cierra las demás sesiones).",
-        "Inteligencia artificial: fuente (llave universal de Emergent o tu API key de Google Gemini), proveedor y modelo (lista legible o escribir otro), «Probar conexión» antes de guardar, estado de salud en vivo. La configuración de IA es común a ambos bots.",
+        "Inteligencia artificial: fuente (llave universal de Emergent o tu API key de Google Gemini), proveedor y modelo (lista legible o escribir otro), «Probar conexión» antes de guardar, estado de salud en vivo. La configuración de IA es común a los tres bots.",
         "Telegram: crea un bot con @BotFather y pega el token; escribe un mensaje a tu bot y pulsa «Detectar chat ID»; activa los avisos que quieras y envía una prueba. Tarjeta «Resumen semanal»: vista previa y «Enviar ahora».",
         "Revisión IA automática: activar, frecuencia (diaria/semanal + día), aplicar cambios o solo avisar, «Ejecutar ahora» y última revisión con resumen y cambios.",
         "Agente de noticias" + (fx ? "" : " y Filtro de funding") + ": intervalos, ventanas de bloqueo, factores de tamaño" + (fx ? " y trading por noticias." : " y umbrales ALTO/EXTREMO."),
@@ -113,7 +113,7 @@ export function buildHowTo(bot) {
            : "Bybit · cuenta real: entorno (mainnet/testnet/demo), API key y secret, endpoint avanzado y aviso de desconexión (segundos), Probar conexión (equidad, disponible, posiciones, desfase horario) y Quitar.",
         "Modo de operación: lista de comprobación y botón «Pasar a modo REAL» / «Volver a paper».",
         `Cuenta paper: capital inicial, aportes netos, equidad y operaciones; «Depositar / Retirar» para simular aportes; «Reiniciar con este capital» (borra operaciones, señales, sombras y movimientos; también disponible desde la cabecera con $500 ${cur}).`,
-        "Copias de seguridad (comunes a ambos bots): última copia, crear ahora, descargar, lista de copias del servidor, restaurar una copia guardada o un archivo .json.gz de tu disco (requiere ambos bots detenidos y escribir RESTAURAR; tu clave actual se conserva).",
+        "Copias de seguridad (comunes a los tres bots): última copia, crear ahora, descargar, lista de copias del servidor, restaurar una copia guardada o un archivo .json.gz de tu disco (requiere todos los bots detenidos y escribir RESTAURAR; tu clave actual se conserva).",
       ],
     },
     {

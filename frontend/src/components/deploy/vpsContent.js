@@ -62,7 +62,7 @@ export const STEPS = [
   },
   {
     id: "migrate", icon: "Database", title: "Traer tus datos desde este panel (opcional)",
-    text: "Aquí: Ajustes → Copias de seguridad → «Crear copia ahora» → «Descargar». En el VPS: Ajustes → Copias de seguridad → «Restaurar desde archivo…», elige el .json.gz y escribe RESTAURAR (ambos bots detenidos). La contraseña del VPS se conserva.",
+    text: "Aquí: Ajustes → Copias de seguridad → «Crear copia ahora» → «Descargar». En el VPS: Ajustes → Copias de seguridad → «Restaurar desde archivo…», elige el .json.gz y escribe RESTAURAR (todos los bots detenidos). La contraseña del VPS se conserva.",
     after: "Las API keys (Bybit, MetaApi, Gemini, Telegram) van cifradas con la CREDENTIAL_ENCRYPTION_KEY de la instalación de origen: en el VPS tendrás que volver a introducirlas en Ajustes.",
   },
   {
@@ -95,7 +95,7 @@ export const COMMANDS = [
   ["bash restore.sh backups/<archivo>.json.gz", "restaurar una copia desde la terminal"],
   ["bash reset-password.sh", "poner una contraseña nueva si la olvidaste"],
   ["bash clean-disk.sh", "liberar espacio en disco (caché de Docker, imágenes huérfanas, journald)"],
-  ["bash cron-ai-review.sh", "lanzar ahora la revisión IA de ambos bots"],
+  ["bash cron-ai-review.sh", "lanzar ahora la revisión IA de los tres bots"],
   ["bash update-zip.sh /root/ai-trader-NUEVO.zip", "actualizar a una versión nueva"],
 ];
 

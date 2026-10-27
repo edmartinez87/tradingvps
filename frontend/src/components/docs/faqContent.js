@@ -10,8 +10,8 @@ export function buildFaq(bot) {
       a: `No. Arranca en paper trading con una cuenta ficticia de $500 ${cur} y precios reales. Todo (IA, noticias, sombras, plan, evolución) funciona igual que en real. El plan de crecimiento recomienda no pasar a dinero real hasta superar la Fase 0: ≥ 60 operaciones, profit factor ≥ 1,3, drawdown ≤ 10 % y ≥ 28 días.` },
     { cat: "General", q: "¿El bot garantiza beneficios?", tags: ["garantía", "riesgo", "pérdidas"],
       a: "No. Ningún sistema lo hace. Lo que sí garantiza es disciplina: riesgo fijo por operación, stops siempre puestos, límite de pérdida diaria, sin sobreoperar y métricas honestas (las operaciones sombra y el walk-forward están ahí precisamente para no engañarse). Opera solo con capital que puedas permitirte perder." },
-    { cat: "General", q: "¿Puedo usar los dos bots a la vez?", tags: ["cripto", "forex", "ambos"],
-      a: "Sí. Son independientes (cuentas, ajustes, señales, historial y evolución separados) pero comparten la clave de acceso, la configuración de IA, Telegram y las copias de seguridad. Cambia entre ellos con «Cambiar bot»." },
+    { cat: "General", q: "¿Puedo usar los tres bots a la vez?", tags: ["cripto", "forex", "ambos"],
+      a: "Sí. Son independientes (cuentas, ajustes, señales, historial y evolución separados) pero comparten la clave de acceso, la configuración de IA, Telegram y las copias de seguridad (HotForex y Pepperstone usan además el mismo motor forex con costes distintos). Cambia entre ellos con «Cambiar bot»." },
     { cat: "General", q: "¿Qué pasa si se reinicia el servidor o se corta la luz?", tags: ["reinicio", "caída", "24/7"],
       a: "El bot guarda su estado en la base de datos: al arrancar recuerda si estaba activo y continúa; las posiciones abiertas conservan su stop y objetivo (en REAL están en el bróker, así que siguen protegidas aunque el servidor esté apagado). Lo único que no se ejecuta mientras está apagado es el trailing y la apertura de nuevas operaciones." },
 
@@ -70,7 +70,7 @@ export function buildFaq(bot) {
     { cat: "Datos y cuenta", q: "¿Qué borra «Reiniciar cuenta»?", tags: ["reiniciar", "reset", "borrar"],
       a: "Operaciones, posiciones, señales, curva de equidad, operaciones sombra y movimientos de la cuenta paper; la cuenta vuelve al capital que indiques. No borra ajustes, evolución, noticias ni configuración. En REAL solo reinicia las estadísticas con la equidad real y exige no tener posiciones abiertas." },
     { cat: "Datos y cuenta", q: "¿Puedo exportar o guardar mis datos?", tags: ["exportar", "backup", "copia"],
-      a: "Sí: Ajustes → Copias de seguridad → «Crear copia ahora» y «Descargar». El archivo .json.gz contiene toda la base de datos de ambos bots (las API keys van cifradas). Puedes restaurarlo en la misma instalación desde el panel o con restore.sh." },
+      a: "Sí: Ajustes → Copias de seguridad → «Crear copia ahora» y «Descargar». El archivo .json.gz contiene toda la base de datos de los tres bots (las API keys van cifradas). Puedes restaurarlo en la misma instalación desde el panel o con restore.sh." },
 
     { cat: "Modo REAL", q: fx ? "¿Qué necesito para operar en real con HFM?" : "¿Qué necesito para operar en real con Bybit?", tags: ["real", "credenciales", "api key", "metaapi"],
       a: fx ? "Una cuenta MT4/MT5 en HFM (demo o real), su login, contraseña MASTER y servidor, y un token de MetaApi.cloud (servicio de pago por uso que conecta MetaTrader con el bot: Cloud G2 cuesta unos $0,012/h ≈ $8,8/mes más $2,10/mes por cuenta; es la opción más barata y rápida y vale tanto para demo como para real. Cloud G1 es la infraestructura antigua y sale más cara). Eliges el tipo en Ajustes → HotForex; como MetaApi no permite cambiarlo en una cuenta ya creada, el panel ofrece «Recrear con el nuevo tipo». El bot despliega la cuenta en MetaApi y la verifica antes de dejarte cambiar de modo."
@@ -117,7 +117,7 @@ export function buildFaq(bot) {
       a: fx ? "Yahoo Finance limita las peticiones; el bot reintenta con espera y mantiene la última vela válida. Si un par no carga durante mucho tiempo, revisa el Terminal (nivel ERROR) y prueba a quitarlo temporalmente."
             : "Si Bybit no responde desde la región del servidor, el bot pasa a Bitget y lo indica en la cabecera. Un error 10006 (rate limit) se reintenta solo. Revisa el Terminal para ver el detalle." },
     { cat: "Problemas frecuentes", q: "Restauré una copia y los bots están detenidos", tags: ["restaurar", "detenidos"],
-      a: "Es intencionado: tras restaurar, ambos bots quedan detenidos para que revises posiciones y ajustes antes de iniciarlos. En REAL, comprueba que las posiciones del bróker coinciden con las del panel." },
+      a: "Es intencionado: tras restaurar, todos los bots quedan detenidos para que revises posiciones y ajustes antes de iniciarlos. En REAL, comprueba que las posiciones del bróker coinciden con las del panel." },
 
     { cat: "Seguridad", q: "¿Dónde se guardan mis API keys?", tags: ["api key", "cifrado", "seguridad"],
       a: "En la base de datos del servidor, cifradas con una clave (CREDENTIAL_ENCRYPTION_KEY) que solo está en backend.env. El panel nunca las muestra completas. Si pierdes esa clave, deberás volver a introducir las credenciales." },

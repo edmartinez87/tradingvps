@@ -116,7 +116,7 @@ export function ChatPanel({ open, onOpenChange, bot, onApplied }) {
             <div data-testid="chat-empty" className="space-y-4 pt-2">
               <div className="rounded-md border border-[#1E293B] bg-[#0D111A] p-4">
                 <p className="text-[13px] leading-relaxed text-slate-300">
-                  Hola. Veo en vivo los dos bots (ajustes, cuenta, posiciones, señales, logs, noticias) y puedo leer el código para explicarte cómo funciona cualquier cosa.
+                  Hola. Veo en vivo los tres bots (ajustes, cuenta, posiciones, señales, logs, noticias) y puedo leer el código para explicarte cómo funciona cualquier cosa.
                   Si me pides un cambio o una acción te dejaré una <span className="text-amber-200">tarjeta con Aplicar / Descartar</span>: nada se ejecuta sin tu confirmación.
                 </p>
                 <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-slate-500">Nunca toco credenciales, modo REAL ni código.</p>
@@ -148,7 +148,7 @@ export function ChatPanel({ open, onOpenChange, bot, onApplied }) {
               {job ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
-          <p className="mt-1.5 font-mono text-[9.5px] uppercase tracking-wider text-slate-600">Conversación compartida por ambos bots · los cambios requieren tu confirmación</p>
+          <p className="mt-1.5 font-mono text-[9.5px] uppercase tracking-wider text-slate-600">Conversación compartida por los tres bots · los cambios requieren tu confirmación</p>
         </div>
         <MemoryDialog open={memOpen} onOpenChange={setMemOpen} notes={state?.memory || []} onSave={saveMemory} />
       </SheetContent>

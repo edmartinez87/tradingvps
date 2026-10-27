@@ -1,5 +1,5 @@
-"""/api/chat/* — AI expert chat shared by both bots (panel JWT required)."""
-from typing import List, Any
+"""/api/chat/* — AI expert chat shared by the three bots (panel JWT required)."""
+from typing import List, Any, Literal
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from deps import protected_router
@@ -10,7 +10,7 @@ router = protected_router()
 
 class MessageIn(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
-    panel: str = "crypto"
+    panel: Literal["crypto", "fx", "pepper"] = "crypto"
 
 
 class MemoryIn(BaseModel):
@@ -25,7 +25,7 @@ async def chat_state():
 @router.post("/chat/message")
 async def chat_message(body: MessageIn):
     try:
-        return service.start(body.text.strip(), "fx" if body.panel == "fx" else "crypto")
+        return service.start(body.text.strip(), body.panel)
     except service.Busy:
         raise HTTPException(409, "La IA todavía está respondiendo al mensaje anterior")
 
