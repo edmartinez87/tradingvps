@@ -1,0 +1,24 @@
+{
+  "summary": "Tested new strategy «Cruce EMA 10/20» (ema_cross) on all three bots (Bybit /api, HotForex /api/fx, Pepperstone /api/pepper). Backend: existing test_iter55_ema_cross.py (10/10) + test_iter7_profiles_strategies.py (16/16) pass; new test_iter56_ema_cross_api.py 15/15 pass (meta rules/basis texts, all-disabled PUT → 422 on all bots, profile level 2 keeps ema_cross off on all bots + restore, backtest 'all' crypto/fx, /api/optimize BTCUSDT, /api/fx/optimize + walk-forward EURUSD, real LLM chat answer in Spanish says it's off ('No', disabled_strategies includes ema_cross) and explains CRUCE exit). Frontend: Settings chips show 'Cruce EMA 10/20' dimmed, header 5/8 (crypto) and 5/7 (fx/pepper), toggle → 6/8 / 6/7, save persisted, toggled back; title shows rules. Rendimiento 'Por estrategia' row shows APAGADO and toggle on/off works on all 3 bots (header syncs). Backtest dropdown includes the strategy; BTCUSDT (3 trades) and EURUSD (19 trades) render with 'Cruce EMA contrario' reason label. Docs: features 'Ocho/Siete estrategias' + Cruce EMA 10/20, Cómo usar mentions CRUCE, bot selector card '8 estrategias'. Start/stop works on all bots; no console errors. Found & fixed one stale FAQ text.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "faqContent.js '¿Qué hace exactamente este bot?'", "issue": "Said 'ocho/siete estrategias … (cinco de corto plazo …)' — should be 'seis de corto plazo' now that ema_cross exists. FIXED by testing agent (both crypto and fx branches).", "selector": "docs-tab-faq", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter56_ema_cross_api.py", "/app/backend/tests/test_iter55_ema_cross.py", "/app/backend/tests/test_iter7_profiles_strategies.py", "/app/test_reports/pytest/iter47_a.xml", "/app/test_reports/pytest/iter47_b.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "engine.py / fx/engine_signals.py: _exit_on_cross only runs when self.running — with the bot stopped, open ema_cross positions are not closed on the opposite cross (SL/TP still protect them). Probably intended; consider documenting.",
+    "Enabling ema_cross makes the risk-profile card show 'PERSONALIZADO' (detect_profile mismatch) — expected given the opt-in design, but users may find it surprising; could exclude OPT_IN keys from detect_profile comparison.",
+    "Pre-existing: crypto POST /api/optimize runs optimize() synchronously in the event loop (fx uses asyncio.to_thread) — blocks the server for its duration."
+  ],
+  "updated_files": ["/app/frontend/src/components/docs/faqContent.js", "/app/backend/tests/test_iter56_ema_cross_api.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Settings restored: crypto risk_profile 0, disabled [supertrend_momentum, ema_pullback, ema_cross]; fx & pepper risk_profile 2, disabled [supertrend_momentum, ema_cross]. All three bots STOPPED, PAPER. One chat message added to the chat session.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run backend tests with REACT_APP_BACKEND_URL exported and -n 0. test_iter56 restores settings via profile + PUT of KEEP keys. SettingsPanel is on the main dashboard (not behind settings-view-button). Tabs: tab-* (crypto) / fx-tab-* (fx/pepper); perf toggle data-testid perf-toggle-{key}."
+}
