@@ -19,10 +19,22 @@ def _snap(iso: str, step: int) -> int:
     return ts - ts % step
 
 
+def price_digits(symbol: str, last_close: float) -> int:
+    """Decimals for the price axis/crosshair: broker digits for FX/metals (EURUSD 5, USDJPY 3, XAUUSD 2), by magnitude for crypto."""
+    try:
+        from fx.symbols import SPECS
+        if symbol in SPECS:
+            return int(SPECS[symbol]["digits"])
+    except ImportError:
+        pass
+    p = abs(float(last_close or 0))
+    return 2 if p >= 1000 else 3 if p >= 10 else 4 if p >= 1 else 5 if p >= 0.01 else 6
+
+
 async def build(db, symbol: str, tf: str, rows: list, step: int, limit: int, before: int = None, source: str = "") -> dict:
     """`rows` are ascending klines (ms) ending at `before` (or now) and should include ~WARMUP extra candles; only the last `limit` are returned."""
     if not rows:
-        return {"symbol": symbol, "tf": tf, "source": source, "has_more": False, **{k: [] for k in EMPTY_KEYS}}
+        return {"symbol": symbol, "tf": tf, "source": source, "has_more": False, "digits": price_digits(symbol, 0), **{k: [] for k in EMPTY_KEYS}}
     df = build_df(rows)
     if before is not None:
         df = df[(df["ts"] // 1000) < before]
@@ -60,5 +72,6 @@ async def build(db, symbol: str, tf: str, rows: list, step: int, limit: int, bef
             lines = [{"price": p.entry_price, "title": "ENTRADA", "color": "#F8FAFC"}, {"price": p.sl, "title": "SL", "color": "#EF4444"},
                      {"price": p.tp, "title": "TP", "color": "#10B981"}]
     markers.sort(key=lambda m: m["time"])
-    return {"symbol": symbol, "tf": tf, "source": source, "has_more": has_more, "candles": candles, "volume": volume, "ema9": line("ema9"),
-            "ema21": line("ema21"), "ema200": line("ema200"), "rsi": line("rsi"), "markers": markers, "lines": lines}
+    return {"symbol": symbol, "tf": tf, "source": source, "has_more": has_more, "digits": price_digits(symbol, candles[-1]["close"] if candles else 0),
+            "candles": candles, "volume": volume, "ema9": line("ema9"), "ema21": line("ema21"), "ema200": line("ema200"), "rsi": line("rsi"),
+            "markers": markers, "lines": lines}

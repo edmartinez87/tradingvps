@@ -40,10 +40,10 @@ export const fmtUsd = (v, d = 2) => (v == null ? "—" : `$${num(v, d)}`);
 export const fmtSignedUsd = (v, d = 2) =>
   v == null ? "—" : `${v > 0 ? "+" : v < 0 ? "-" : ""}$${num(Math.abs(v), d)}`;
 export const fmtPct = (v, d = 2) => (v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}%`);
-export const fmtPrice = (v) => {
+export const fmtPrice = (v, digits) => {
   if (v == null) return "—";
   const n = Number(v);
-  const d = n >= 1000 ? 2 : n >= 10 ? 3 : n >= 1 ? 4 : 5;
+  const d = Number.isInteger(digits) ? digits : n >= 1000 ? 2 : n >= 10 ? 3 : n >= 1 ? 4 : 5;
   return num(n, d);
 };
 export const fmtQty = (v) => (v == null ? "—" : Number(v).toPrecision(4));

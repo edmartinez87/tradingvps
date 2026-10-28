@@ -75,7 +75,7 @@ export default function PriceChart({ symbol, defaultTf, kind = "Perpetuo", tfs =
         </div>
       }>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3 font-mono text-[11px]">
-        <span data-testid="chart-last-price" className="text-base font-semibold text-slate-50">{fmtPrice(last?.close)}</span>
+        <span data-testid="chart-last-price" className="text-base font-semibold text-slate-50">{fmtPrice(last?.close, data?.digits)}</span>
         {IND.map(([k, label, color]) => (
           <button key={k} data-testid={`chart-ind-${k}`} onClick={() => setInd((v) => ({ ...v, [k]: !v[k] }))} aria-pressed={!!ind[k]}
             className={`rounded-sm border px-1.5 py-px transition-colors ${ind[k] ? `border-[#1E293B] ${color}` : "border-transparent text-slate-600 line-through hover:text-slate-400"}`}>

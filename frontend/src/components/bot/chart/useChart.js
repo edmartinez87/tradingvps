@@ -57,6 +57,12 @@ export function render(a, d, lines, tf) {
   const daily = tf === "1d";
   a.daily = daily;
   a.chart.timeScale().applyOptions({ timeVisible: !daily });
+  const digits = Number.isInteger(d.digits) ? d.digits : 2;
+  if (a.digits !== digits) {  // axis + crosshair labels with the instrument's real precision (EURUSD 0.70xxx, USDJPY 157.9xx, XAUUSD 2 dec.)
+    a.digits = digits;
+    const priceFormat = { type: "price", precision: digits, minMove: Number((10 ** -digits).toFixed(digits)) };
+    [a.candles, a.e9, a.e21, a.e200].forEach((s) => s.applyOptions({ priceFormat }));
+  }
   a.candles.setData(shift(d.candles, daily));
   a.vol.setData(shift(d.volume, daily));
   a.e9.setData(shift(d.ema9, daily));

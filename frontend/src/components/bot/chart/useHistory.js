@@ -11,12 +11,13 @@ function fresh() {
 }
 
 function absorb(store, d) {
+  if (Number.isInteger(d.digits)) store.digits = d.digits;
   SERIES.forEach((k) => (d[k] || []).forEach((p) => store[k].set(p.time, p)));
   (d.markers || []).forEach((m) => store.markers.set(`${m.time}|${m.position}|${m.text}`, m));
 }
 
 function materialize(store) {
-  const out = {};
+  const out = { digits: store.digits };
   [...SERIES, "markers"].forEach((k) => (out[k] = [...store[k].values()].sort((x, y) => x.time - y.time)));
   return out;
 }

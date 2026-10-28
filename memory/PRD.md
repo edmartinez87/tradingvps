@@ -374,6 +374,10 @@
 - Fix `fx/market.py` `_normalize(rows, step)`: ajusta cada timestamp al inicio de su bucket y pliega duplicados (open se mantiene, high/low fusionados, close = último, volumen = máx.) en `fetch_klines` y `fetch_before` antes de agregar (4h). Bybit no afectado (velas alineadas).
 - Tested: `tests/test_iter60_yahoo_candles.py` 10/10 + `tests/test_iter50_fx_candle_alignment.py` (testing_agent, 35 tests); testing_agent iteration_50 (API 5m/15m/1h/4h en /fx y /pepper, 3 sondeos sin timestamps nuevos, páginas «before» alineadas, UI 40 s de sondeos en 15 m con eje regular y «300 velas» estable, scroll a 1300 velas sin huecos): 100 %.
 
+## Implemented (2026-06, iteration 57 · precisión real del precio en el cursor y el eje del gráfico)
+- `chart.build` devuelve `digits` (FX/metales: dígitos del bróker en `fx/symbols.SPECS` → EURUSD/AUDUSD 5, USDJPY 3, XAUUSD 2, XAGUSD 3; cripto: por magnitud 2–6). `useChart.render` aplica `priceFormat {precision, minMove}` a velas y EMAs cuando cambian los dígitos (cursor 0.70033, eje 0.70600…); `useHistory` conserva `digits` al mezclar sondeos; `fmtPrice(v, digits)` para la etiqueta del último precio.
+- Tested: curl `/klines` (AUDUSD 5, USDJPY 3, XAUUSD 2, BTCUSDT 2, XRPUSDT 4) + captura con el cursor en AUDUSD 15 m mostrando 0.70033 y último precio 0.70289.
+
 ## Backlog
 - P2: Pepperstone cTrader: sin puente (MetaApi solo MetaTrader). Opción futura: cTrader Open API (OAuth + Protobuf) como conector alternativo del motor FX.
 - P2: FX `fix_reversion`: si el bot está apagado durante toda la ventana 16:00–16:30 Londres del último día hábil, la oportunidad del mes se pierde (sin recuperación posterior, por diseño).
