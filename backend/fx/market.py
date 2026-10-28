@@ -100,6 +100,22 @@ def _aggregate(rows: list, factor: int, step_sec: int) -> list:
     return out
 
 
+def _normalize(rows: list, step_sec: int) -> list:
+    """Yahoo appends the forming bar twice: once at its bucket start and once more stamped with the last trade time (O=H=L=C). Snap every
+    timestamp to the bucket start and fold duplicates, so a timeframe never shows two candles for the same period (chart) and `len-2` really
+    is the last closed candle (engine)."""
+    out, bucket = [], {}
+    for ts, o, h, lo, c, v in rows:
+        key = ts - ts % (step_sec * 1000)
+        if key not in bucket:
+            bucket[key] = [key, o, h, lo, c, v]
+            out.append(bucket[key])
+        else:
+            b = bucket[key]
+            b[2], b[3], b[4], b[5] = max(b[2], h), min(b[3], lo), c, max(b[5], v)
+    return out
+
+
 class FxMarket:
     provider = "yahoo"
 
@@ -210,7 +226,7 @@ class FxMarket:
             rng = "120d" if limit <= 300 else "730d"
         try:
             res = await self._chart(SPECS[symbol]["yahoo"], {"interval": interval, "range": rng, "includePrePost": "false"})
-            rows = self._rows(res)
+            rows = _normalize(self._rows(res), TF_SECONDS[tf] // factor)
         except Exception as e:
             if hit:
                 logger.warning(f"klines {symbol} {tf}: {e} → caché de hace {int(time.time() - hit[0])}s")
@@ -238,7 +254,7 @@ class FxMarket:
         if start >= end_ts:
             return []
         res = await self._chart(SPECS[symbol]["yahoo"], {"interval": interval, "period1": start, "period2": end_ts, "includePrePost": "false"})
-        rows = self._rows(res)
+        rows = _normalize(self._rows(res), step // factor)
         if factor > 1:
             rows = _aggregate(rows, factor, step)
         rows = [r for r in rows if r[0] // 1000 < end_ts][-limit:]
