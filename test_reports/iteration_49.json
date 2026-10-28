@@ -1,0 +1,36 @@
+{
+  "summary": "Content review of «Instalar en tu VPS» (all 3 bots), the VPS zip package and «Documentación» (crypto/HotForex/Pepperstone). Everything requested is present and up to date. Backend: 14/14 package tests pass (info, auth 401, required files, README first line, no tests/.env/node_modules/__pycache__, 'tres bots' with no 'ambos/dos bots' in INSTALACION.md/README.md/backup.sh/restore.sh). UI: the VPS guide has all expected strings on /bybit, /hotforex and /pepperstone with no 'dos/ambos bots'; «Descargar ZIP» starts the download (ai-trader-7685d77-20261028.zip). Docs: all hero stats, sections, how-to steps (14 sections on crypto/HF, plus '15 · Modo laboratorio (solo Pepperstone)' only on Pepperstone) and FAQ questions are present. The HFM 'Trade is disabled' FAQ is only on HotForex. Pepperstone docs mention HFM only in the comparison FAQ and have no 'Pepperstone y Pepperstone' or 'Pepperstone (Pepperstone)' artifacts. Tabs, FAQ search, the empty state and 'Volver al panel' work, with no console errors. I found outdated 'dos bots/ambos bots' wording in a few places outside the docs and VPS pages (listed below).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/backup/restore", "issue": "409 message is still 'Detén ambos bots (Bybit y HotForex) antes de restaurar una copia'. The check itself covers ALL_ENGINES (all 3), only the text is outdated. Also lines 68/70: 'ambos bots quedan DETENIDOS' / 'Ambos bots quedan detenidos…' (log/Telegram text). File: backend/routers/backup_routes.py"},
+      {"endpoint": "chat (AI expert)", "issue": "backend/chat/service.py:35 system prompt says 'snapshot en vivo de los dos bots'. backend/chat/knowledge.md:4 says 'Panel web … con dos bots …' (Pepperstone is described right below) and line 10 says '## Flujo de una operación (ambos bots)'. These are shipped in the zip too."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ChatLauncher (header «Chatea con IA expert»)", "issue": "Tooltip title says 'conoce tus dos bots y puede proponerte cambios'. Should be 'tres bots'.", "selector": "[data-testid='chat-open-button']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Documentación → Preguntas (Bybit and HotForex)", "issues": ["Searching 'laboratorio' returns 1 result on crypto and HotForex: the comparison FAQ '¿En qué se diferencia el bot Pepperstone del de HotForex?', whose answer says 'Pepperstone tiene además el Modo laboratorio…'. The content is accurate. It only matters if you strictly want 'laboratorio' to match nothing outside Pepperstone."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter59_vps_package_docs.py", "/app/backend/tests/check_docs_dump.py", "/app/test_reports/pytest/pytest_iter59.xml"],
+  "action_items": [
+    "backend/routers/backup_routes.py:150 → 'Detén los tres bots (Bybit, HotForex y Pepperstone) antes de restaurar una copia'; lines 68/70 'ambos bots' → 'los tres bots'",
+    "frontend/src/components/chat/ChatLauncher.jsx:11 tooltip 'conoce tus dos bots' → 'tus tres bots'",
+    "backend/chat/service.py:35 'de los dos bots' → 'de los tres bots'; backend/chat/knowledge.md:4 'con dos bots' → 'con tres bots', line 10 '(ambos bots)' → '(los tres bots)'",
+    "Optional: decide whether the comparison FAQ should still match the 'laboratorio' search on crypto/HotForex"
+  ],
+  "critical_code_review_comments": [
+    "The Documentation.jsx rebrand() skips every string that already contains 'Pepperstone'. That works today, but any future pepper-aware string that also contains 'HFM' (other than the comparison FAQ) will keep HFM wording on Pepperstone. Prefer explicit pep ? … : … branches in the content builders.",
+    "Code comments still say 'both bots' (cron_routes.py, shared_routes.py, backup.py, deps.py, BackupSection.jsx, useChat.js). These are not user-facing; cosmetic only."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter59_vps_package_docs.py", "/app/backend/tests/check_docs_dump.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% of requested doc/VPS checks; 4 outdated strings found outside the docs/VPS pages"},
+  "seed_data_creation": "none; bots left stopped, no settings changed",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Docs text is checked by dumping the textContent of documentation-view per tab, with all FAQ accordions expanded, to /tmp/docs_dump.json, then running tests/check_docs_dump.py. Hero stats render the value and label in separate elements ('8' + 'estrategias combinables'). The VPS CodeBlock 'where' label is CSS-uppercased, so use text_content rather than inner_text. Package version 7685d77, 262 files, ~0.99 MB."
+}

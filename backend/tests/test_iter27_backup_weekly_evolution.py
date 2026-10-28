@@ -157,7 +157,7 @@ class TestBackupApi:
         running = s.get(f"{API}/backup", timeout=30).json()["bots_running"]
         r = s.post(f"{API}/backup/restore", json={"confirm": "RESTAURAR", "upload_id": garbage}, timeout=30)
         if running["crypto"] or running["fx"]:
-            assert r.status_code == 409 and "Detén ambos bots" in r.json()["detail"]
+            assert r.status_code == 409 and "Detén los tres bots" in r.json()["detail"]
         else:
             assert r.status_code == 400 and "no es una copia" in r.json()["detail"]
         _mongo()[backup.UPLOADS].delete_many({"upload_id": {"$in": [uid, incomplete, garbage]}})

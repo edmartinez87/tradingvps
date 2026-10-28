@@ -1,13 +1,13 @@
 # AI Trading · guía de la aplicación (conocimiento del asistente)
 
 ## Qué es
-Panel web (español) con dos bots de trading automático 24/7 que comparten clave de acceso, IA, Telegram y copias de seguridad:
+Panel web (español) con tres bots de trading automático 24/7 que comparten clave de acceso, IA, Telegram y copias de seguridad:
 - **Bybit AI Trader** (`/bybit`, API `/api/*`): futuros perpetuos USDT (largo/corto). Datos: Bybit v5; si la región está bloqueada usa Bitget como espejo (el badge "Datos: Bitget (espejo)" lo indica). Modo REAL vía API de Bybit (mainnet/testnet/demo).
 - **HotForex AI Trading** (`/hotforex`, API `/api/fx/*`, clave de bot `fx`): forex y metales (12 pares: XAUUSD, XAGUSD, EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD, EURJPY, GBPJPY, EURCHF). Datos paper: Yahoo Finance. Modo REAL vía MetaApi.cloud conectado a la cuenta MT4/MT5 de HFM. Costes: spread medio HFM, sin comisión.
 - **Pepperstone AI trading** (`/pepperstone`, API `/api/pepper/*`, clave de bot `pepper`): el MISMO motor forex/metales que HotForex pero como instancia independiente (sus propios ajustes, cuenta paper, posiciones, señales, plan, revisión IA, Telegram y colecciones `pep_*`). Bróker Pepperstone vía MetaApi (MT4 o MT5; servidores Pepperstone-Demo, Pepperstone-MT5-Live01…; símbolos sin sufijo). Tipo de cuenta seleccionable en Ajustes (`account_type`): **razor** (spread crudo ≈ 20 % del de HFM + comisión 7 USD por lote ida y vuelta, por defecto) o **standard** (solo spread ≈ 90 % del de HFM, sin comisión). El bot descuenta la comisión en paper, backtest, sombras y plan. Las cifras de un bot NO aplican al otro aunque compartan estrategias.
 Cada bot tiene cuenta paper propia (capital inicial $500 por defecto), ajustes, posiciones, historial, señales, logs, plan y evolución independientes.
 
-## Flujo de una operación (ambos bots)
+## Flujo de una operación (los tres bots)
 Escaneo cada `scan_interval_sec` → estrategias sobre velas cerradas (`timeframe`) → puertas de riesgo (máx. posiciones, par ya abierto, límite de pérdida diaria, mercado/sesión, filtros) → puerta de noticias → **validación IA** (si `ai_enabled`: aprueba/rechaza con confianza ≥ `ai_min_confidence`) → ejecución (paper o REAL) con SL/TP por ATR, breakeven, trailing y cierre parcial → la posición se gestiona cada 5 s. Toda señal no ejecutada (RECHAZADA, BAJA_CONFIANZA, BLOQUEADA, NOTICIAS, FUNDING, SESION, REGIMEN…, NO_EJECUTADA) se simula como **operación sombra** para medir si el filtro acierta (`filter_value` > 0 = evitó pérdidas).
 
 ## Estrategias

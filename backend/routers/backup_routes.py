@@ -65,9 +65,9 @@ async def perform_restore(data: bytes, origin: str) -> dict:
     await reload_state()
     when = str(out["created_at"] or "")[:16].replace("T", " ")
     await _log_both("INFO", f"Copia de seguridad restaurada ({origin}) · datos del {when} · {out['documents']} documentos · "
-                            "ambos bots quedan DETENIDOS: revisa posiciones y ajustes antes de iniciar")
+                            "los tres bots quedan DETENIDOS: revisa posiciones y ajustes antes de iniciar")
     await notify.notify(f"🗄 <b>Copia de seguridad restaurada</b> · datos del {when} · {out['documents']} documentos\n"
-                        "Ambos bots quedan detenidos: revisa posiciones y ajustes antes de iniciarlos.", "system")
+                        "Los tres bots quedan detenidos: revisa posiciones y ajustes antes de iniciarlos.", "system")
     return out
 
 
@@ -147,7 +147,7 @@ async def backup_restore(req: RestoreRequest):
     if req.confirm.strip().upper() != CONFIRM:
         raise HTTPException(400, f"Escribe {CONFIRM} para confirmar")
     if any(e.running for e in ALL_ENGINES):
-        raise HTTPException(409, "Detén ambos bots (Bybit y HotForex) antes de restaurar una copia")
+        raise HTTPException(409, "Detén los tres bots (Bybit, HotForex y Pepperstone) antes de restaurar una copia")
     if req.upload_id:
         try:
             backup.check_upload_id(req.upload_id)
