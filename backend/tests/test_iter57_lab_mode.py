@@ -83,8 +83,9 @@ def test_profile_ends_lab_without_restore(s):
     assert after["strategy"] == "all" and "ema_cross" in after["disabled_strategies"]
     cfg = s.get(f"{PEP}/config", timeout=30).json()  # news/auto-review config restored even when a profile ends the lab
     assert cfg["auto_review_enabled"] is True and cfg["news_block_events"] is True
-    keep = {k: before[k] for k in ("symbols", "timeframe", "signal_mode", "htf_filter", "ai_enabled", "ai_min_confidence", "risk_per_trade", "max_positions",
-                                   "leverage", "daily_loss_limit", "disabled_strategies", "trailing_enabled", "partial_tp_enabled", "sessions_allowed", "strategy") if k in before}
+    for k in ("trailing_enabled", "partial_tp_enabled", "vol_filter_enabled", "seasonality_bias", "usd_regime_filter", "fomc_rule", "rollover_guard", "sessions_allowed"):
+        assert after[k] == before[k], k  # keys no profile defines go back to their pre-lab values
+    keep = {k: v for k, v in before.items() if k != "updated_at"}  # restore ALL keys (profiles don't define market gates/trailing/sessions)
     assert s.put(f"{PEP}/settings", json=keep, timeout=30).status_code == 200
 
 

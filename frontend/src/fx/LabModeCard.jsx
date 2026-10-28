@@ -62,7 +62,7 @@ export default function LabModeCard({ lab, onStart, onStop }) {
                 <AlertDialogTitle className="font-display text-teal-200">Activar el modo laboratorio</AlertDialogTitle>
                 <AlertDialogDescription className="space-y-2 text-slate-400">
                   <span className="block">{lab.summary}</span>
-                  <span className="block">Tus ajustes actuales se guardan y se restauran al desactivarlo. Aplicar un perfil de riesgo termina el laboratorio: el perfil define los ajustes y solo se restauran noticias y revisión IA automática.</span>
+                  <span className="block">Tus ajustes actuales se guardan y se restauran al desactivarlo. Aplicar un perfil de riesgo termina el laboratorio: el perfil define sus ajustes y el resto (estrategia, trailing, filtros, noticias, revisión IA) vuelve a su valor anterior. No se puede pasar a REAL con el laboratorio activo.</span>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

@@ -29,7 +29,7 @@ STRATEGY_INFO = {
     },
     "ema_cross": {
         "name": "Cruce EMA 10/20",
-        "rules": "La EMA10 cruza la EMA20 al cierre de la vela (al alza → largo, a la baja → corto) con el precio a favor de la EMA200 (tendencia mayor) y ADX>20 (sin laterales); en criterios estrictos las EMAs deben ir ordenadas 10/20/50. SL de protección 2×ATR, objetivo lejano 6×ATR (3R) y salida clásica: se cierra en cuanto las EMAs vuelven a cruzarse al revés, dejando correr la tendencia con el trailing del bot. Apagada por defecto.",
+        "rules": "La EMA10 cruza la EMA20 al cierre de la vela (al alza → largo, a la baja → corto) con el precio a favor de la EMA200 (tendencia mayor) y ADX>20 (sin laterales); en criterios estrictos las EMAs deben ir ordenadas 10/20/50. SL de protección 2×ATR, objetivo lejano 6×ATR (3R) y salida clásica: se cierra en cuanto las EMAs vuelven a cruzarse al revés, dejando correr la tendencia (el trailing del bot, si está activo, también puede cerrarla antes). Apagada por defecto.",
         "basis": "Cruce de medias rápido de los swing traders (9/21 ≈ 10/20). En backtests publicados ronda el 40-47 % de acierto con profit factor 1,6-3 en activos con tendencia; su punto débil son los rangos, por eso se exige la media de 200 y ADX.",
     },
 }

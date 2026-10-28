@@ -96,7 +96,7 @@ async def timeline(engine, limit: int = 40) -> dict:
                     "window_days": round(dur.total_seconds() / 86400, 1), "ongoing": i == 0, "after": after, "before": before,
                     "equity_end": equity_end, "equity_delta_pct": round(delta / ev["equity"] * 100, 2) if ev["equity"] else 0,
                     "verdict": verdict(before, after), "reverted_at": ev.get("reverted_at"), "revert_of": ev.get("revert_of"),
-                    "revertible": not ev.get("reverted_at") and any(c.get("antes") is not None for c in ev["changes"].values())})
+                    "revertible": ev["source"] != "lab" and not ev.get("reverted_at") and any(c.get("antes") is not None for c in ev["changes"].values())})
     verdicts = [e["verdict"] for e in out]
     ai_verdicts = [e["verdict"] for e in out if e["ai"]]
     return {"events": out, "total": await db.changes.count_documents({}), "ai_changes": len(ai_verdicts),

@@ -294,6 +294,8 @@ def register(router, engine, store):
         if blocked:
             raise HTTPException(409, "Antes de cambiar de modo: " + " · ".join(blocked))
         if body.mode == "live":
+            if await engine.db.lab.find_one({"_id": "main"}):
+                raise HTTPException(409, "Desactiva el modo laboratorio (solo Cruce EMA 10/20, pensado para paper) antes de pasar a modo REAL")
             if body.confirm.strip().upper() != "REAL":
                 raise HTTPException(400, "Escribe REAL para confirmar el cambio a modo real")
             if not checks["can_go_live"]:

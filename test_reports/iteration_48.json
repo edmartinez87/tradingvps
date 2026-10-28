@@ -1,0 +1,37 @@
+{
+  "summary": "Tested «Modo laboratorio» (Pepperstone) on the backend and the frontend. Backend: 9/9 tests pass (iter57 plus the new iter58, which compares every settings/config key on restore). Frontend: lab card, confirm dialog (cancel and confirm), toasts, active badge, stats grid, Plan de trading showing Cruce EMA 10/20 · 15M · criterios relajados, chart switching to 15m, altered warning after enabling Filtro TF superior, stop/restore back to Multi-estrategia (5) · 1h, Evolución lab events and no lab card on /hotforex all work, with no console errors. The real-LLM Chat IA answer describes the lab correctly. Bot start/stop works and the bot was left STOPPED. One HIGH logic bug: applying a risk profile while the lab is on leaves 8 lab-disabled settings OFF.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/pepper/profile (lab.end_by_profile)", "issue": "Profiles (fx/profiles.py) do not define trailing_enabled, partial_tp_enabled, vol_filter_enabled, seasonality_bias, usd_regime_filter, fomc_rule, rollover_guard or sessions_allowed. end_by_profile only restores 'strategy' and the config, so after start lab → profile level 2 all 8 settings stay at lab values (False / []). profile_active still reports 2, so the user silently loses trailing, partial TP and every market gate. Reproduced from a clean state.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "Evolución undo on a 'lab' event", "issue": "The lab event offers 'Deshacer'. Undoing it reverts the settings but leaves the lab doc active and the news/auto-review config OFF, so the state becomes inconsistent. Consider hiding undo for source 'lab' or routing it through lab.stop."},
+      {"endpoint": "POST /api/pepper/lab/start + switching to live", "issue": "Start is blocked in live (409), but nothing ends the lab if the account later goes live while it is active."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/pepperstone Evolución, lab event", "issues": ["rollover_guard, vol_filter_enabled, seasonality_bias, usd_regime_filter, fomc_rule and partial_tp_enabled show as raw keys; add Spanish labels to LABELS"]},
+      {"screen": "/pepperstone Plan de trading during lab", "issues": ["The Cruce EMA 10/20 description says 'dejando correr la tendencia con el trailing del bot', but trailing is OFF in the lab"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter57_lab_mode.py", "/app/backend/tests/test_iter58_lab_full_restore.py", "/app/test_reports/pytest/pytest_iter58.xml"],
+  "action_items": [
+    "HIGH: in lab.end_by_profile, also restore the pre-lab values of the keys the profile does not define. Simplest: return {k: prev_settings[k] for k in SETTINGS_PATCH if k not in PROFILES[level]['settings']}, so strategy, trailing_enabled, partial_tp_enabled, vol_filter_enabled, seasonality_bias, usd_regime_filter, fomc_rule, rollover_guard and sessions_allowed come back. Update the confirm-dialog text ('solo se restauran noticias y revisión IA automática') to match.",
+    "Add a test: start lab → profile 2 → assert the 8 keys equal their pre-lab values.",
+    "Minor: hide or redirect 'Deshacer' for lab events in Evolución; add Spanish labels for the gate keys; fix the trailing wording in the lab Plan text."
+  ],
+  "critical_code_review_comments": [
+    "fx/lab.py end_by_profile docstring assumes profiles only lack strategy and the news config, but they also lack trailing, partial TP, the 5 market gates and sessions.",
+    "The original test_iter57 profile test restored only a subset of keys, so every run left vol/usd/fomc/seasonality/rollover OFF on the live preview DB. Its teardown is now fixed to restore all keys."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter57_lab_mode.py (teardown restores every setting key)", "/app/backend/tests/test_iter58_lab_full_restore.py (new)"],
+  "success_rate": {"backend": "100% of tests (9/9); 1 logic bug found by manual diff", "frontend": "100%"},
+  "seed_data_creation": "None. Lab/profile events were added to Pepperstone Evolución.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Final Pepperstone state matches the pre-test snapshot exactly: profile Activo (2), strategy all, 1h, all filters on, lab OFF, bot STOPPED. Run lab tests with -n 0. After any profile test, diff the full /api/pepper/settings against a snapshot.",
+  "rca of the issue": "Repro: from the default state, POST /api/pepper/lab/start, then POST /api/pepper/profile {level:2}. The response shows trailing_enabled, partial_tp_enabled, vol_filter_enabled, seasonality_bias, usd_regime_filter, fomc_rule and rollover_guard false and sessions_allowed [], with profile_active 2. Cause: profile_patch only sets the keys in PROFILES[level]['settings'], and end_by_profile only adds strategy, so the other lab-patched keys keep their lab values. Fix: merge the pre-lab values of the non-profile keys into the profile patch."
+}

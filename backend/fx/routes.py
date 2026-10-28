@@ -60,9 +60,9 @@ def register(router, engine, store, news):
         settings = await engine.get_settings()
         p = PROFILES[req.level]
         before = PROFILES[settings.risk_profile]["name"] if detect_profile(settings) is not None else "Personalizado"
-        extra = await lab.end_by_profile(engine, store)
+        extra = await lab.end_by_profile(engine, store, p["settings"])
         if extra:
-            await engine.log("INFO", "Modo laboratorio finalizado al aplicar un perfil de riesgo · estrategia, noticias y revisión IA automática vuelven a su valor anterior; el perfil define el resto")
+            await engine.log("INFO", "Modo laboratorio finalizado al aplicar un perfil de riesgo · el perfil define sus ajustes y el resto (estrategia, trailing, filtros de mercado, noticias, revisión IA) vuelve a su valor anterior")
         s = await engine.update_settings({**profile_patch(req.level), **extra}, "profile", f"Perfil de riesgo aplicado: {PROFILES[req.level]['name']}")
         st = p["settings"]
         await engine.log("INFO", f"Perfil de riesgo: {before} → {p['name']} · {len(st['symbols'])} pares · {st['timeframe']} · riesgo {st['risk_per_trade']}% · 1:{st['leverage']}")
@@ -242,6 +242,8 @@ def register(router, engine, store, news):
 
     @router.post("/evolution/{event_id}/revert")
     async def revert_evolution(event_id: str):
+        if (await lab.state(engine))["active"]:
+            raise HTTPException(409, "Desactiva el modo laboratorio antes de deshacer cambios (se restauran solos al desactivarlo)")
         try:
             out = await evolution.revert(engine, event_id)
         except ValueError as e:

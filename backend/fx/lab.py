@@ -69,10 +69,11 @@ async def stop(engine, store) -> dict:
     return await state(engine, s)
 
 
-async def end_by_profile(engine, store) -> dict:
-    """A risk profile replaces the lab settings. Profiles define neither `strategy` nor the news/auto-review config → those go back to the pre-lab values."""
+async def end_by_profile(engine, store, profile_settings: dict) -> dict:
+    """A risk profile ends the lab: the profile defines its own keys; every other lab key (strategy, trailing/partial, market gates, sessions) and the
+    news/auto-review config go back to their pre-lab values. Returns the extra patch to merge into the profile patch."""
     doc = await _col(engine).find_one_and_delete({"_id": "main"})
     if not doc:
         return {}
     await store.update(doc["prev_config"])
-    return {"strategy": doc["prev_settings"]["strategy"]}
+    return {k: v for k, v in doc["prev_settings"].items() if k not in profile_settings}
