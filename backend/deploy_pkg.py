@@ -14,7 +14,7 @@ INCLUDE_ROOT_FILES = (".dockerignore",)
 EXCLUDE_DIRS = {"node_modules", "__pycache__", ".git", "build", "build_vps", "backups", "tests", ".pytest_cache", ".ruff_cache", "coverage", ".cache"}
 EXCLUDE_FILES = {"backend.env", ".DS_Store", "VERSION"}
 EXCLUDE_SUFFIXES = (".pyc", ".pyo", ".log", ".enc")
-README = ("# AI Trader · Bybit AI Trader + HotForex AI Trading\n\n"
+README = ("# AI Trader · Bybit AI Trader + HotForex AI Trading + Pepperstone AI trading\n\n"
           "Paquete completo del código fuente para instalarlo en tu propio servidor (VPS).\n\n"
           "Guía paso a paso: `deploy/INSTALACION.md` (también está en el panel, botón «Instalar en tu VPS»).\n\n"
           "Resumen: sube este zip a tu VPS, descomprímelo y ejecuta `sudo bash deploy/install.sh`.\n")

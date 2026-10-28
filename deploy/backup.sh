@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copia de seguridad de la base de datos (ambos bots) creada por el propio backend en backups/ (formato .json.gz propio, conserva 14 días).
+# Copia de seguridad de la base de datos (los tres bots) creada por el propio backend en backups/ (formato .json.gz propio, conserva 14 días).
 # Uso: bash backup.sh            → copia local (cron nocturno 03:00 UTC; los domingos el backend la envía también por Telegram)
 #      bash backup.sh --telegram → además la envía por Telegram ahora
 # Las copias también se pueden crear, descargar y restaurar desde el panel: Ajustes → Copias de seguridad.

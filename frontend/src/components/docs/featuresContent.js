@@ -1,20 +1,21 @@
-// "Características" content for both bots. `bot` = "crypto" | "fx". Every claim here mirrors a real feature of the app.
+// "Características" content for the three bots. `bot` = "crypto" | "fx" | "pepper". Every claim here mirrors a real feature of the app.
 export function buildFeatures(bot) {
-  const fx = bot === "fx";
-  const name = fx ? "HotForex AI Trading" : "Bybit AI Trader";
+  const fx = bot === "fx" || bot === "pepper";
+  const pep = bot === "pepper";
+  const name = pep ? "Pepperstone AI trading" : fx ? "HotForex AI Trading" : "Bybit AI Trader";
   const market = fx ? "forex y metales (oro, plata y 10 pares mayores/cruces) con precios de Yahoo Finance" : "futuros perpetuos USDT de Bybit (BTC, ETH, SOL, XRP, AVAX, LINK y hasta 12 pares)";
-  const broker = fx ? "tu cuenta HFM (HotForex) a través de MetaApi.cloud" : "tu cuenta de Bybit (API V5 firmada)";
+  const broker = pep ? "tu cuenta MetaTrader de Pepperstone a través de MetaApi.cloud" : fx ? "tu cuenta HFM (HotForex) a través de MetaApi.cloud" : "tu cuenta de Bybit (API V5 firmada)";
   const cur = fx ? "USD" : "USDT";
   const hero = {
     title: `${name}: un operador algorítmico que trabaja 24/7 y piensa antes de entrar`,
     text: `Analiza ${market} en tiempo real, detecta configuraciones con ${fx ? "siete" : "ocho"} estrategias clásicas, pide una segunda opinión a la IA con todo el contexto del mercado y, si pasa todos los filtros de riesgo, ejecuta la orden con stop, objetivo y trailing. Empieza en paper trading con dinero ficticio y datos reales; cuando las métricas lo avalen, pásalo a modo REAL sobre ${broker} con un clic y una confirmación.`,
     stats: [
-      [fx ? "6" : "7", "estrategias combinables"],
+      [fx ? "7" : "8", "estrategias combinables"],
       ["12", "pares disponibles"],
       ["IA", "Claude Sonnet 5.5 o Gemini"],
       ["5", "perfiles de riesgo"],
       ["24/7", fx ? "en horario de mercado" : "sin descanso"],
-      [fx ? "HFM" : "Bybit", "modo REAL integrado"],
+      [pep ? "Pepperstone" : fx ? "HFM" : "Bybit", "modo REAL integrado"],
     ],
   };
   const sections = [
@@ -100,6 +101,26 @@ export function buildFeatures(bot) {
       ],
     },
     {
+      icon: "MessageSquare", title: "Chatea con IA expert: un gestor que conoce tu bot por dentro",
+      text: "El botón negro y dorado de la cabecera abre un panel lateral con un experto en trading y gestión de riesgo que ve en vivo los tres bots y responde con contexto real, no con generalidades.",
+      bullets: [
+        "Contexto completo: ajustes, estado del mercado, posiciones abiertas, historial y estadísticas, señales y análisis de la IA, logs recientes, plan de crecimiento y evolución de Bybit, HotForex y Pepperstone; además puede leer el código del proyecto (solo lectura) para explicarte exactamente cómo funciona algo.",
+        "Propuestas en tarjetas: cuando sugiere cambiar un ajuste o ejecutar una acción (iniciar/detener, escanear, cerrar una posición, aplicar parámetros…) aparece una tarjeta con Aplicar / Descartar. Nada se ejecuta sin tu clic; en modo REAL la tarjeta avisa además del riesgo.",
+        "Límites: nunca modifica código, claves ni contraseñas, no cambia el modo paper/real ni reinicia cuentas. Usa el proveedor y modelo de IA configurados en Ajustes → IA (llave universal o tu Gemini).",
+        "Memoria: una sola conversación compartida con resumen automático a partir de 40 mensajes (conserva los 10 últimos) y memoria a largo plazo de tus preferencias; «Nueva conversación» la borra con confirmación.",
+      ],
+    },
+    ...(pep ? [{
+      icon: "FlaskConical", title: "Modo laboratorio: una estrategia sola para recoger data limpia",
+      text: "Exclusivo de Pepperstone: un clic deja activa solo la estrategia Cruce EMA 10/20 con las capas que distorsionan la medición apagadas, y otro clic restaura tus ajustes.",
+      bullets: [
+        "Preset: solo Cruce EMA 10/20 en 15 m, criterios relajados (EMA200 + ADX>15), los 12 pares y el filtro IA activo. Apaga filtro de temporalidad superior, breakeven/trailing/cierre parcial (las salidas son SL 2×ATR, TP 6×ATR o cruce contrario), régimen USD, volatilidad, estacionalidad, FOMC, rollover, bloqueos y trading por noticias y la revisión IA automática.",
+        "Mantiene las protecciones de capital: riesgo por operación, límite de pérdida diaria, máximo de posiciones, lote mínimo, exposición por divisa y cierre antes del fin de semana. Solo en paper: no se puede pasar a REAL con el laboratorio activo.",
+        "La tarjeta muestra en vivo operaciones, acierto, PnL, pips, profit factor, cierres por cruce contrario y motivos de cierre desde que lo activaste; Rendimiento → Por estrategia y el Historial completan la data.",
+        "Si tocas un ajuste a mano te avisa de que la data deja de ser pura. Al desactivarlo restaura ajustes, noticias y revisión automática; aplicar un perfil de riesgo también lo termina (el perfil manda y el resto vuelve a su valor anterior).",
+      ],
+    }] : []),
+    {
       icon: "TrendingUp", title: "Plan de crecimiento con chequeo real",
       text: "Convierte una meta de ingreso mensual en un camino por fases y comprueba cada mes si vas por delante o por detrás.",
       bullets: [
@@ -120,10 +141,12 @@ export function buildFeatures(bot) {
       ],
     },
     {
-      icon: "Landmark", title: fx ? "Modo REAL con HFM vía MetaApi" : "Modo REAL con Bybit",
-      text: fx ? "Vincula tu cuenta MT4/MT5 de HFM (demo o real) con un token de MetaApi: el bot la despliega, la verifica y opera igual que en paper. Eliges el tipo de infraestructura de MetaApi (Cloud G2 alta · recomendada y la más barata, G1 regular o G1 alta) viendo su coste por hora y por mes."
+      icon: "Landmark", title: pep ? "Modo REAL con Pepperstone vía MetaApi" : fx ? "Modo REAL con HFM vía MetaApi" : "Modo REAL con Bybit",
+      text: pep ? "Vincula tu cuenta MetaTrader 4/5 de Pepperstone (demo o real) con un token de MetaApi: el bot la despliega, la verifica y opera igual que en paper. Importante: MetaApi solo conecta cuentas MetaTrader; si abres la cuenta en cTrader el bot no podrá operarla en real (sí puedes seguirla en paper). Eliges el tipo de infraestructura de MetaApi (Cloud G2 alta · recomendada y la más barata, G1 regular o G1 alta) viendo su coste por hora y por mes."
+          : fx ? "Vincula tu cuenta MT4/MT5 de HFM (demo o real) con un token de MetaApi: el bot la despliega, la verifica y opera igual que en paper. Eliges el tipo de infraestructura de MetaApi (Cloud G2 alta · recomendada y la más barata, G1 regular o G1 alta) viendo su coste por hora y por mes."
                 : "Introduce una API key de Bybit (mainnet, testnet o demo) y el bot opera con órdenes a mercado con stop y objetivo adjuntos.",
       bullets: [
+        pep ? "Tipo de cuenta Pepperstone seleccionable en Ajustes: Razor (spread crudo + comisión de 7 USD por lote ida y vuelta, por defecto) o Standard (solo spread, sin comisión). El bot usa ese perfil de costes en paper, backtests, optimizador, plan Monte Carlo y para el PnL esperado; los símbolos van sin sufijo (EURUSD, XAUUSD) y el servidor es del tipo Pepperstone-Demo / Pepperstone-MT5-Live01." : null,
         "Lista de comprobación antes de cambiar de modo: credenciales verificadas, bot detenido, sin posiciones abiertas; confirmación escribiendo REAL y reinicio de estadísticas con la equidad real.",
         "Sincronización continua: marca, PnL, trailing enviado al bróker, detección de cierres hechos fuera del bot y de posiciones externas.",
         fx ? "Alerta de desconexión: si MetaApi pierde la conexión con HFM más de 180 s (configurable), banner rojo + Telegram, y el bot no abre nada hasta que vuelve."
@@ -133,7 +156,7 @@ export function buildFeatures(bot) {
     },
     {
       icon: "Send", title: "Telegram: el bot te cuenta todo",
-      text: "Siete tipos de aviso que activas por separado, con prueba de envío desde Ajustes.",
+      text: "Avisos que activas por separado (compartidos por los tres bots, cada uno con su prefijo), con prueba de envío desde Ajustes.",
       bullets: [
         "Entradas, salidas y límite diario · Decisiones de la IA sobre cada señal · Alertas de noticias graves · Avisos del plan (y depósitos).",
         "Resumen diario (00:00 UTC) y resumen semanal (domingos 20:00 UTC) con PnL, mejores y peores pares, valor del filtro IA, evolución y estado del plan.",
@@ -147,14 +170,15 @@ export function buildFeatures(bot) {
         "Acceso con clave única y sesión de 7 días; bloqueo tras 5 intentos fallidos por IP; cambiar la clave cierra las demás sesiones.",
         "API keys y contraseñas de bróker cifradas en la base de datos; nunca se muestran completas.",
         "Copia de seguridad completa cada noche (03:00 UTC) con 14 días de retención y envío por Telegram los domingos; crear, descargar y restaurar desde Ajustes (también desde un archivo de tu disco).",
-        "Kit de despliegue para VPS con Docker (instalación en un comando, HTTPS automático, crons y scripts de backup/actualización).",
+        "Kit de despliegue para VPS con Docker (instalación en un comando, HTTPS automático, crons y scripts de backup/actualización); el zip se genera al momento desde el código actual, con los tres bots y el chat IA expert.",
       ],
     },
     {
       icon: "Wallet", title: "Paper trading realista",
       text: "La cuenta de práctica no es un juguete: replica los costes y las reglas de la cuenta real.",
       bullets: [
-        fx ? "Spread medio de HFM aplicado a la entrada y la salida, lotes de 0,01, apalancamiento 1:N y conversión a USD de los pares cruzados."
+        pep ? "Spread y comisión según tu tipo de cuenta Pepperstone (Razor: spread crudo + 7 USD por lote ida y vuelta · Standard: solo spread) aplicados a la entrada y la salida, lotes de 0,01, apalancamiento 1:N y conversión a USD de los pares cruzados."
+           : fx ? "Spread medio de HFM aplicado a la entrada y la salida, lotes de 0,01, apalancamiento 1:N y conversión a USD de los pares cruzados."
            : "Comisión 0,055 % por lado, slippage 0,02 %, lotes y nocional mínimo de Bybit, apalancamiento aplicado al margen.",
         `Capital inicial configurable (por defecto $500 ${cur}), reinicio en un clic y botón Depositar / Retirar para simular los aportes mensuales de tu plan.`,
         "Todo lo que ves en paper (señales, IA, sombras, plan, evolución) funciona exactamente igual en REAL.",

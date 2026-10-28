@@ -11,7 +11,7 @@ export const REQUIREMENTS = [
 export const STEPS = [
   {
     id: "download", icon: "HardDriveDownload", title: "Descarga el paquete",
-    text: "Pulsa «Descargar ZIP» arriba. Obtendrás ai-trader-<versión>-<fecha>.zip con todo el código (backend, frontend y scripts de despliegue). No incluye tus claves, la base de datos ni las copias de seguridad.",
+    text: "Pulsa «Descargar ZIP» arriba. Obtendrás ai-trader-<versión>-<fecha>.zip con todo el código actual (los tres bots: Bybit, HotForex y Pepperstone; el chat IA expert; backend, frontend y scripts de despliegue). El paquete se genera en el momento desde el código que estás usando, así que siempre incluye los últimos cambios. No incluye tus claves, la base de datos ni las copias de seguridad.",
   },
   {
     id: "ssh", icon: "SquareTerminal", title: "Conéctate al VPS por SSH",
@@ -51,12 +51,12 @@ export const STEPS = [
   },
   {
     id: "first", icon: "ShieldCheck", title: "Primer acceso y configuración",
-    text: "Abre http://IP_DEL_VPS (o https://tu-dominio), introduce la contraseña y elige un bot. En Ajustes:",
+    text: "Abre http://IP_DEL_VPS (o https://tu-dominio), introduce la contraseña y elige un bot (Bybit, HotForex o Pepperstone). En Ajustes:",
     bullets: [
       "Seguridad → cambia la contraseña.",
       "Inteligencia artificial → Emergent (si pusiste la clave) o Google Gemini con tu API key · «Probar conexión».",
       "Telegram → token del bot + «Detectar chat ID» + «Enviar prueba».",
-      "Bybit · cuenta real / HotForex y Pepperstone (MetaApi) → solo cuando quieras pasar a REAL.",
+      "Bybit · cuenta real / HotForex y Pepperstone (MetaApi; cuentas MetaTrader 4/5, cTrader no es compatible) → solo cuando quieras pasar a REAL.",
       "Pulsa «Iniciar bot». Si el servidor se reinicia, los contenedores arrancan solos y el bot continúa donde estaba.",
     ],
   },
@@ -67,7 +67,7 @@ export const STEPS = [
   },
   {
     id: "update", icon: "RefreshCw", title: "Actualizar a una versión nueva",
-    text: "Descarga el zip nuevo aquí mismo, súbelo al VPS y ejecuta update-zip.sh: sustituye el código, conserva .env, backend.env, backups/ y la base de datos, y reconstruye los contenedores (2–10 min). Las posiciones abiertas no se tocan.",
+    text: "Descarga el zip nuevo aquí mismo, súbelo al VPS y ejecuta update-zip.sh: sustituye el código, conserva .env, backend.env, backups/ y la base de datos, y reconstruye los contenedores (2–10 min). Al arrancar, el backend aplica solo las migraciones necesarias (p. ej. deja apagada la nueva estrategia Cruce EMA 10/20 en tus ajustes). Las posiciones abiertas no se tocan.",
     code: [
       { where: "Tu ordenador", cmd: "scp ai-trader-*.zip root@IP_DEL_VPS:/root/" },
       { where: "VPS", cmd: "cd /root/ai-trader/deploy && bash update-zip.sh /root/ai-trader-NUEVO.zip" },

@@ -1,6 +1,6 @@
 # Instalar AI Trader en tu propio VPS · guía paso a paso
 
-Esta guía instala los dos bots (Bybit AI Trader y HotForex AI Trading) con su panel web en un servidor
+Esta guía instala los tres bots (Bybit AI Trader, HotForex AI Trading y Pepperstone AI trading) con su panel web en un servidor
 Linux propio usando Docker. Todo queda funcionando 24/7, con HTTPS automático si usas un dominio,
 copias de seguridad nocturnas y las tareas programadas (revisión IA, walk-forward semanal, resumen semanal).
 
@@ -13,7 +13,7 @@ La misma guía, con botones para copiar cada comando, está en el panel: botón 
 | Qué | Recomendación |
 |---|---|
 | VPS | Ubuntu 22.04 / 24.04 (o Debian 12) · 2 vCPU · 2–4 GB RAM (si hay menos de 3,5 GB el instalador crea 2 GB de swap) · 20 GB de disco |
-| Región | Si vas a operar en REAL con Bybit, el servidor NO puede estar en EE. UU. (Bybit bloquea su API). Funcionan bien Europa (Ámsterdam, Fráncfort) o Asia (Tokio, Singapur). HotForex/MetaApi no tiene esa restricción |
+| Región | Si vas a operar en REAL con Bybit, el servidor NO puede estar en EE. UU. (Bybit bloquea su API). Funcionan bien Europa (Ámsterdam, Fráncfort) o Asia (Tokio, Singapur). HotForex y Pepperstone (MetaApi) no tienen esa restricción |
 | Acceso | Usuario `root` (o con `sudo`) por SSH; puertos 22, 80 y 443 abiertos |
 | Dominio (opcional) | Un subdominio tipo `bot.midominio.com` apuntando a la IP del VPS → HTTPS automático (Let's Encrypt). Sin dominio el panel va por `http://IP` |
 | En tu ordenador | Un terminal con `ssh` y `scp` (Windows 10/11: PowerShell ya los trae; también sirven WinSCP o FileZilla para subir el zip) |
@@ -94,17 +94,17 @@ Para cambiar de IP a dominio después: edita `SITE_ADDRESS=` en `deploy/.env` y 
 ## 8. Primer acceso
 
 1. Abre `http://IP_DEL_VPS` (o `https://tu-dominio`) e introduce la contraseña.
-2. Elige un bot (Bybit o HotForex) y ve a **Ajustes**:
+2. Elige un bot (Bybit, HotForex o Pepperstone) y ve a **Ajustes**:
    - **Seguridad**: cambia la contraseña.
    - **Inteligencia artificial**: elige Emergent (si pusiste la clave) o Google Gemini con tu API key; pulsa «Probar conexión».
    - **Telegram**: token del bot + «Detectar chat ID» + «Enviar prueba».
-   - **Bybit · cuenta real** / **HotForex (MetaApi)**: solo cuando quieras pasar a REAL.
+   - **Bybit · cuenta real** / **HotForex y Pepperstone (MetaApi, cuentas MetaTrader; cTrader no es compatible)**: solo cuando quieras pasar a REAL.
 3. Pulsa **Iniciar bot**. Si el servidor se reinicia, los contenedores arrancan solos y el bot continúa donde estaba.
 
 ## 9. Traer tus datos desde el panel de desarrollo (opcional)
 
 1. En el panel de origen: Ajustes → Copias de seguridad → **Crear copia ahora** → **Descargar**.
-2. En el VPS: Ajustes → Copias de seguridad → **Restaurar desde archivo…** → elige el `.json.gz`, escribe `RESTAURAR`. Ambos bots deben estar detenidos.
+2. En el VPS: Ajustes → Copias de seguridad → **Restaurar desde archivo…** → elige el `.json.gz`, escribe `RESTAURAR`. Los tres bots deben estar detenidos.
 3. La contraseña del VPS se conserva. Las API keys (Bybit, MetaApi, Gemini, Telegram) van cifradas con la `CREDENTIAL_ENCRYPTION_KEY` de la instalación de origen,
    así que en el VPS tendrás que volver a introducirlas en Ajustes.
 
@@ -120,7 +120,7 @@ Para cambiar de IP a dominio después: edita `SITE_ADDRESS=` en `deploy/.env` y 
 | `bash restore.sh backups/<archivo>.json.gz` | restaurar una copia desde la terminal |
 | `bash reset-password.sh` | poner una contraseña nueva si la olvidaste |
 | `bash clean-disk.sh` | liberar espacio en disco (caché de compilación de Docker, imágenes huérfanas, journald); `--all` borra toda la caché |
-| `bash cron-ai-review.sh` | lanzar ahora la revisión IA de ambos bots |
+| `bash cron-ai-review.sh` | lanzar ahora la revisión IA de los tres bots |
 | `bash update-zip.sh /root/ai-trader-NUEVO.zip` | actualizar a una versión nueva (ver 11) |
 
 ## 11. Actualizar a una versión nueva
@@ -148,7 +148,7 @@ Para cambiar de IP a dominio después: edita `SITE_ADDRESS=` en `deploy/.env` y 
 | «port is already allocated» al arrancar | Otro servicio usa el puerto 80/443 (Apache/Nginx). Desinstálalo o páralo: `systemctl disable --now apache2 nginx` |
 | Mongo se reinicia en bucle | La CPU no soporta AVX; el instalador elige `mongo:4.4` automáticamente. Si lo cambiaste a mano, vuelve a `MONGO_IMAGE=mongo:4.4` en `deploy/.env` |
 | Bybit «403» o «región no permitida» | El VPS está en una región bloqueada por Bybit (p. ej. EE. UU.). En paper el bot usa Bitget como espejo de precios; para REAL necesitas otra región |
-| Yahoo Finance «429 Too Many Requests» (HotForex) | Es un límite temporal de Yahoo; el bot reintenta solo. No requiere acción |
+| Yahoo Finance «429 Too Many Requests» (HotForex / Pepperstone) | Es un límite temporal de Yahoo; el bot reintenta solo. No requiere acción |
 | Olvidé la contraseña | `bash reset-password.sh` en `deploy/` |
 | Quiero empezar de cero | `docker compose down -v` borra también la base de datos (¡y las claves guardadas!). Luego `docker compose up -d` |
 | Poco espacio en disco | `bash clean-disk.sh` (caché de compilación de Docker, imágenes antiguas, journald). Para ver qué ocupa: `docker system df` y `df -h /` |

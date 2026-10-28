@@ -1,15 +1,16 @@
-// "Cómo usar" step-by-step guides for both bots. `bot` = "crypto" | "fx".
+// "Cómo usar" step-by-step guides for the three bots. `bot` = "crypto" | "fx" | "pepper".
 export function buildHowTo(bot) {
-  const fx = bot === "fx";
+  const fx = bot === "fx" || bot === "pepper";
+  const pep = bot === "pepper";
   const cur = fx ? "USD" : "USDT";
-  const brokerName = fx ? "HFM (MetaApi)" : "Bybit";
+  const brokerName = pep ? "Pepperstone (MetaApi)" : fx ? "HFM (MetaApi)" : "Bybit";
   return [
     {
       id: "inicio", icon: "Compass", title: "1 · Primeros pasos y recorrido por el panel",
       steps: [
         "Entra con la clave del panel (una sola clave compartida, sin usuario). La sesión dura 7 días; con «Cerrar sesión» (icono de salida en la cabecera) la cierras antes.",
         "En la pantalla inicial eliges el bot: Bybit AI Trader (cripto), HotForex AI Trading (forex) o Pepperstone AI trading (forex, misma estrategia con los costes de Pepperstone). Cada tarjeta muestra en vivo si el bot está activo, su modo (PAPER/REAL), la equidad y el retorno. «Cambiar bot» en la cabecera te devuelve aquí.",
-        "Cabecera: badge de modo (Paper trading / Modo REAL), origen de los datos, cuenta atrás del próximo análisis, estado del bot, botones Escanear, Reiniciar (cuenta paper), Iniciar/Detener, Ajustes, Documentación y Cambiar bot.",
+        "Cabecera: badge de modo (Paper trading / Modo REAL), origen de los datos, cuenta atrás del próximo análisis, estado del bot, botones Escanear, Reiniciar (cuenta paper), Iniciar/Detener, Ajustes, Documentación, Instalar en tu VPS, Chatea con IA expert (negro y dorado) y Cambiar bot.",
         "Fila de KPIs: Balance, Equidad (con retorno total y aportes), PnL no realizado, PnL diario, tasa de acierto, operaciones y drawdown máximo. Pasa el ratón por encima para ver cómo se calcula cada uno.",
         "Columna izquierda: Mercado en vivo (precio, cambio 24 h, RSI, sesgo" + (fx ? " y sesiones abiertas" : " y chip de funding") + "). Centro: gráfico de velas con EMAs, RSI, volumen y marcadores de operaciones (haz clic en un par para cambiarlo). Arrastra hacia la izquierda para cargar velas antiguas sin límite (como en MetaTrader), elige 1m–1D, apaga/enciende cada indicador con sus chips, amplía a pantalla completa (Esc para salir) y mira el eje de tiempo en tu hora local. Derecha: Plan de trading (perfil, estrategias activas, riesgo, curva de equidad) y Evaluación IA.",
         "Pestañas inferiores: Posiciones, Historial, Backtest, Rendimiento, Optimizador, Noticias" + (fx ? " y agenda" : "") + ", Plan de crecimiento y Evolución. Debajo, el Terminal con el registro completo del bot, coloreado por nivel (ORDER, AI, RISK, NEWS, PLAN, ERROR…) y con botón para limpiarlo.",
@@ -30,6 +31,7 @@ export function buildHowTo(bot) {
       id: "estrategia", icon: "SlidersHorizontal", title: "3 · Configurar estrategia, riesgo y perfil",
       steps: [
         "Pestaña «Estrategia y riesgo» (dentro del panel): pares a vigilar, temporalidad (" + (fx ? "5m/15m/1h/4h" : "1m/5m/15m/1h/4h") + "), estrategias encendidas (chips), criterios de entrada (Estrictos/Relajados/Mínimos), filtro de temporalidad superior, filtro de IA y su confianza mínima.",
+        "La estrategia «Cruce EMA 10/20» viene apagada en los tres bots y en todos los perfiles: enciéndela con su chip (o en Rendimiento → Por estrategia) cuando quieras probarla. Entra al cruce de la EMA10 sobre/bajo la EMA20 al cierre de vela con el precio a favor de la EMA200 y ADX>20 (relajados: >15; mínimos: EMA50 sin ADX), stop 2×ATR, objetivo lejano 6×ATR y cierra sola cuando las EMAs se cruzan al revés (motivo CRUCE). Si el trailing está activo puede cerrarla antes.",
         `Riesgo: % por operación, posiciones máximas, apalancamiento (${fx ? "1:N" : "Nx"}), límite de pérdida diaria (%) e intervalo de escaneo. Si escribes un valor fuera de rango el panel lo recorta y te avisa.`,
         fx ? "Solo forex: «Riesgo máx. lote mínimo (%)» permite abrir con 0,01 lotes aunque el riesgo real supere tu % si no pasa de ese tope (imprescindible con poco capital en oro/plata); «Cerrar antes del fin de semana»; y «Sesiones para abrir posiciones» (vacío = todas)."
            : "El filtro de funding (Ajustes → Filtro de funding) y el agente de noticias complementan estos ajustes sin tocar la estrategia.",
@@ -109,7 +111,8 @@ export function buildHowTo(bot) {
         "Telegram: crea un bot con @BotFather y pega el token; escribe un mensaje a tu bot y pulsa «Detectar chat ID»; activa los avisos que quieras y envía una prueba. Tarjeta «Resumen semanal»: vista previa y «Enviar ahora».",
         "Revisión IA automática: activar, frecuencia (diaria/semanal + día), aplicar cambios o solo avisar, «Ejecutar ahora» y última revisión con resumen y cambios.",
         "Agente de noticias" + (fx ? "" : " y Filtro de funding") + ": intervalos, ventanas de bloqueo, factores de tamaño" + (fx ? " y trading por noticias." : " y umbrales ALTO/EXTREMO."),
-        fx ? "HotForex · cuenta real: token de MetaApi, login, contraseña master, servidor, plataforma MT4/MT5, región, tipo de cuenta HFM · sufijo de símbolos (autodetectado al probar la conexión) y endpoint avanzado; tipo de cuenta MetaApi con su coste (Cloud G2 alta · recomendada, G1 regular, G1 alta) y «Recrear con el nuevo tipo» si la cuenta ya existe con otro; Vincular, Probar conexión, Comprobar símbolos, Redesplegar y Quitar; aviso de desconexión (segundos); «Cambiar de cuenta · re-basar capital» para pasar de la demo a dinero real sin perder historial."
+        pep ? "Pepperstone · cuenta real: token de MetaApi, login, contraseña master, servidor (lista de servidores habituales: Pepperstone-Demo, Pepperstone-MT5-Live01…), plataforma MT4/MT5 (cTrader no es compatible con MetaApi), región, sufijo de símbolos (en Pepperstone vacío) y «Tipo de cuenta Pepperstone · costes» (Razor: spread crudo + 7 USD/lote · Standard: solo spread) que el bot usa en paper, backtests y plan; tipo de cuenta MetaApi con su coste y «Recrear con el nuevo tipo»; Vincular, Probar conexión, Comprobar símbolos, Redesplegar y Quitar; aviso de desconexión; «Cambiar de cuenta · re-basar capital»."
+           : fx ? "HotForex · cuenta real: token de MetaApi, login, contraseña master, servidor, plataforma MT4/MT5, región, tipo de cuenta HFM · sufijo de símbolos (autodetectado al probar la conexión) y endpoint avanzado; tipo de cuenta MetaApi con su coste (Cloud G2 alta · recomendada, G1 regular, G1 alta) y «Recrear con el nuevo tipo» si la cuenta ya existe con otro; Vincular, Probar conexión, Comprobar símbolos, Redesplegar y Quitar; aviso de desconexión (segundos); «Cambiar de cuenta · re-basar capital» para pasar de la demo a dinero real sin perder historial."
            : "Bybit · cuenta real: entorno (mainnet/testnet/demo), API key y secret, endpoint avanzado y aviso de desconexión (segundos), Probar conexión (equidad, disponible, posiciones, desfase horario) y Quitar.",
         "Modo de operación: lista de comprobación y botón «Pasar a modo REAL» / «Volver a paper».",
         `Cuenta paper: capital inicial, aportes netos, equidad y operaciones; «Depositar / Retirar» para simular aportes; «Reiniciar con este capital» (borra operaciones, señales, sombras y movimientos; también disponible desde la cabecera con $500 ${cur}).`,
@@ -118,7 +121,15 @@ export function buildHowTo(bot) {
     },
     {
       id: "real", icon: "Landmark", title: `12 · Pasar a modo REAL con ${brokerName}`,
-      steps: fx ? [
+      steps: pep ? [
+        "Abre tu cuenta en Pepperstone eligiendo la plataforma MetaTrader 5 (o MT4), no cTrader: MetaApi, el puente que usa el bot, solo conecta cuentas MetaTrader. Elige el tipo de cuenta (Razor con comisión o Standard solo spread) y selecciónalo igual en Ajustes → Pepperstone para que los costes del bot coincidan.",
+        "Crea una cuenta en MetaApi.cloud y copia tu token (API access token). En Pepperstone necesitas el login, la contraseña MASTER (no la de inversor) y el nombre exacto del servidor (p. ej. Pepperstone-Demo o Pepperstone-MT5-Live01; el campo te sugiere los habituales).",
+        "Ajustes → Pepperstone · cuenta real: pega token, login, contraseña, servidor, plataforma y región; «Guardar» y luego «Vincular cuenta» (el bot la crea/despliega en MetaApi; tarda 1–3 min la primera vez).",
+        "«Probar conexión» debe mostrar equidad, moneda, apalancamiento y «trading permitido». En Pepperstone los símbolos no llevan sufijo; «Comprobar símbolos» verifica que los 12 pares cotizan y son operables en tu cuenta.",
+        "Modo de operación: cumple la lista (cuenta vinculada y verificada, trading permitido, bot detenido, sin posiciones, modo laboratorio desactivado; se recomienda haber superado la Fase 0 del plan), escribe REAL y confirma. Las estadísticas se reinician con la equidad real.",
+        "Inicia el bot. A partir de ahora las órdenes, el PnL y la equidad vienen de Pepperstone; las señales se siguen calculando con velas de Yahoo. Si la conexión cae más del tiempo configurado te avisará y no abrirá nada hasta recuperarse.",
+        "Para volver a paper: detén el bot, cierra posiciones y pulsa «Volver a paper» (la cuenta paper vuelve a $500).",
+      ] : fx ? [
         "Crea una cuenta en MetaApi.cloud y copia tu token (API access token). En HFM necesitas el login, la contraseña MASTER (no la de inversor: con ella el bot solo podría leer) y el nombre exacto del servidor (p. ej. HFMarketsGlobal-Demo).",
         "Ajustes → HotForex · cuenta real: pega token, login, contraseña, servidor, plataforma y región; «Guardar» y luego «Vincular cuenta» (el bot la crea/despliega en MetaApi; tarda 1–3 min la primera vez).",
         "«Probar conexión» debe mostrar equidad, moneda, apalancamiento y «trading permitido». Al probar la conexión el bot detecta el sufijo de símbolos de tu tipo de cuenta HFM (Premium sin sufijo, Zero «b», Pro «r», Cent «c», InfinityX «x») y lo aplica; «Comprobar símbolos» verifica que tus pares cotizan Y son operables en el bróker (un par de otro tipo de cuenta cotiza pero HFM responde «Trade is disabled»).",
@@ -137,11 +148,30 @@ export function buildHowTo(bot) {
     {
       id: "vps", icon: "Server", title: "13 · Ejecutarlo en tu propio servidor (VPS)",
       steps: [
-        "Pulsa el botón «Instalar en tu VPS» de la cabecera: descarga un zip con la app completa (sin tus claves ni datos) y sigue la guía detallada con los comandos listos para copiar. La misma guía viaja dentro del zip en deploy/INSTALACION.md.",
+        "Pulsa el botón «Instalar en tu VPS» de la cabecera: descarga un zip con la app completa y actual (los tres bots, el chat IA expert y todas las estrategias; sin tus claves ni datos) y sigue la guía detallada con los comandos listos para copiar. La misma guía viaja dentro del zip en deploy/INSTALACION.md.",
         "Carpeta deploy/: `install.sh` instala Docker, genera secretos y contraseña, construye los contenedores (Mongo + backend + web con HTTPS automático si usas dominio) y programa los crons: revisión IA 08:00 UTC, walk-forward lunes 07:00, resumen semanal domingos 20:00 y copia de seguridad 03:00.",
         "`update-zip.sh archivo.zip` actualiza a una versión nueva descargada del panel (conserva claves, copias y base de datos); `backup.sh` crea una copia ahora (`--telegram` para enviarla); `restore.sh archivo.json.gz` restaura una copia; `reset-password.sh` cambia la contraseña si la olvidas; `clean-disk.sh` libera espacio (caché de compilación de Docker, imágenes huérfanas, journald).",
         "Las copias se guardan en deploy/backups/ (14 días) y también puedes descargarlas desde Ajustes → Copias de seguridad. Guarda a buen recaudo la CREDENTIAL_ENCRYPTION_KEY de backend.env: sin ella no se pueden leer las API keys de una copia.",
       ],
     },
+    {
+      id: "chat", icon: "MessageSquare", title: "14 · Chatea con IA expert",
+      steps: [
+        "Pulsa el botón negro y dorado «Chatea con IA expert» de la cabecera (en cualquiera de los tres bots): se abre un panel lateral con un experto en trading y gestión de riesgo que ve en vivo tus bots.",
+        "Pregúntale lo que quieras: «¿por qué no ha abierto hoy?», «revisa el rendimiento de Pepperstone», «¿qué hace exactamente el filtro de rollover?» (puede leer el código, solo lectura), «¿subo el riesgo al 1,5 %?». El chip de arriba indica desde qué panel hablas; la conversación es una sola y compartida.",
+        "Si propone cambiar un ajuste o ejecutar una acción, aparece una tarjeta con el detalle (antes → después, bot afectado) y los botones Aplicar / Descartar. Nada se ejecuta hasta que pulsas Aplicar; en modo REAL la tarjeta muestra un aviso adicional y pasa por las mismas comprobaciones que el panel.",
+        "No puede tocar claves, contraseñas, el modo paper/real, el reinicio de cuentas ni el código. Usa el proveedor y modelo de Ajustes → IA (si configuras Gemini, el chat también usa Gemini).",
+        "Memoria: a partir de 40 mensajes resume lo anterior y conserva los 10 últimos; recuerda tus preferencias a largo plazo. «Nueva conversación» (con confirmación) borra el hilo; la memoria a largo plazo se mantiene.",
+      ],
+    },
+    ...(pep ? [{
+      id: "lab", icon: "FlaskConical", title: "15 · Modo laboratorio (solo Pepperstone)",
+      steps: [
+        "Bajo la fila de KPIs del panel Pepperstone está la tarjeta «Modo laboratorio · solo Cruce EMA 10/20». Pulsa «Activar laboratorio» y confirma: tus ajustes se guardan y se aplica el preset (solo esa estrategia, 15 m, criterios relajados, 12 pares, filtro IA activo; apagados TF superior, trailing/parcial, filtros de mercado, noticias y revisión IA automática).",
+        "Inicia el bot y deja que recoja data: la tarjeta muestra operaciones, acierto, PnL, pips, profit factor, cierres por cruce contrario y los motivos de cierre desde que lo activaste. Rendimiento → Por estrategia y el Historial tienen el detalle.",
+        "No cambies ajustes a mano mientras dure la prueba: si lo haces, la tarjeta avisa de que la data deja de ser «solo Cruce EMA 10/20». Tampoco puedes pasar a REAL ni deshacer eventos de Evolución con el laboratorio activo.",
+        "Para terminar pulsa «Desactivar y restaurar ajustes»: vuelve todo (ajustes, noticias, revisión automática) a como estaba y envía por Telegram el resumen de la data recogida. Aplicar un perfil de riesgo también lo termina: el perfil define sus ajustes y el resto vuelve al valor anterior.",
+      ],
+    }] : []),
   ];
 }

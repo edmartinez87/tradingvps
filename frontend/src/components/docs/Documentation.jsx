@@ -26,7 +26,7 @@ const PEP_SWAPS = [
 ];
 const rebrand = (node, bot) => {
   if (bot !== "pepper") return node;
-  if (typeof node === "string") return PEP_SWAPS.reduce((s, [a, b]) => s.split(a).join(b), node);
+  if (typeof node === "string") return node.includes("Pepperstone") ? node : PEP_SWAPS.reduce((s, [a, b]) => s.split(a).join(b), node);  // pepper-aware strings are left as written
   if (Array.isArray(node)) return node.map((n) => rebrand(n, bot));
   if (node && typeof node === "object") return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, rebrand(v, bot)]));
   return node;
@@ -134,10 +134,9 @@ function Faq({ data, brand }) {
 
 export default function Documentation({ bot = "crypto", onBack }) {
   const brand = BRAND[bot];
-  const src = bot === "pepper" ? "fx" : bot;
-  const features = useMemo(() => rebrand(buildFeatures(src), bot), [src, bot]);
-  const howto = useMemo(() => rebrand(buildHowTo(src), bot), [src, bot]);
-  const faq = useMemo(() => rebrand(buildFaq(src), bot), [src, bot]);
+  const features = useMemo(() => rebrand(buildFeatures(bot), bot), [bot]);
+  const howto = useMemo(() => rebrand(buildHowTo(bot), bot), [bot]);
+  const faq = useMemo(() => rebrand(buildFaq(bot), bot), [bot]);
   return (
     <div data-testid="documentation-view" className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
