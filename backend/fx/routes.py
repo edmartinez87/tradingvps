@@ -27,7 +27,7 @@ from fx.market import TF_SECONDS, market_status, SESSIONS
 from fx.engine import FX_STRATEGY_INFO
 from fx.profiles import PROFILES, detect_profile, profile_patch
 from fx import review as fx_review
-from fx import routes_analysis, routes_hfm
+from fx import routes_analysis, routes_hfm, lab
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,10 @@ def register(router, engine, store, news):
         settings = await engine.get_settings()
         p = PROFILES[req.level]
         before = PROFILES[settings.risk_profile]["name"] if detect_profile(settings) is not None else "Personalizado"
-        s = await engine.update_settings(profile_patch(req.level), "profile", f"Perfil de riesgo aplicado: {PROFILES[req.level]['name']}")
+        extra = await lab.end_by_profile(engine, store)
+        if extra:
+            await engine.log("INFO", "Modo laboratorio finalizado al aplicar un perfil de riesgo · estrategia, noticias y revisión IA automática vuelven a su valor anterior; el perfil define el resto")
+        s = await engine.update_settings({**profile_patch(req.level), **extra}, "profile", f"Perfil de riesgo aplicado: {PROFILES[req.level]['name']}")
         st = p["settings"]
         await engine.log("INFO", f"Perfil de riesgo: {before} → {p['name']} · {len(st['symbols'])} pares · {st['timeframe']} · riesgo {st['risk_per_trade']}% · 1:{st['leverage']}")
         await engine.tg(
@@ -87,9 +90,21 @@ def register(router, engine, store, news):
                               **engine.analysis.get(sym, {})})
         return {"status": _status(), "settings": settings.model_dump(), "account": await engine.account_summary(), "positions": positions, "trades": trades,
                 "signals": signals, "logs": logs, "watchlist": watchlist, "equity": await _equity_curve(), "profile_active": detect_profile(settings), "news": news.summary(),
-                "checkin": await engine.checkin(settings), "optimize_job": {k: engine.review_job[k] for k in ("status", "step")},
+                "checkin": await engine.checkin(settings), "optimize_job": {k: engine.review_job[k] for k in ("status", "step")}, "lab": await lab.state(engine, settings),
                 "hfm": {"configured": store.public()["hfm_configured"], "state": store.cfg.hfm_state, "connection": store.cfg.hfm_connection,
                         "verified_at": store.cfg.hfm_verified_at, "trade_allowed": store.cfg.hfm_trade_allowed, "live": engine.live}}
+
+    @router.get("/lab")
+    async def lab_state():
+        return await lab.state(engine)
+
+    @router.post("/lab/{action}")
+    async def lab_toggle(action: str):
+        if action not in ("start", "stop"):
+            raise HTTPException(404, "Acción no válida")
+        if action == "start" and engine.live:
+            raise HTTPException(409, "El modo laboratorio solo se activa en paper trading")
+        return await (lab.start if action == "start" else lab.stop)(engine, store)
 
     CHART_TIMEFRAMES = FX_TIMEFRAMES + ["1d"]
 

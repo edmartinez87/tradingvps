@@ -29,6 +29,7 @@ import FxFiltersPanel from "./FxFiltersPanel";
 import Documentation from "@/components/docs/Documentation";
 import VpsInstall from "@/components/deploy/VpsInstall";
 import { BRANDS, BrandContext } from "./brand";
+import LabModeCard from "./LabModeCard";
 
 const TAB_CLS = "rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider data-[state=active]:bg-amber-500 data-[state=active]:text-[#07090E]";
 const FX_TFS = ["5m", "15m", "1h", "4h", "1d"];
@@ -148,6 +149,7 @@ export default function FxDashboard({ onLogout, bot = "fx" }) {
         )}
         <SessionsStrip hours={data.status.market_hours} allowed={data.settings.sessions_allowed} />
         <KpiStrip account={data.account} />
+        {brand.lab && <LabModeCard lab={data.lab} onStart={() => act(() => http.post("/lab/start"), "Modo laboratorio activado · solo Cruce EMA 10/20")} onStop={() => act(() => http.post("/lab/stop"), "Laboratorio desactivado · ajustes restaurados")} />}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <Watchlist items={data.watchlist} selected={symbol} onSelect={setSymbol} />
           <PriceChart symbol={symbol} defaultTf={data.settings.timeframe} kind={meta?.symbol_info?.[symbol]?.name || "Forex"} tfs={FX_TFS} />
