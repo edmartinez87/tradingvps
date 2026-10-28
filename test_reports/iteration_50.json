@@ -1,0 +1,18 @@
+{
+  "summary": "Verified fix for the duplicated Yahoo forming bar (unaligned O=H=L=C candles at the chart's right edge). Backend: 35 new tests plus the 10 existing iter60 tests pass (45/45). They cover /api/pepper and /api/fx klines for USDJPY/XAUUSD/EURUSD on 5m/15m/1h/4h: all timestamps unique, sorted, aligned to the timeframe and spaced at least one step apart; the last candle is the current bucket. Polling 3 times 10 s apart added no new timestamps. 'before' pages are aligned and join cleanly. Dashboards return the watchlist with price and RSI, bot/scan returns 200 and the pepper backtest (USDJPY ema_cross 15m) returns 200. Frontend: on /pepperstone USDJPY 15m we watched 40 s of polls (5 klines responses). Every timestamp was aligned to 900 s, the label stayed at '300 velas' and the right edge shows regular 15-min labels with no flat cluster. On /hotforex we switched 5m/1h/4h/15m and waited 35 s zoomed into the right edge, which was clean. Scrolling left loaded 2 'before' pages (1300 velas); the merged set had 0 unaligned times and minimum spacing 900, with only weekend gaps. Bybit chart renders (Bitget source). No console errors. Bots left stopped.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter50_fx_candle_alignment.py", "/app/backend/tests/test_iter60_yahoo_candles.py", "/app/test_reports/pytest/iter50.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "fx/market.py: _normalize and _aggregate are near-identical (only volume max vs sum differs); could share one helper with a volume reducer argument.",
+    "fx/routes.py _chart_rows: the MetaTrader/'hfm' candle source (when hfm_state == DEPLOYED) bypasses _normalize. That is fine if MT5 bars are always aligned, but it is not covered by these tests.",
+    "Observed (not a bug): Yahoo sometimes returns the forming bucket row as None plus a trade-time-stamped row; _rows drops the None row and _normalize snaps the trailing row into the correct bucket. EURUSD 5m occasionally has a genuine aligned single-tick flat bar, which is real Yahoo data, not the old bug."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter50_fx_candle_alignment.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=... pytest tests/test_iter50_fx_candle_alignment.py tests/test_iter60_yahoo_candles.py -n 0 (about 60 s, includes a 20 s polling test). The chart is canvas-based (lightweight-charts), so the UI check works by intercepting /klines responses plus screenshots. Password BlackCat2233@."
+}
