@@ -1,0 +1,19 @@
+{
+  "summary": "Iteration 51: tested chat code tools (virtual paths), Signal.ai_min_confidence and the new AI gate signal card. Unit tests 13/13 pass. A real chat message ran search_code+read_code, finished in about 10 s, cited /app/backend/fx/engine_signals.py line 206 (the approve line; 205 stores the minimum) and said ai_risk does not decide. Tool chips were shown in the UI. All three dashboards return ai_min_confidence on every signal and settings.ai_min_confidence=60 as an int. The DB had no APROBADA/RECHAZADA signals, so I inserted 4 TEST_ docs into pep_signals and deleted them afterwards. The UI checks on /pepperstone all passed: below-min APROBADA shows the amber 'APROBADA · BAJO MÍNIMO' badge with the gate tooltip, 'CONFIANZA IA 58% (mín. 60%)' with an amber bar and a marker, and a separate 'RIESGO MEDIO'. Executed APROBADA 75% keeps the green badge and the 'Ejecutada' chip. RECHAZADA 40% shows the confidence row with RIESGO ALTO. SIN_IA and VOLATILIDAD show no gate row, and SIN_IA executed still shows 'Ejecutada'. FAQ and knowledge.md mention «Aprobada · bajo mínimo» and that risk is informative. /hotforex, /bybit and /pepperstone load, the chat panel opens, and there were 0 console errors. Bots stayed stopped and settings were not changed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [
+    {"screen": "Chat answer", "issues": ["The LLM put typographic quotes (“APROBADA”) inside a python code block. Cosmetic only, caused by the model."]}
+  ]},
+  "test_report_links": ["/app/backend/tests/test_iter61_code_tools_ai_gate.py", "/app/backend/tests/seed_iter51_signals.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "code_reader._resolve: after os.path.realpath it does not check that the real path is still inside real_root(), so a symlink inside an allowed root could point outside it. Low risk (read-only, own repo). Consider adding a commonpath check.",
+    "The rendering for an RECHAZADA signal with ai_min_confidence null (old signals) falls back to the current settings minimum. That is acceptable, but the minimum shown may differ from the one in force at evaluation time."
+  ],
+  "updated_files": ["/app/backend/tests/seed_iter51_signals.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "4 TEST_ docs inserted into pep_signals (python tests/seed_iter51_signals.py seed) and removed (clean). Note: Signal.note must be a string; null makes /api/pepper/dashboard return 500 (only my seed data hit this, the engine always writes a string).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use tests/seed_iter51_signals.py seed|clean to create APROBADA-below-min, APROBADA-executed, RECHAZADA and SIN_IA cards on /pepperstone. Card testids use the Mongo _id (not the doc 'id' field). The chat session now contains 2 messages from this test."
+}

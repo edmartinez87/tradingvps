@@ -47,6 +47,9 @@ def _resolve(path: str) -> tuple:
     if not _allowed(virtual):
         raise ValueError(f"Ruta no permitida: {path}. Zonas accesibles: {', '.join(ROOTS)} (nunca .env, backups ni node_modules)")
     real = os.path.realpath(_to_real(virtual))
+    root = os.path.realpath(real_root())
+    if os.path.commonpath([real, root]) != root:  # a symlink inside an allowed root must not escape the source tree
+        raise ValueError(f"Ruta no permitida: {path} apunta fuera del código del proyecto")
     if not os.path.exists(real):
         raise ValueError(f"No existe {virtual} (código en {real_root()}). Usa list_code sobre {', '.join(ROOTS[:3])} para ver qué hay.")
     return virtual, real
