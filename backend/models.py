@@ -280,6 +280,7 @@ class Signal(BaseDocument):
     indicators: Dict[str, Any]
     ai_decision: str
     ai_confidence: int = 0
+    ai_min_confidence: Optional[int] = None  # threshold in force when the AI evaluated it (the card shows «58 % (mín. 60 %)»)
     ai_risk: str = "-"
     ai_reasoning: str = ""
     executed: bool = False

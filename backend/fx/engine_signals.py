@@ -202,7 +202,8 @@ class SignalsMixin:
             try:
                 res = await evaluate_signal(symbol, settings.timeframe, sig, ctx, self.profile.ai_kind)
                 signal.ai_decision, signal.ai_confidence, signal.ai_risk, signal.ai_reasoning = res["decision"], res["confidence"], res["risk"], res["reasoning"]
-                approve = res["decision"] == "APROBADA" and res["confidence"] >= settings.ai_min_confidence
+                signal.ai_min_confidence = settings.ai_min_confidence
+                approve = res["decision"] == "APROBADA" and res["confidence"] >= settings.ai_min_confidence  # risk is informative only
                 if res["decision"] == "APROBADA" and not approve:
                     signal.note = f"Confianza {res['confidence']}% menor al mínimo ({settings.ai_min_confidence}%)"
                     shadow_kind = "BAJA_CONFIANZA"

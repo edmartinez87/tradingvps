@@ -22,7 +22,13 @@ const DECISION_CLS = {
   FOMC: "bg-red-500/10 text-red-300 border-red-500/30",
 };
 
-function SignalCard({ s }) {
+const NO_AI_BAR = ["SIN_IA", "ERROR", "BLOQUEADA", "NOTICIAS", "FUNDING", "MERCADO", "SESION", "REGIMEN", "ROTACION", "EXPOSICION", "ROLLOVER", "VOLATILIDAD", "ESTACIONAL", "REGIMEN_USD", "FOMC"];
+const RISK_CLS = { BAJO: "text-emerald-400", MEDIO: "text-amber-300", ALTO: "text-rose-400" };
+const GATE_TIP = "Se ejecuta solo si la IA aprueba y la confianza ≥ mínimo (Ajustes → confianza mínima). El riesgo es informativo: no decide la ejecución.";
+
+function SignalCard({ s, minConfidence }) {
+  const min = s.ai_min_confidence ?? minConfidence;
+  const belowMin = s.ai_decision === "APROBADA" && !s.executed && Number.isInteger(min) && s.ai_confidence < min;
   return (
     <article data-testid={`ai-signal-${s.id}`} className="border-b border-[#1E293B]/70 px-4 py-3.5">
       <div className="flex items-center justify-between gap-2">
@@ -31,20 +37,27 @@ function SignalCard({ s }) {
           <SideBadge side={s.side} />
           <span className="font-mono text-[10px] text-slate-500">{s.timeframe}</span>
         </div>
-        <span data-testid={`ai-decision-${s.id}`} className={`rounded-sm border px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${DECISION_CLS[s.ai_decision]}`}>
-          {s.ai_decision === "SIN_IA" ? "Sin IA" : s.ai_decision === "SESION" ? "Sesión" : s.ai_decision}
+        <span data-testid={`ai-decision-${s.id}`} title={belowMin ? GATE_TIP : undefined}
+          className={`rounded-sm border px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${belowMin ? DECISION_CLS.BLOQUEADA : DECISION_CLS[s.ai_decision]}`}>
+          {s.ai_decision === "SIN_IA" ? "Sin IA" : s.ai_decision === "SESION" ? "Sesión" : belowMin ? "Aprobada · bajo mínimo" : s.ai_decision}
         </span>
       </div>
       <p className="mt-1 font-mono text-[10px] text-slate-500">
         {STRATEGY_LABELS[s.strategy]} · {fmtPrice(s.price)} · SL {fmtPrice(s.sl)} · TP {fmtPrice(s.tp)} · {fmtTime(s.created_at)}
       </p>
-      {!["SIN_IA", "ERROR", "BLOQUEADA", "NOTICIAS", "FUNDING", "MERCADO", "SESION", "REGIMEN", "ROTACION", "EXPOSICION", "ROLLOVER", "VOLATILIDAD", "ESTACIONAL", "REGIMEN_USD", "FOMC"].includes(s.ai_decision) && (
-        <div className="mt-2 flex items-center gap-2">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#1E293B]">
-            <div className="h-full bg-purple-500" style={{ width: `${s.ai_confidence}%` }} />
-          </div>
-          <span className="num text-[10px] text-purple-300">{s.ai_confidence}%</span>
-          <span className="font-mono text-[10px] uppercase text-slate-400">Riesgo {s.ai_risk}</span>
+      {!NO_AI_BAR.includes(s.ai_decision) && (
+        <div data-testid={`ai-gate-${s.id}`} title={GATE_TIP} className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px]">
+          <span className="flex min-w-[180px] flex-1 items-center gap-2">
+            <span className="uppercase tracking-wider text-slate-500">Confianza IA</span>
+            <span className="relative h-1 flex-1 overflow-hidden rounded-full bg-[#1E293B]">
+              <span className={`absolute inset-y-0 left-0 ${belowMin ? "bg-amber-400" : "bg-purple-500"}`} style={{ width: `${s.ai_confidence}%` }} />
+              {Number.isInteger(min) && <span className="absolute inset-y-0 w-px bg-slate-200/70" style={{ left: `${min}%` }} />}
+            </span>
+            <span data-testid={`ai-confidence-${s.id}`} className={`num ${belowMin ? "text-amber-300" : "text-purple-300"}`}>
+              {s.ai_confidence}%{Number.isInteger(min) && <span className="text-slate-500"> (mín. {min}%)</span>}
+            </span>
+          </span>
+          <span data-testid={`ai-risk-${s.id}`} className="uppercase tracking-wider text-slate-500">Riesgo <span className={RISK_CLS[s.ai_risk] || "text-slate-300"}>{s.ai_risk}</span></span>
         </div>
       )}
       {s.ai_reasoning && <p className="mt-2 text-[12px] leading-relaxed text-slate-300">{s.ai_reasoning}</p>}
@@ -74,11 +87,11 @@ const UsageChip = ({ usage, ai }) => {
   );
 };
 
-export default function AiSignals({ signals, ai, usage }) {
+export default function AiSignals({ signals, ai, usage, minConfidence }) {
   return (
     <Panel testId="ai-signals-panel" title="Evaluación IA" icon={Sparkles} className="lg:col-span-4" bodyClass="max-h-[480px] overflow-y-auto thin-scroll" delay={260}
       actions={<UsageChip usage={usage} ai={ai} />}>
-      {signals.length ? signals.map((s) => <SignalCard key={s.id} s={s} />) : (
+      {signals.length ? signals.map((s) => <SignalCard key={s.id} s={s} minConfidence={minConfidence} />) : (
         <Empty testId="ai-signals-empty" text="Cuando el bot detecte una señal, la IA la evaluará aquí con su razonamiento." />
       )}
     </Panel>
